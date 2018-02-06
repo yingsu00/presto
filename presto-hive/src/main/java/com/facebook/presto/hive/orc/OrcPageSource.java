@@ -237,6 +237,10 @@ public class OrcPageSource
             try {
                 Block block = recordReader.readBlock(type, columnIndex);
                 lazyBlock.setBlock(block);
+
+                // To measure the lazy loading benefit
+                stats.addTotalRowsScanned(block.getPositionCount());
+                stats.addTotalRetainedSizeInBytes(block.getRetainedSizeInBytes());
             }
             catch (OrcCorruptionException e) {
                 throw new PrestoException(HIVE_BAD_DATA, e);

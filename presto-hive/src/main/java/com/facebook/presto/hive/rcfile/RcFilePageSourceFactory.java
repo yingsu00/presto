@@ -150,7 +150,8 @@ public class RcFilePageSourceFactory
                     rcFileReader,
                     columns,
                     hiveStorageTimeZone,
-                    typeManager));
+                    typeManager,
+                    stats));
         }
         catch (Throwable e) {
             try {

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.hive.rcfile;
 
+import com.facebook.presto.hive.FileFormatDataSourceStats;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HiveType;
 import com.facebook.presto.rcfile.RcFileCorruptionException;
@@ -59,11 +60,14 @@ public class RcFilePageSource
 
     private boolean closed;
 
+    private final FileFormatDataSourceStats stats;
+
     public RcFilePageSource(
             RcFileReader rcFileReader,
             List<HiveColumnHandle> columns,
             DateTimeZone hiveStorageTimeZone,
-            TypeManager typeManager)
+            TypeManager typeManager,
+            FileFormatDataSourceStats stats)
     {
         requireNonNull(rcFileReader, "rcReader is null");
         requireNonNull(columns, "columns is null");
@@ -73,6 +77,7 @@ public class RcFilePageSource
         this.rcFileReader = rcFileReader;
 
         int size = columns.size();
+        this.stats = requireNonNull(stats, "stats is null");
 
         this.constantBlocks = new Block[size];
         this.hiveColumnIndexes = new int[size];
@@ -238,6 +243,10 @@ public class RcFilePageSource
             try {
                 Block block = rcFileReader.readBlock(columnIndex);
                 lazyBlock.setBlock(block);
+
+                // To measure the lazy loading benefit
+                stats.addTotalRowsScanned(block.getPositionCount());
+                stats.addTotalRetainedSizeInBytes(block.getRetainedSizeInBytes());
             }
             catch (RcFileCorruptionException e) {
                 throw new PrestoException(HIVE_BAD_DATA, e);

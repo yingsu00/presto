@@ -18,6 +18,8 @@ import io.airlift.stats.TimeStat;
 import org.weakref.jmx.Managed;
 import org.weakref.jmx.Nested;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
@@ -29,6 +31,9 @@ public class FileFormatDataSourceStats
     private final TimeStat time100KBto1MB = new TimeStat(MILLISECONDS);
     private final TimeStat time1MBto10MB = new TimeStat(MILLISECONDS);
     private final TimeStat time10MBPlus = new TimeStat(MILLISECONDS);
+
+    private final AtomicLong totalRetainedSizeInBytes = new AtomicLong();
+    private final AtomicLong totalCellScanned = new AtomicLong();
 
     @Managed
     @Nested
@@ -72,6 +77,18 @@ public class FileFormatDataSourceStats
         return time10MBPlus;
     }
 
+    @Managed
+    public long getTotalRetainedSizeInBytes()
+    {
+        return totalRetainedSizeInBytes.get();
+    }
+
+    @Managed
+    public long getTotalCellScanned()
+    {
+        return totalCellScanned.get();
+    }
+
     public void readDataBytesPerSecond(long bytes, long nanos)
     {
         readBytes.add(bytes);
@@ -92,5 +109,15 @@ public class FileFormatDataSourceStats
     public void addMaxCombinedBytesPerRow(long bytes)
     {
         maxCombinedBytesPerRow.add(bytes);
+    }
+
+    public void addTotalRetainedSizeInBytes(long bytes)
+    {
+        totalRetainedSizeInBytes.getAndAdd(bytes);
+    }
+
+    public void addTotalRowsScanned(long rows)
+    {
+        totalCellScanned.getAndAdd(rows);
     }
 }
