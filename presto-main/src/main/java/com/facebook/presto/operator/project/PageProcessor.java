@@ -93,10 +93,32 @@ public class PageProcessor
             }
 
             if (selectedPositions.size() != page.getPositionCount()) {
-                PositionsPageProcessorIterator pages = new PositionsPageProcessorIterator(session, yieldSignal, page, selectedPositions);
+                // Compact the pages to test perf gain. Copied from InputPageProjection.project()
+                Block[] compactedBlocks = new Block[page.getChannelCount()];
+                for (int i = 0; i < page.getChannelCount(); i++) {
+                    Block block = page.getBlock(i);
+                    if (selectedPositions.isList()) {
+                        compactedBlocks[i] = block.copyPositions(selectedPositions.getPositions(), selectedPositions.getOffset(), selectedPositions.size());
+                    }
+                    else {
+                        compactedBlocks[i] = block.copyRegion(selectedPositions.getOffset(), selectedPositions.size());
+                    }
+                }
+                Page compactedPage = new Page(compactedBlocks);
+
+                // Since we compacted the page so we also need to create a new SelectedPositions in range format
+                SelectedPositions newSelectedPositions = page.getChannelCount() > 0 ? SelectedPositions.positionsRange(selectedPositions.getOffset(), compactedBlocks[0].getPositionCount()) : selectedPositions;
+
+                // Now pass the compacted page and newSelectedPositions to the iterator
+                PositionsPageProcessorIterator pages = new PositionsPageProcessorIterator(session, yieldSignal, compactedPage, newSelectedPositions);
                 return new PageProcessorOutput(pages::getRetainedSizeInBytes, pages);
             }
         }
+
+        // So far we have separated scan and filter by simulating the workflow should them be separated operators.
+        // From here we have created compacted pages which will be later fed into the projection (The projection logic was in MergingInput). By doing this we
+        // think it simulates the same performance that we indeed create separate Scan, Filter and Projection operators. We didn't create these operators
+        // because there is no FilterOperator in Presto right now and we don't have enough time to write a new operator and make it work on most queries.
 
         PositionsPageProcessorIterator pages = new PositionsPageProcessorIterator(session, yieldSignal, page, positionsRange(0, page.getPositionCount()));
         return new PageProcessorOutput(pages::getRetainedSizeInBytes, pages);
