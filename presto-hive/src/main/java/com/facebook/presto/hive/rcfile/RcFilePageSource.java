@@ -143,6 +143,8 @@ public class RcFilePageSource
                 }
                 else {
                     blocks[fieldId] = createBlock(currentPageSize, fieldId);
+                    // Force eager load to test perf gain of lazy load
+                    blocks[fieldId].assureLoaded();
                 }
             }
 

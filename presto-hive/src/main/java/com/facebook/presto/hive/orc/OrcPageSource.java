@@ -146,6 +146,8 @@ public class OrcPageSource
                 }
                 else {
                     blocks[fieldId] = new LazyBlock(batchSize, new OrcBlockLoader(hiveColumnIndexes[fieldId], type));
+                    // Force eager load to test perf gain of lazy load
+                    blocks[fieldId].assureLoaded();
                 }
             }
             return new Page(batchSize, blocks);
