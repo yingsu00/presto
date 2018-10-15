@@ -18,6 +18,7 @@ import static java.lang.System.arraycopy;
 
 public class BlockContents {
     long[] longs;
+    double[] doubles;
     boolean[] valueIsNull;
     Slice slice;
     int[] offsets;
@@ -33,7 +34,7 @@ public class BlockContents {
     {
 	if (start == 0) {
 	    int[] map = identityMap;
-	    if (map != null && map.length <= size) {
+	    if (map != null && map.length >= size) {
 		return map;
 	    }
 	    map = new int[size + 100];

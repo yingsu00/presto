@@ -23,14 +23,15 @@ import io.airlift.slice.Slices;
 import static java.lang.Double.doubleToLongBits;
 import static java.lang.Double.longBitsToDouble;
 import static java.lang.System.arraycopy;
+import java.lang.reflect.Field;
 
-
-import org.testng.annotations.Test;
+import sun.misc.Unsafe;
 
 
 public class TestRawArray
 {
 
+    
   // Evaluator class that would be generated from
   // extendedprice * (1 - discount) - quantity * supplycost
   public static class ProfitExpr {
@@ -41,10 +42,50 @@ public class TestRawArray
     MapHolder mapHolder = new MapHolder();
     boolean[] nullsInReserve;
     boolean[] nullsInBatch;
+    long[][] tempLongs = new long[1][];
+    double[][] tempDoubles = new double[1][];
+
+      static Unsafe unsafe;
+
+      static {
+	  try {
+	      // fetch theUnsafe object
+	      Field field = Unsafe.class.getDeclaredField("theUnsafe");
+	      field.setAccessible(true);
+	      unsafe = (Unsafe) field.get(null);
+	      if (unsafe == null) {
+		  throw new RuntimeException("Unsafe access not available");
+	      }
+	  }
+	  catch (Exception e) {
+	      throw new RuntimeException(e);
+	  }
+      }
+
+
+      
+      
+      double[] asDoubleArray(long[] longs)
+    {
+      tempLongs[0] = longs;
+      //Slice source = new Slice(tempLongs, 0, 24, 24, tempLongs);
+      //Slice target = new Slice(tempLongs, 0, 24, 24, tempLongs);
+      //target.putLong(16, source.getLomg(16));
+      unsafe.copyMemory(tempLongs, 16, tempDoubles, 16, 8);
+      return tempDoubles[0];
+    }
 
     void boolArrayOr(boolean[] target, boolean[] source, int[] map, int positionCount) {
       if (map == null) {
-        for (int i = 0; i < positionCount; ++i) {
+	  int i = 0;
+	  /*
+	  int bytesInWords = positionCount & ~7;
+	  for (; i < bytesInWords; i += 8) {
+	      unsafe.putLong(target, 16, unsafe.getLong(target, 16 + i) |
+			     unsafe.getLong(source, 16 + i));
+	  }
+	  */
+	  for (; i < positionCount; ++i) {
           target[i] |= source[i];
         }
       } else {
@@ -101,19 +142,63 @@ public class TestRawArray
       boolean allIdentity = extendedPrice.isIdentityMap || discount.isIdentityMap | quantity.isIdentityMap | supplyCost.isIdentityMap;
       if (allIdentity && nullsInBatch == null) {
         for (int i = 0; i < positionCount; ++i) {
-          result[i] = ep[i] * (1 - di[i]) - qt[i] * sc[i];
+          result[i] = doubleToLongBits(longBitsToDouble(ep[i]) * (1 - longBitsToDouble(di[i])) - qt[i] * longBitsToDouble(sc[i]));
         }
       } else {
         for (int i = 0; i < positionCount; ++i) {
           if (nullsInBatch == null || !nullsInBatch[i]) {
-            result[i] = ep[epMap[i]] * (1 - di[diMap[i]]) - qt[qtMap[i]] * sc[scMap[i]];
+            result[i] = doubleToLongBits(longBitsToDouble(ep[epMap[i]]) * (1 - longBitsToDouble(di[diMap[i]])) - qt[qtMap[i]] * longBitsToDouble(sc[scMap[i]]));
           }
         }
       }
+      extendedPrice.release(mapHolder);
+      discount.release(mapHolder);
+      quantity.release(mapHolder);
+      supplyCost.release(mapHolder);
       return new Page(positionCount, new LongArrayBlock(0, positionCount, (nullsInBatch != null ? nullsInBatch.clone() : null), result));
     }
 
-    Page EvaluateRow(Page page)
+      Page EvaluateDouble(Page page)
+    {
+      int positionCount = page.getPositionCount();
+      extendedPrice.decodeBlock(page.getBlock(0), mapHolder);
+      discount.decodeBlock(page.getBlock(1), mapHolder);
+      quantity.decodeBlock(page.getBlock(2), mapHolder);
+      supplyCost.decodeBlock(page.getBlock(3), mapHolder);
+      double[] ep = extendedPrice.doubles;
+      double[] di = discount.doubles;
+      long[] qt = quantity.longs;
+      double[] sc = supplyCost.doubles;
+      int[] epMap = extendedPrice.rowNumberMap;
+      int[] diMap = discount.rowNumberMap;
+      int[] qtMap = quantity.rowNumberMap;
+      int[] scMap = supplyCost.rowNumberMap;
+      double[] result = new double[positionCount];
+      nullsInBatch = null;
+      addNullFlags(extendedPrice.valueIsNull, extendedPrice.isIdentityMap ? null : epMap, positionCount);
+      addNullFlags(discount.valueIsNull, discount.isIdentityMap ? null : diMap, positionCount);
+      addNullFlags(quantity.valueIsNull, quantity.isIdentityMap ? null : qtMap, positionCount);
+      addNullFlags(supplyCost.valueIsNull, supplyCost.isIdentityMap ? null : scMap, positionCount);
+      boolean allIdentity = extendedPrice.isIdentityMap || discount.isIdentityMap | quantity.isIdentityMap | supplyCost.isIdentityMap;
+      if (allIdentity && nullsInBatch == null) {
+        for (int i = 0; i < positionCount; ++i) {
+          result[i] = (ep[i]) * (1 - (di[i])) - qt[i] * (sc[i]);
+        }
+      } else {
+        for (int i = 0; i < positionCount; ++i) {
+          if (nullsInBatch == null || !nullsInBatch[i]) {
+            result[i] = (ep[epMap[i]]) * (1 - (di[diMap[i]])) - qt[qtMap[i]] * (sc[scMap[i]]);
+          }
+        }
+      }
+      extendedPrice.release(mapHolder);
+      discount.release(mapHolder);
+      quantity.release(mapHolder);
+      supplyCost.release(mapHolder);
+      return new Page(positionCount, new DoubleArrayBlock(0, positionCount, (nullsInBatch != null ? nullsInBatch.clone() : null), result));
+    }
+
+      Page EvaluateRow(Page page)
     {
       Block ep = page.getBlock(0);
       Block di = page.getBlock(1);
@@ -138,7 +223,18 @@ public class TestRawArray
   {
     Page ownedPage;
 
-    public Page nextPage(int numberOfRows, boolean addNulls) {
+    static Block addDict(boolean isReverse, Block block)
+    {
+      int positionCount = block.getPositionCount();
+      int[] ids = new int[positionCount];
+      for (int i = 0; i < positionCount; ++i) {
+        ids[i] = isReverse ? positionCount - i - 1: i;
+      }
+      return new DictionaryBlock(block, ids);
+    }
+
+
+    public Page nextPage(int numberOfRows, boolean addNulls, boolean addDicts) {
       LongArrayBlockBuilder ep = new LongArrayBlockBuilder(null, numberOfRows);
       LongArrayBlockBuilder di = new LongArrayBlockBuilder(null, numberOfRows);
       LongArrayBlockBuilder qt = new LongArrayBlockBuilder(null, numberOfRows);
@@ -165,25 +261,98 @@ public class TestRawArray
           sc.writeLong(doubleToLongBits(1 + (double)i * 9));
             }
       }
-      return new Page(numberOfRows, ep.build(), di.build(), qt.build(), sc.build());
+      if (addDicts) {
+        return new Page(numberOfRows, ep.build(), addDict(false, di.build()), addDict(true, addDict(false, qt.build())), addDict(true, addDict(false, addDict(true, sc.build()))));
+      } else {
+        return new Page(numberOfRows, ep.build(), di.build(), qt.build(), sc.build());
+      }
+    }
+
+      public Page nextPageDouble(int numberOfRows, boolean addNulls, boolean addDicts) {
+      DoubleArrayBlockBuilder ep = new DoubleArrayBlockBuilder(null, numberOfRows);
+      DoubleArrayBlockBuilder di = new DoubleArrayBlockBuilder(null, numberOfRows);
+      LongArrayBlockBuilder qt = new LongArrayBlockBuilder(null, numberOfRows);
+      DoubleArrayBlockBuilder sc = new DoubleArrayBlockBuilder(null, numberOfRows);
+      for (int i = 0; i < numberOfRows; ++i) {
+        if (addNulls && i % 17 == 0) {
+          ep.appendNull();
+        } else {
+          ep.writeDouble(((double)i * 10));
+        }
+        if (addNulls && i % 21 == 0) {
+          di.appendNull();
+        } else {
+          di.writeDouble(((double)i % 10));
+        }
+        if (addNulls && i % 31 == 0) {
+          qt.appendNull();
+        } else {
+          qt.writeLong(1 + (i % 50));
+        }
+        if (addNulls && i % 41 == 0) {
+          sc.appendNull();
+        } else {
+          sc.writeDouble((1 + (double)i * 9));
+            }
+      }
+      if (addDicts) {
+        return new Page(numberOfRows, ep.build(), addDict(false, di.build()), addDict(true, addDict(false, qt.build())), addDict(true, addDict(false, addDict(true, sc.build()))));
+      } else {
+        return new Page(numberOfRows, ep.build(), di.build(), qt.build(), sc.build());
+      }
     }
   }
 
-  @Test
-  public void TestExpr()
-  {
-    DataSource source = new DataSource();
-    ProfitExpr expr = new ProfitExpr();
+    public static void TestCase(DataSource source, ProfitExpr expr, boolean nulls, boolean dicts) {
+	System.out.println("===" + (nulls ? " with nulls " : " no nulls") + (dicts ? " nested dicts " : " flat ")); 
+    Page page = source.nextPage(1000, nulls, dicts);
+    Page pageDouble = source.nextPageDouble(1000, nulls, dicts);
     long tim = System.currentTimeMillis();
-    for (int i = 0; i < 1000; ++i) {
-      Page page = source.nextPage(1000, false);
+    for (int i = 0; i < 100000; ++i) {
       Page res = expr.Evaluate(page);
     }
     long endtim = System.currentTimeMillis();
-    System.out.println("Time1: " + (endtim - tim));
+    System.out.println("===vec long: " + (endtim - tim));
+    tim = System.currentTimeMillis();
+    for (int i = 0; i < 100000; ++i) {
+      Page res = expr.EvaluateDouble(pageDouble);
+    }
+    endtim = System.currentTimeMillis();
+    System.out.println("===vec double: " + (endtim - tim));
+    tim = System.currentTimeMillis();
+    for (int i = 0; i < 100000; ++i) {
+      //Page page = source.nextPage(1000, false);
+      Page res = expr.EvaluateRow(page);
+    }
+    endtim = System.currentTimeMillis();
+    System.out.println("===blocks in loop: " + (endtim - tim));
+    }
+    
+  public static void TestExpr()
+  {
+      DataSource source = new DataSource();
+      ProfitExpr expr = new ProfitExpr();
+    for (int i = 0; i < 11000; ++i) {
+      Page page = source.nextPage(1, false, false);
+      Page pageDouble = source.nextPageDouble(1, false, false);
+      Page res = expr.Evaluate(page);
+      res = expr.EvaluateDouble(pageDouble);
+      res = expr.EvaluateRow(page);
+    }
+    for (int ctr = 0; ctr < 1; ++ctr) {
+	TestCase(source, expr, false, false);
+	TestCase(source, expr, false, true);
+	TestCase(source, expr, true, false);
+	TestCase(source, expr, true, true);
+  }
   }
 
-  @Test
+    public void RunTestExpr()
+  {
+    System.out.println("Test Runner:");
+    TestExpr();
+  }
+
     public void testSlice()
     {
       Slice slice = Slices.allocateDirect(10000);
@@ -201,13 +370,13 @@ public class TestRawArray
         return slice.getLong(10) + slice.getLong(18);
     }
 
-    static void main(String[] args)
-    {
-        Slice slice = Slices.allocateDirect(10000);
-        long sum = 0;
-        for (int i = 0; i < 20000; ++i) {
-            sum += testMem(slice);
-        }
-        System.out.println("Sum " + sum);
-    }
+    public static void main(String args[])
+        throws InterruptedException
+  {
+      System.out.println("===Main:");
+      TestExpr();
+      System.out.println("Press enter");
+      System.console().readLine();
+      TestExpr();
+  }
 }

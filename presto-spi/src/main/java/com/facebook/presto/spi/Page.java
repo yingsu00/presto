@@ -37,7 +37,7 @@ public class Page
             (2 * ClassLayout.parseClass(AtomicLong.class).instanceSize());
 
     private final Block[] blocks;
-    private final int positionCount;
+    private int positionCount;
     private final AtomicLong sizeInBytes = new AtomicLong(-1);
     private final AtomicLong retainedSizeInBytes = new AtomicLong(-1);
 
@@ -61,6 +61,11 @@ public class Page
     public int getPositionCount()
     {
         return positionCount;
+    }
+
+    public setPositionCount(int count)
+    {
+	positionCount = count;
     }
 
     public long getSizeInBytes()

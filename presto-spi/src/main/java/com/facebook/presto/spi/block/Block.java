@@ -162,6 +162,10 @@ public interface Block
      */
     int getPositionCount();
 
+        default void setPositionCount(int newPositionCount) {
+        throw new UnsupportedOperationException(getClass().getName());
+    }
+
     /**
      * Returns the logical size of this block in memory.
      */
@@ -282,4 +286,5 @@ public interface Block
     default void getContents(BlockContents contents) {
         throw new UnsupportedOperationException(getClass().getName());
     }
+
 }

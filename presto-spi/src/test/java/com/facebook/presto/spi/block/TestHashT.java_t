@@ -179,7 +179,7 @@ class TestHash {
 	    status = new long[size / 8];
 	    statusMask = mask >> 3;
 	    for (int i = 0; i <= statusMask; ++i) {
-		status[i] = -1;
+		status[i] = 0x8080808080808080L;
 	    }
 	}
     }
@@ -204,7 +204,7 @@ class TestHash {
 	    return h;
 	}
 	
-	void addImput(Page page)
+	public void addImput(Page page)
 	{
 	    k1.decodeBlock(page.getBlock(0), mapHolder);
 	    k2.decodeBlock(page.getBlock(1), mapHolder);
@@ -236,7 +236,7 @@ class TestHash {
 	    k2.release(mapHolder);
 	    d1.release(mapHolder);
 	}
-	void build()
+	public void build()
 	{
 	    DECLTABLE(table);
 	    table.setSize(entryCount);
@@ -293,7 +293,7 @@ class TestHash {
 		st &= 0x8080808080808080L;
 		if (st != 0) {
 		    int pos = Long.numberOfTrailingZeros(st) >> 3;
-		    table.status[h] ^= ((~statusByte) & 0xff) << (pos * 8);
+		    table.status[h] ^= (long)(statusByte & 0x7f | 0x80) << (pos * 8);
 		    table.table[h * 8 + pos] = entries[i];
 		    break;
 		}
@@ -325,6 +325,12 @@ class TestHash {
 	long currentResult;
 	int currentProbe;
 	Page resultPage;
+	boolean reuseResult;
+
+	HashProbe(HashTable table, boolean reuseResult) {
+	    this.table = table;
+	    this.reuseResult = reuseResult;
+	}
 	
 	public void addInput(Page page) {
 	    k1.decodeBlock(page.getBlock(0), mapHolder);
@@ -358,6 +364,10 @@ class TestHash {
 		MHASH_STEP(h, k2d[k2Map[row]]);
 		hashes[row] = h;
 	    }
+	    if (result1 == null) {
+		result1 = new long[maxResults];
+		resultMap = new int[maxResults];
+	    }
 	    currentProbe = 0;
 	    currentResult = -1;
 	}
@@ -390,11 +400,17 @@ class TestHash {
 	    k1.release(mapHolder);
 	    k2.release(mapHolder);
 	    if (resultFill == 0) {
-		resultPage = null;
-		return;
+		return null;
 	    }
-	    resultPage = new Page(
-				  new LongArrayBlock(resultFill, null, result1));
+	    if (!reuseResult || resultPage == null) {
+		resultPage = new Page(
+				      new LongArrayBlock(resultFill, null, result1));
+		if (!reuseResult) {
+		    result1 = null;
+		}
+	    } else {
+		resultPage.setPositionCount(resultFill);
+	    }
 	    resultFill = 0;
 	}
 
@@ -483,6 +499,127 @@ class TestHash {
 
 
     }
+
+    // Like partsupp, first is row / 4, next is (row * 1239) % 1000000 
+    long key1(int row) {
+	return row / 4;
+    }
+
+    lomg key2(int row) {
+	return (((long)row * 12349) & 0x7fffffffffffffffL)  % 1000000;
+    }
+
+    public Page nextBuild(numberOfRows, int start, int step, Page usePage, BlockContents tempContents) {
+	if (usePage != null) {
+	    tempContents.decodeBlock(usePage.getBlock(0));
+	    long[] k1 = tempContents.longs;
+	    tempContents.decodeBlock(usePage.getBlock(1));
+	    long[] k2 = tempContents.longs;
+	    tempContents.decodeBlock(usePage.getBlock(2));
+	    long[] d1 = tempContents.longs;
+	    for (int i  = 0; i  < numberOfRows; ++i) {
+		k1[i] = key1(i + start);
+		k2[i] = key2(i + start);
+		d1[i] = 1 + (i % 10);
+	    }
+	    return usePage;
+	}	    
+	LongArrayBlockBuilder k1 = new LongArrayBlockBuilder(null, numberOfRows);
+	LongArrayBlockBuilder k2 = new LongArrayBlockBuilder(null, numberOfRows);
+	LongArrayBlockBuilder d1 = new LongArrayBlockBuilder(null, numberOfRows);
+	    for (int i  = 0; i  < numberOfRows; ++i) {
+		k1.writeLong(key1(i + start));
+		k2.writeLong(key2(i + start));
+		d1.writeLong(1 + (i % 10));
+	    }
+
+	    return new Page(numberOfRows, k1.build(), k2.build(), d1.build());
+    }
+
+    static class ProbeState {
+	int pos = 0;
+	int step = 0;
+	int mod;
+
+	ProbeState(int mod)
+	{
+	    this.mod = mod;
+	}
+	public next() {
+	    int value = pos;
+	    pos += step;
+	    ++step;
+	    if (step == mod) {
+		pos = 0;
+		step = 1;
+	    }
+	    return value & (mod - 1);
+	}
+    }
+    
+    
+    public Page nextProbe(numberOfRows, int scale, int start, Page usePage, BlockContents tempContents, ProbeState state) {
+	if (usePage != null) {
+	    tempContents.decodeBlock(usePage.getBlock(0));
+	    long[] k1 = tempContents.longs;
+	    tempContents.decodeBlock(usePage.getBlock(1));
+	    long[] k2 = tempContents.longs;
+	    tempContents.decodeBlock(usePage.getBlock(2));
+	    long[] d1 = tempContents.longs;
+	    for (int i  = 0; i  < numberOfRows; ++i) {
+		int r = state.next();
+		k1[i] = key1(r);
+		k2[i] = key2(r);
+		d1[i] = 1 + (r % 10);
+	    }
+	    return usePage;
+	}	    
+	LongArrayBlockBuilder k1 = new LongArrayBlockBuilder(null, numberOfRows);
+	LongArrayBlockBuilder k2 = new LongArrayBlockBuilder(null, numberOfRows);
+	LongArrayBlockBuilder d1 = new LongArrayBlockBuilder(null, numberOfRows);
+	    for (int i  = 0; i  < numberOfRows; ++i) {
+		int r = state.next();
+		k1.writeLomg(key1(r));
+		k2.writeLong(key2(r));
+		d1.writeLong(1 + (r % 10));
+	    }
+
+
+        return new Page(numberOfRows, k1.build(), k2.build(), d1.build());
+    }
+
+    int testRun(int buildSize, int probeSize, int pageSize, boolean reusePages) {
+	int rows = 0;
+	Page buildPage;
+	Page probePage;
+	BlockContents contents = new BlockContents();
+	HashBuild build = new HashBuild();
+	for(i = 0; i < buildSize; i += pageSize) { 
+	    buildPage = nextBuild(pageSize, i, buildPage, contents);
+	    if (!reusePages) {
+		buildPage = null;
+	    }
+	}
+	build.build();
+	probe = new HashProbe(build.table, reusePages);
+	ProbeState state = new ProbeState(128 * 1024 * 1024);
+	for (int i = 0; i < probeSize; i += pageSize) {
+	    probePage = nextProbe(i, probePage, state);
+	    probe.addInput(probePage);
+	    Page result;
+	    while (result = probe.getOutput()) {
+		rows += result.positionCount();
+	    }
+	    if (!reusePages) {
+		probePage = null;
+	    }
+	}
+	return rows;
+    }
+	
     
     
 }
+
+
+    
