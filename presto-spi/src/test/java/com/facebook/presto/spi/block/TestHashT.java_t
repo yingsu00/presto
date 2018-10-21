@@ -204,7 +204,7 @@ class TestHash {
 	    return h;
 	}
 	
-	public void addImput(Page page)
+	public void addInput(Page page)
 	{
 	    k1.decodeBlock(page.getBlock(0), mapHolder);
 	    k2.decodeBlock(page.getBlock(1), mapHolder);
@@ -325,6 +325,7 @@ class TestHash {
 	long currentResult;
 	int currentProbe;
 	Page resultPage;
+	Page returnPage;
 	boolean reuseResult;
 
 	HashProbe(HashTable table, boolean reuseResult) {
@@ -400,7 +401,8 @@ class TestHash {
 	    k1.release(mapHolder);
 	    k2.release(mapHolder);
 	    if (resultFill == 0) {
-		return null;
+		returnPage = null;
+		return;
 	    }
 	    if (!reuseResult || resultPage == null) {
 		resultPage = new Page(
@@ -412,6 +414,7 @@ class TestHash {
 		resultPage.setPositionCount(resultFill);
 	    }
 	    resultFill = 0;
+	    returnPage = resultPage;
 	}
 
 		#define DECLPROBE(sub)		\
@@ -453,7 +456,7 @@ class TestHash {
 	    
 	    #define FULLPROBE(sub) \
     if (match##sub) { \
-	if (addResult(entry##sub, currentProbe + sub)) return; \
+	if (addResult(entry##sub, currentProbe + sub)) return returnPage; \
     } \
     else { \
 	bucketLoop##sub: \
@@ -464,7 +467,7 @@ class TestHash {
 	    PREGET(g##sub, entry##sub); \
 	    if (GETL(g##sub, 0) == k1d[k1Map[row##sub]] && GETL(g##sub, 8) == k2d[k2Map[row##sub]]) { \
 		if (addResult(entry##sub, currentProbe + sub)) { \
-		    return; \
+		    return returnPage; \
 		} \
 		break bucketLoop##sub;		\
 	    } \
@@ -480,12 +483,12 @@ class TestHash {
 }      
 
 	
-	public void getOutput()
+	public Page getOutput()
 	{
 	    DECLTABLE(table);
 	    if (currentResult != -1) {
 		if (addResult(currentResult, currentProbe)) {
-		    return;
+		    return returnPage;
 		}
 	    }
 	    for (;currentProbe < candidateFill; ++currentProbe) {
@@ -495,6 +498,7 @@ class TestHash {
 		FULLPROBE(0);
 	    }
 	    finishResult();
+	    return returnPage;
 	}
 
 
@@ -505,17 +509,17 @@ class TestHash {
 	return row / 4;
     }
 
-    lomg key2(int row) {
+    long key2(int row) {
 	return (((long)row * 12349) & 0x7fffffffffffffffL)  % 1000000;
     }
 
-    public Page nextBuild(numberOfRows, int start, int step, Page usePage, BlockContents tempContents) {
+    public Page nextBuild(int numberOfRows, int start, int step, Page usePage, BlockContents tempContents) {
 	if (usePage != null) {
-	    tempContents.decodeBlock(usePage.getBlock(0));
+	    tempContents.decodeBlock(usePage.getBlock(0), null);
 	    long[] k1 = tempContents.longs;
-	    tempContents.decodeBlock(usePage.getBlock(1));
+	    tempContents.decodeBlock(usePage.getBlock(1), null);
 	    long[] k2 = tempContents.longs;
-	    tempContents.decodeBlock(usePage.getBlock(2));
+	    tempContents.decodeBlock(usePage.getBlock(2), null);
 	    long[] d1 = tempContents.longs;
 	    for (int i  = 0; i  < numberOfRows; ++i) {
 		k1[i] = key1(i + start);
@@ -545,7 +549,7 @@ class TestHash {
 	{
 	    this.mod = mod;
 	}
-	public next() {
+	public int next() {
 	    int value = pos;
 	    pos += step;
 	    ++step;
@@ -558,13 +562,14 @@ class TestHash {
     }
     
     
-    public Page nextProbe(numberOfRows, int scale, int start, Page usePage, BlockContents tempContents, ProbeState state) {
+    public Page nextProbe(int numberOfRows, int scale, int start, Page usePage, BlockContents tempContents, ProbeState state)
+    {
 	if (usePage != null) {
-	    tempContents.decodeBlock(usePage.getBlock(0));
+	    tempContents.decodeBlock(usePage.getBlock(0), null);
 	    long[] k1 = tempContents.longs;
-	    tempContents.decodeBlock(usePage.getBlock(1));
+	    tempContents.decodeBlock(usePage.getBlock(1), null);
 	    long[] k2 = tempContents.longs;
-	    tempContents.decodeBlock(usePage.getBlock(2));
+	    tempContents.decodeBlock(usePage.getBlock(2), null);
 	    long[] d1 = tempContents.longs;
 	    for (int i  = 0; i  < numberOfRows; ++i) {
 		int r = state.next();
@@ -579,7 +584,7 @@ class TestHash {
 	LongArrayBlockBuilder d1 = new LongArrayBlockBuilder(null, numberOfRows);
 	    for (int i  = 0; i  < numberOfRows; ++i) {
 		int r = state.next();
-		k1.writeLomg(key1(r));
+		k1.writeLong(key1(r));
 		k2.writeLong(key2(r));
 		d1.writeLong(1 + (r % 10));
 	    }
@@ -590,25 +595,26 @@ class TestHash {
 
     int testRun(int buildSize, int probeSize, int pageSize, boolean reusePages) {
 	int rows = 0;
-	Page buildPage;
-	Page probePage;
+	Page buildPage = null;
+	Page probePage = null;
 	BlockContents contents = new BlockContents();
 	HashBuild build = new HashBuild();
-	for(i = 0; i < buildSize; i += pageSize) { 
-	    buildPage = nextBuild(pageSize, i, buildPage, contents);
+	for(int i = 0; i < buildSize; i += pageSize) { 
+	    buildPage = nextBuild(pageSize, i, 1, buildPage, contents);
+	    build.addInput(buildPage);
 	    if (!reusePages) {
 		buildPage = null;
 	    }
 	}
 	build.build();
-	probe = new HashProbe(build.table, reusePages);
+	HashProbe probe = new HashProbe(build.table, reusePages);
 	ProbeState state = new ProbeState(128 * 1024 * 1024);
 	for (int i = 0; i < probeSize; i += pageSize) {
-	    probePage = nextProbe(i, probePage, state);
+	    probePage = nextProbe(pageSize, buildSize, i, probePage, contents, state);
 	    probe.addInput(probePage);
 	    Page result;
-	    while (result = probe.getOutput()) {
-		rows += result.positionCount();
+	    while ((result = probe.getOutput()) != null) {
+		rows += result.getPositionCount();
 	    }
 	    if (!reusePages) {
 		probePage = null;
@@ -617,7 +623,15 @@ class TestHash {
 	return rows;
     }
 	
-    
+    public static void main(String args[])
+        throws InterruptedException
+  {
+      TestHash self = new TestHash();
+      long start = System.currentTimeMillis();
+      int result = self.testRun(1024 * 1024, 1024 * 1024, 1024, true);
+      System.out.println("=== " + result + " time " + (System.currentTimeMillis() - start));
+
+}    
     
 }
 
