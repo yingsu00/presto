@@ -21,6 +21,7 @@ import com.facebook.presto.spi.block.LongArrayBlockBuilder;
 //import static org.testng.Assert.assertEquals;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
+import java.util.Optional;
 import java.util.Arrays;
 import static java.lang.Double.doubleToLongBits;
 import static java.lang.Double.longBitsToDouble;
@@ -28,6 +29,8 @@ import static java.lang.System.arraycopy;
 import java.lang.reflect.Field;
 import static java.lang.Integer.numberOfTrailingZeros;
 import static java.lang.Long.numberOfTrailingZeros;
+import java.util.ArrayList;
+import java.util.List;
 
 import sun.misc.Unsafe;
 
@@ -59,7 +62,8 @@ import sun.misc.Unsafe;
     #define SLABMASK 0x1ffff
 
     #ifdef SLICES
-
+#define LABEL "With Slices"
+        
 	#define DECLTABLE(table) \
   int statusMask = table.statusMask; \
 Slice[] slices = table.slices;
@@ -84,16 +88,24 @@ Slice[] slices = table.slices;
 #define SLICEREF(s, o) \
 						 (((s) << SLABSHIFT) + (o))
     #else
-						 
-	#define DECLGET(prefix) long prefix##ptr
+
+                                                 #define LABEL "With unmanaged"
+
+                                                 #define DECLTABLE(table) \
+  int statusMask = table.statusMask;
+                                                 
+                                                 #define DECLGET(prefix) long prefix##ptr
 	    #define PREGET(prefix, l)		\
 	  prefix##ptr = l
 						 #define GETL(prefix, field) \
-    unsafe.getLong(prefix##ptr, field)
+    unsafe.getLong(prefix##ptr + field)
 
 						 #define SETL(prefix, field, v) \
-    unsafe.setLong(prefix##ptr, field, v)
-   
+    unsafe.putLong(prefix##ptr + field, v)
+
+                                                 #define SLICEREF(s, o) \
+                                                 ((s) + (o))
+                                                 
     
 #endif
 
@@ -118,11 +130,65 @@ class TestHash {
 	  }
       }
 
+    static long and(long x, long y)
+    {
+        return x & y;
+    }
+
+    static String hex(long l)
+    {
+        return String.format("%x", l);
+    }
+
+    static boolean recycleTable = true;
+    #ifdef SLICES
+    static List<Slice> sliceReserve = new ArrayList();
+
+    static  Slice getSlice()
+    {
+        if (!recycleTable || sliceReserve.isEmpty()) {
+            return                 Slices.allocate(SLABSIZE);
+        }
+        else {
+            return sliceReserve.remove(sliceReserve.size() - 1);
+        }
+    }
+
+    static void releaseSlice(Slice slice)
+    {
+        if (recycleTable) {
+            sliceReserve.add(slice);
+        }
+    }
+#else
+
+    static List<Long> slabReserve;
+
+    static long getSlab()
+    {
+        if (slabReserve.isEmpty()) {
+            return unsafe.allocateMemory(SLABSIZE);
+        }
+        else {
+            return slabReserve.remove(slabReserve.size() - 1).longValue();
+        }
+    }
+    static void releaseSlab(long slab)
+    {
+        if (!recycleTable) {
+            unsafe.freeMemory(slab);
+        }
+        else {
+            slabReserve.add(new Long(slab));
+        }
+    }
+    #endif
+
 
     // Generic hash table 
-    class HashTable
-    		{
-	int mask;
+        class HashTable
+    {
+        int mask;
 	int statusMask;
 	long[] bloom;
 	long[] status;
@@ -130,7 +196,7 @@ class TestHash {
 	Slice[] slices = new Slice[16];
 	long[] slabs;
 	int[] fill = new int[16];
-	int currentSlab = -1;
+        int currentSlab = -1;
 	
 	long nextResult(long entry, int offset)
 	{
@@ -141,7 +207,7 @@ class TestHash {
 
 	// Allocates 'bytes' of contiguous space for hash table payload.
 	// Returns a slice index, offset pair or a raw long.
-	public long allocBytes(int bytes)
+        public long allocBytes(int bytes)
 	{
 	    if (currentSlab == -1 || fill[currentSlab] + bytes > SLABSIZE) {
 		long w = newSlab();
@@ -153,7 +219,7 @@ class TestHash {
 	    return SLICEREF(currentSlab, off);
 	}
 
-	long newSlab() {
+        long newSlab() {
 	    #ifdef SLICES
 		++currentSlab;
 		if (slices.length <= currentSlab) {
@@ -161,13 +227,40 @@ class TestHash {
 		    slices = Arrays.copyOf(slices, newSize);
 		    fill = Arrays.copyOf(fill, newSize);
 		}
-		Slice s = Slices.allocate(SLABSIZE);
-	    slices[currentSlab] = s;
-	    return SLICEREF(currentSlab, 0);
+		Slice s = getSlice();
+                slices[currentSlab] = s;
+                return SLICEREF(currentSlab, 0);
 #else
+		++currentSlab;
+		if (slabs.length <= currentSlab) {
+		    int newSize = slabs.length * 2;
+		    slabs = Arrays.copyOf(slabs, newSize);
+		    fill = Arrays.copyOf(fill, newSize);
+		}
+		long s = getSlab();
+                slabs[currentSlab] = s;
+                return s;
+
     #endif
 	}
-	
+
+        void release()
+        {
+#ifdef SLICES
+            for (Slice slice : slices) {
+                if (slice != null) {
+                    releaseSlice(slice);
+                }
+            }
+#else
+    for (long slab : slabs) {
+        if (slab != 0) {
+            releaseSlab(slab);
+        }
+    }
+    #endif
+        }
+                    
 	void setSize(int count) {
 	    count *= 1.3;
 	    int size = 1024;
@@ -224,7 +317,10 @@ class TestHash {
 		if (nullsInBatch == null ||  !nullsInBatch[i]) {
 		    ++entryCount;
 		    long row = table.allocBytes(32);
-		    DECLGET(k);
+#ifdef SLICES
+                    slices = table.slices;
+#endif
+DECLGET(k);
 		    PREGET(k, row);
 		    SETL(k,0, k1.longs[k1Map[i]]);
 		    SETL(k, 8, k2.longs[k1Map[i]]);
@@ -264,16 +360,16 @@ class TestHash {
 	    DECLTABLE(table);
 	    for (int i = 0; i < fill; ++i) {
 		int h = (int)hashes[i] & statusMask;
-	    boolean inserted = false;
 	    long field = (hashes[i] >> 56) & 0x7f;
 	    byte statusByte = (byte)field;
 	    field |= field << 8;
 	    field |= field << 16;
 	    field |= field << 32;
+                nextKey:
 	    do {
 		long st = table.status[h];
 		long hits = st ^ field;
-		hits -= 0x7f7f7f7f7f7f7f7fL;
+                hits = st - 0x0101010101010101L;
 		hits &= 0x8080808080808080L;
 		DECLGET(a);
 		DECLGET(b);
@@ -283,23 +379,20 @@ class TestHash {
 			       PREGET(a, table.table[h * 8 + pos]);
 			       if (GETL(a, 0) == GETL(b, 0) && GETL(a, 8) == GETL(b, 8)) {
 				   SETL(a, 24, entries[i]);
-				   inserted = true;
-				   break;
+				   break nextKey;
 			       }
-			       hits = hits &= (hits - 1);
+			       hits &= (hits - 1);
 		    }
-		if (hits == 0) {
 		// No matches in the status group, see if can insert.
 		st &= 0x8080808080808080L;
 		if (st != 0) {
 		    int pos = Long.numberOfTrailingZeros(st) >> 3;
-		    table.status[h] ^= (long)(statusByte & 0x7f | 0x80) << (pos * 8);
+		    table.status[h] ^= (long)(statusByte | 0x80) << (pos * 8);
 		    table.table[h * 8 + pos] = entries[i];
 		    break;
 		}
-	    }
-	    h = (h + 1) & statusMask;
-	    } while (!inserted);
+                h = (h + 1) & statusMask;
+	    } while (true);
 	    }
 	}
     }
@@ -335,9 +428,14 @@ class TestHash {
 	
 	public void addInput(Page page) {
 	    k1.decodeBlock(page.getBlock(0), mapHolder);
-	    k2.decodeBlock(page.getBlock(0), mapHolder);
+	    k2.decodeBlock(page.getBlock(1), mapHolder);
 	    positionCount = page.getPositionCount();
+            if (hashes == null || hashes.length < positionCount) {
+                hashes = new long[positionCount + 10];
+            }
 	    nullsInBatch = null;
+            k1d = k1.longs;
+            k2d = k2.longs;
 	    k1Map = k1.rowNumberMap;
 	    k2Map = k2.rowNumberMap;
 	    addNullFlags(k1.valueIsNull, k1.isIdentityMap ? null : k1Map, positionCount);
@@ -355,8 +453,8 @@ class TestHash {
 	    } else {
 		for (int i = 0; i < positionCount; ++i) {
 		    candidates[i] = i;
-		    candidateFill = positionCount;
 		}
+                candidateFill = positionCount;
 	    }
 	    for (int i = 0; i <candidateFill; ++i) {
 		int row = candidates[i];
@@ -398,17 +496,22 @@ class TestHash {
 
 	void finishResult()
 	{
-	    k1.release(mapHolder);
-	    k2.release(mapHolder);
-	    if (resultFill == 0) {
+            if (currentResult == -1 && currentProbe < candidateFill) {
+                ++currentProbe;
+            }
+            if (currentProbe == candidateFill) {
+                k1.release(mapHolder);
+                k2.release(mapHolder);
+            }
+            if (resultFill == 0) {
 		returnPage = null;
 		return;
 	    }
 	    if (!reuseResult || resultPage == null) {
 		resultPage = new Page(
-				      new LongArrayBlock(resultFill, null, result1));
+				      new LongArrayBlock(resultFill, Optional.empty(), result1));
 		if (!reuseResult) {
-		    result1 = null;
+		    result1 = new long[maxResults];
 		}
 	    } else {
 		resultPage.setPositionCount(resultFill);
@@ -424,14 +527,15 @@ class TestHash {
 	    int hash##sub; \
 	    int row##sub; \
 	    	int pos##sub; \
-	    boolean match##sub = false;
+	    boolean match##sub = false; \
+        boolean isFull##sub;
 
 
 	    #define PREPROBE(sub) \
 		row##sub = candidates[currentProbe + sub]; \
-	hash##sub = (int)hashes[row##sub];	   \
-	    field##sub = (hash##sub >> 56) & 0x7f; \
-	    hash##sub &= statusMask; \
+        tempHash = hashes[row##sub]; \
+	hash##sub = (int)tempHash & statusMask;	   \
+	    field##sub = (tempHash >> 56) & 0x7f; \
 	    hits##sub = table.status[hash##sub]; \
 	    field##sub |= field##sub << 8; \
 	    field##sub |= field##sub << 16; \
@@ -441,9 +545,10 @@ class TestHash {
 
 
 	#define FIRSTPROBE(sub)	      \
+            long empty##sub = hits##sub & 0x8080808080808080L; \
 	    hits##sub ^= field##sub;  \
 	hits##sub -= 0x0101010101010101L; \
-	hits##sub &= 0x8080808080808080L; \
+	hits##sub &= 0x8080808080808080L ^ empty##sub; \
 	if (hits##sub != 0) { \
 	    pos##sub = Long.numberOfTrailingZeros(hits##sub) >> 3; \
 	    hits##sub &= hits##sub - 1; \
@@ -473,12 +578,13 @@ class TestHash {
 	    } \
 	    hits##sub &= hits##sub - 1; \
 	} \
-	if ((table.status[hash##sub] & 0x8080808080808080L) != 0) break; \
+	if (empty##sub != 0) break; \
 	hash##sub = (hash##sub + 1) & statusMask;	\
 	hits##sub = table.status[hash##sub]; \
-	hits##sub ^= field##sub; \
+        empty##sub = hits##sub & 0x8080808080808080L; \
+	hits##sub ^= field##sub;          \
 	hits##sub -= 0x0101010101010101L; \
-	hits##sub &= 0x8080808080808080L; \
+	hits##sub &= 0x8080808080808080L ^ empty##sub; \
     }			  \
 }      
 
@@ -491,6 +597,7 @@ class TestHash {
 		    return returnPage;
 		}
 	    }
+            long tempHash;
 	    for (;currentProbe < candidateFill; ++currentProbe) {
 		DECLPROBE(0);
 		PREPROBE(0);
@@ -505,12 +612,12 @@ class TestHash {
     }
 
     // Like partsupp, first is row / 4, next is (row * 1239) % 1000000 
-    long key1(int row) {
+    long key1(long row) {
 	return row / 4;
     }
 
-    long key2(int row) {
-	return (((long)row * 12349) & 0x7fffffffffffffffL)  % 1000000;
+    long key2(long row) {
+	return ((row * 12349) & 0x7fffffffffffffffL) % 1000000;
     }
 
     public Page nextBuild(int numberOfRows, int start, int step, Page usePage, BlockContents tempContents) {
@@ -541,16 +648,16 @@ class TestHash {
     }
 
     static class ProbeState {
-	int pos = 0;
-	int step = 0;
-	int mod;
+	long pos = 0;
+	int step = 1;
+	long mod;
 
 	ProbeState(int mod)
 	{
 	    this.mod = mod;
 	}
-	public int next() {
-	    int value = pos;
+	public long next() {
+	    long value = pos;
 	    pos += step;
 	    ++step;
 	    if (step == mod) {
@@ -572,7 +679,7 @@ class TestHash {
 	    tempContents.decodeBlock(usePage.getBlock(2), null);
 	    long[] d1 = tempContents.longs;
 	    for (int i  = 0; i  < numberOfRows; ++i) {
-		int r = state.next();
+		long r = state.next();
 		k1[i] = key1(r);
 		k2[i] = key2(r);
 		d1[i] = 1 + (r % 10);
@@ -583,7 +690,7 @@ class TestHash {
 	LongArrayBlockBuilder k2 = new LongArrayBlockBuilder(null, numberOfRows);
 	LongArrayBlockBuilder d1 = new LongArrayBlockBuilder(null, numberOfRows);
 	    for (int i  = 0; i  < numberOfRows; ++i) {
-		int r = state.next();
+		long r = state.next();
 		k1.writeLong(key1(r));
 		k2.writeLong(key2(r));
 		d1.writeLong(1 + (r % 10));
@@ -599,6 +706,7 @@ class TestHash {
 	Page probePage = null;
 	BlockContents contents = new BlockContents();
 	HashBuild build = new HashBuild();
+        long start = System.currentTimeMillis();
 	for(int i = 0; i < buildSize; i += pageSize) { 
 	    buildPage = nextBuild(pageSize, i, 1, buildPage, contents);
 	    build.addInput(buildPage);
@@ -607,8 +715,10 @@ class TestHash {
 	    }
 	}
 	build.build();
+        long buildTime = System.currentTimeMillis() - start;
 	HashProbe probe = new HashProbe(build.table, reusePages);
-	ProbeState state = new ProbeState(128 * 1024 * 1024);
+	ProbeState state = new ProbeState(1024 * 1024);
+        start = System.currentTimeMillis();
 	for (int i = 0; i < probeSize; i += pageSize) {
 	    probePage = nextProbe(pageSize, buildSize, i, probePage, contents, state);
 	    probe.addInput(probePage);
@@ -620,6 +730,11 @@ class TestHash {
 		probePage = null;
 	    }
 	}
+        long probeTime = System.currentTimeMillis() - start;
+        probe.table.release();
+        System.out.println(reusePages ? "Page reuse" : "new Pages");
+        System.out.println("Build " + buildSize + ": " + buildTime + " ms");
+        System.out.println("Probe " + probeSize + ": " + probeTime + " ms " + rows + " hits");
 	return rows;
     }
 	
@@ -627,10 +742,15 @@ class TestHash {
         throws InterruptedException
   {
       TestHash self = new TestHash();
-      long start = System.currentTimeMillis();
-      int result = self.testRun(1024 * 1024, 1024 * 1024, 1024, true);
-      System.out.println("=== " + result + " time " + (System.currentTimeMillis() - start));
+      System.out.println("Hash test " + LABEL + (recycleTable ? " recycling hash table " : "no recycle"));
+      self.testRun(8 * 1024 * 1024, 1024 * 1024, 1024, true);
+      self.testRun(1024 * 1024, 1024 * 1024, 1024, true);
+      self.testRun(1024 * 1024, 1024 * 1024, 1024, false);
+      System.out.println("Press enter");
+      System.console().readLine();
 
+      self.testRun(8 * 1024 * 1024, 8 * 1024 * 1024, 1024, true);
+      self.testRun(8 * 1024 * 1024, 8 * 1024 * 1024, 1024, false);
 }    
     
 }

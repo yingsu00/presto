@@ -121,6 +121,7 @@ public class BlockContents {
   public void release(MapHolder mapHolder) {
     if (isMapOwned) {
       mapHolder.store(rowNumberMap);
+      isMapOwned = false;
       rowNumberMap = null;
     }
   }
