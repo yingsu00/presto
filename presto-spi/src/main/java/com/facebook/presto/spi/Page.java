@@ -63,7 +63,7 @@ public class Page
         return positionCount;
     }
 
-    public setPositionCount(int count)
+    public void setPositionCount(int count)
     {
 	positionCount = count;
     }

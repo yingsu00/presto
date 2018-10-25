@@ -77,7 +77,8 @@ public final class HiveQueryRunner
     {
         assertEquals(DateTimeZone.getDefault(), TIME_ZONE, "Timezone not configured correctly. Add -Duser.timezone=Asia/Katmandu to your JVM arguments");
 
-	DistributedQueryRunner queryRunner = new DistributedQueryRunner(createSession(), 4, extraProperties);
+	// One worker, single threaded.
+	DistributedQueryRunner queryRunner = new DistributedQueryRunner(createSession(), 1, extraProperties);
 
         try {
             queryRunner.installPlugin(new TpchPlugin());
