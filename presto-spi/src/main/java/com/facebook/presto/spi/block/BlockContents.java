@@ -17,15 +17,15 @@ import io.airlift.slice.Slice;
 import static java.lang.System.arraycopy;
 
 public class BlockContents {
-    long[] longs;
-    double[] doubles;
-    boolean[] valueIsNull;
-    Slice slice;
-    int[] offsets;
-	      int[] rowNumberMap;
+    public long[] longs;
+    public double[] doubles;
+    public boolean[] valueIsNull;
+    public Slice slice;
+    public int[] offsets;
+    public int[] rowNumberMap;
     int arrayOffset;
-    int positionCount;
-    boolean isIdentityMap;
+    public int positionCount;
+    public boolean isIdentityMap;
     boolean isMapOwned;
 
     static int[] identityMap;
@@ -51,7 +51,7 @@ public class BlockContents {
 	return map;
     }
 
-    void decodeBlock(Block block, MapHolder mapHolder) {
+    public void decodeBlock(Block block, MapHolder mapHolder) {
 	int positionCount = block.getPositionCount();
 	isMapOwned = false;
 	isIdentityMap = true;
