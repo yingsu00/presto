@@ -31,13 +31,8 @@ import io.airlift.slice.SizeOf;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
-<<<<<<< HEAD
 import static java.lang.Math.max;
 import java.util.Arrays;
-=======
-import java.util.HashMap;
-import java.util.Iterator;
->>>>>>> Port PageProcessor to WorkProcessor
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,7 +42,6 @@ import java.util.HashSet;
 import java.util.OptionalInt;
 import java.util.function.Function;
 
-import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static com.facebook.presto.operator.WorkProcessor.ProcessState.finished;
 import static com.facebook.presto.operator.WorkProcessor.ProcessState.ofResult;
 import static com.facebook.presto.operator.WorkProcessor.ProcessState.yield;
@@ -63,7 +57,6 @@ public class PageProcessor
     public static final int MAX_BATCH_SIZE = 8 * 1024;
     static final int MAX_PAGE_SIZE_IN_BYTES = 4 * 1024 * 1024;
     static final int MIN_PAGE_SIZE_IN_BYTES = 1024 * 1024;
-    private static final String PAGE_PROCESSOR_SIMPLE_CLASS_NAME = PageProcessor.class.getSimpleName();
 
     private final ExpressionProfiler expressionProfiler;
     private final DictionarySourceIdFunction dictionarySourceIdFunction = new DictionarySourceIdFunction();
