@@ -1,5 +1,6 @@
 package com.facebook.presto.operator;
 
+
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spiller.PartitioningSpillerFactory.unsupportedPartitioningSpillerFactory;
@@ -7,6 +8,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.units.DataSize.Unit.GIGABYTE;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
@@ -16,6 +18,7 @@ import com.facebook.presto.operator.HashBuilderOperator.HashBuilderOperatorFacto
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.BlockContents;
 import com.facebook.presto.spi.block.ExprContext;
+import com.facebook.presto.spi.block.LongArrayBlock;
 import com.facebook.presto.spi.block.LongArrayBlockBuilder;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spiller.SingleStreamSpillerFactory;
@@ -57,153 +60,13 @@ public class TestHash {
   }
 
   static boolean silent = false;
+  static boolean usePrestoOps = false;
   static boolean useBloomFilter = false;
 
   private static final int HASH_BUILD_OPERATOR_ID = 1;
   private static final int HASH_JOIN_OPERATOR_ID = 2;
   private static final PlanNodeId TEST_PLAN_NODE_ID = new PlanNodeId("test");
   private static final LookupJoinOperators LOOKUP_JOIN_OPERATORS = new LookupJoinOperators();
-
-  static Operator prestoBuildOperator;
-  static Operator prestoProbeOperator;
-
-  public static class BuildContext {
-    protected static final int ROWS_PER_PAGE = 1024;
-
-    protected OptionalInt hashChannel;
-    protected List<Type> types;
-    protected List<Integer> hashChannels;
-    protected ExecutorService executor;
-    protected ScheduledExecutorService scheduledExecutor;
-
-    public void setup() {
-      hashChannels = Ints.asList(0, 1);
-      executor = newCachedThreadPool(daemonThreadsNamed("test-executor-%s"));
-      scheduledExecutor =
-          newScheduledThreadPool(2, daemonThreadsNamed("test-scheduledExecutor-%s"));
-    }
-
-    public TaskContext createTaskContext() {
-      types = Arrays.asList(BIGINT, BIGINT, BIGINT);
-      return TestingTaskContext.createTaskContext(
-          executor, scheduledExecutor, TEST_SESSION, new DataSize(2, GIGABYTE));
-    }
-
-    public OptionalInt getHashChannel() {
-      return hashChannel;
-    }
-
-    public List<Integer> getHashChannels() {
-      return hashChannels;
-    }
-
-    public List<Type> getTypes() {
-      return types;
-    }
-
-    protected void initializeBuildPages() {
-
-      hashChannel = OptionalInt.empty();
-    }
-  }
-
-  public static class JoinContext extends BuildContext {
-
-    protected String outputColumns = "bigint";
-
-    protected List<Integer> outputChannels;
-
-    protected JoinBridgeDataManager<LookupSourceFactory> lookupSourceFactory;
-
-    @Override
-    public void setup() {
-      super.setup();
-
-      outputChannels = Ints.asList(1);
-      lookupSourceFactory = benchmarkBuildHash(this, outputChannels);
-    }
-
-    public JoinBridgeDataManager<LookupSourceFactory> getLookupSourceFactory() {
-      return lookupSourceFactory;
-    }
-
-    public List<Integer> getOutputChannels() {
-      return outputChannels;
-    }
-
-    public JoinBridgeDataManager<LookupSourceFactory> benchmarkBuildHash(
-        BuildContext buildContext) {
-      return benchmarkBuildHash(buildContext, ImmutableList.of(0, 1, 2));
-    }
-
-    private JoinBridgeDataManager<LookupSourceFactory> benchmarkBuildHash(
-        BuildContext buildContext, List<Integer> outputChannels) {
-      DriverContext driverContext =
-          buildContext.createTaskContext().addPipelineContext(0, true, true).addDriverContext();
-
-      JoinBridgeDataManager<LookupSourceFactory> lookupSourceFactoryManager =
-          JoinBridgeDataManager.lookupAllAtOnce(
-              new PartitionedLookupSourceFactory(
-                  buildContext.getTypes(),
-                  outputChannels
-                      .stream()
-                      .map(buildContext.getTypes()::get)
-                      .collect(toImmutableList()),
-                  buildContext
-                      .getHashChannels()
-                      .stream()
-                      .map(buildContext.getTypes()::get)
-                      .collect(toImmutableList()),
-                  1,
-                  requireNonNull(ImmutableMap.of(), "layout is null"),
-                  false));
-      HashBuilderOperatorFactory hashBuilderOperatorFactory =
-          new HashBuilderOperatorFactory(
-              HASH_BUILD_OPERATOR_ID,
-              TEST_PLAN_NODE_ID,
-              lookupSourceFactoryManager,
-              outputChannels,
-              buildContext.getHashChannels(),
-              buildContext.getHashChannel(),
-              Optional.empty(),
-              Optional.empty(),
-              ImmutableList.of(),
-              10_000,
-              new PagesIndex.TestingFactory(false),
-              false,
-              SingleStreamSpillerFactory.unsupportedSingleStreamSpillerFactory());
-
-      prestoBuildOperator = hashBuilderOperatorFactory.createOperator(driverContext);
-      LookupSourceFactory lookupSourceFactory =
-          lookupSourceFactoryManager.forLifespan(Lifespan.taskWide());
-      ListenableFuture<LookupSourceProvider> lookupSourceProvider =
-          lookupSourceFactory.createLookupSourceProvider();
-      if (!lookupSourceProvider.isDone()) {
-        throw new AssertionError("Expected lookup source provider to be ready");
-      }
-      getFutureValue(lookupSourceProvider).close();
-
-      return lookupSourceFactoryManager;
-    }
-
-    public List<Page> benchmarkJoinHash(JoinContext joinContext) {
-      OperatorFactory joinOperatorFactory =
-          LOOKUP_JOIN_OPERATORS.innerJoin(
-              HASH_JOIN_OPERATOR_ID,
-              TEST_PLAN_NODE_ID,
-              joinContext.getLookupSourceFactory(),
-              joinContext.getTypes(),
-              joinContext.getHashChannels(),
-              joinContext.getHashChannel(),
-              Optional.of(joinContext.getOutputChannels()),
-              OptionalInt.empty(),
-              unsupportedPartitioningSpillerFactory());
-
-      DriverContext driverContext =
-          joinContext.createTaskContext().addPipelineContext(0, true, true).addDriverContext();
-      prestoProbeOperator = joinOperatorFactory.createOperator(driverContext);
-    }
-  }
 
   static long and(long x, long y) {
     return x & y;
@@ -1201,6 +1064,234 @@ public class TestHash {
     return rows;
   }
 
+  public static class BuildContext {
+    protected static final int ROWS_PER_PAGE = 1024;
+    protected static final int BUILD_ROWS_NUMBER = 8_000_000;
+
+    protected String hashColumns = "bigint";
+
+    protected boolean buildHashEnabled = false;
+
+    protected int buildRowsRepetition = 1;
+
+    protected ExecutorService executor;
+    protected ScheduledExecutorService scheduledExecutor;
+    protected List<Page> buildPages;
+    protected OptionalInt hashChannel;
+    protected List<Type> types;
+    protected List<Integer> hashChannels;
+
+    public void setup(int buildSize) {
+      switch (hashColumns) {
+        case "varchar":
+          hashChannels = Ints.asList(0);
+          break;
+        case "bigint":
+          hashChannels = Ints.asList(0, 1);
+          break;
+        case "all":
+          hashChannels = Ints.asList(0, 1, 2);
+          break;
+        default:
+          throw new UnsupportedOperationException(
+              format("Unknown hashColumns value [%s]", hashColumns));
+      }
+      executor = newCachedThreadPool(daemonThreadsNamed("test-executor-%s"));
+      scheduledExecutor =
+          newScheduledThreadPool(2, daemonThreadsNamed("test-scheduledExecutor-%s"));
+
+      initializeBuildPages();
+    }
+
+    public TaskContext createTaskContext() {
+      return TestingTaskContext.createTaskContext(
+          executor, scheduledExecutor, TEST_SESSION, new DataSize(2, GIGABYTE));
+    }
+
+    public OptionalInt getHashChannel() {
+      return hashChannel;
+    }
+
+    public List<Integer> getHashChannels() {
+      return hashChannels;
+    }
+
+    public List<Type> getTypes() {
+      return types;
+    }
+
+    public List<Page> getBuildPages() {
+      return buildPages;
+    }
+
+    protected void initializeBuildPages() {
+      types = Arrays.asList(BIGINT, BIGINT, BIGINT);
+      hashChannel = OptionalInt.empty();
+    }
+  }
+
+  public static class JoinContext extends BuildContext {
+    protected static final int PROBE_ROWS_NUMBER = 1_400_000;
+
+    protected double matchRate = 1;
+
+    protected String outputColumns = "bigint";
+
+    protected List<Page> probePages;
+    protected List<Integer> outputChannels;
+
+    protected JoinBridgeDataManager<LookupSourceFactory> lookupSourceFactory;
+
+    @Override
+    public void setup(int buildSize) {
+      super.setup(buildSize);
+
+      switch (outputColumns) {
+        case "varchar":
+          outputChannels = Ints.asList(0);
+          break;
+        case "bigint":
+          outputChannels = Ints.asList(2);
+          break;
+        case "all":
+          outputChannels = Ints.asList(0, 1, 2);
+          break;
+        default:
+          throw new UnsupportedOperationException(
+              format("Unknown outputColumns value [%s]", hashColumns));
+      }
+
+      lookupSourceFactory = new TestHash().benchmarkBuildHash(this, outputChannels, buildSize);
+    }
+
+    public JoinBridgeDataManager<LookupSourceFactory> getLookupSourceFactory() {
+      return lookupSourceFactory;
+    }
+
+    public List<Integer> getOutputChannels() {
+      return outputChannels;
+    }
+  }
+
+  public JoinBridgeDataManager<LookupSourceFactory> benchmarkBuildHash(
+      BuildContext buildContext, int buildSize) {
+    return benchmarkBuildHash(buildContext, ImmutableList.of(0, 1, 2), buildSize);
+  }
+
+  private JoinBridgeDataManager<LookupSourceFactory> benchmarkBuildHash(
+      BuildContext buildContext, List<Integer> outputChannels, int buildSize) {
+    DriverContext driverContext =
+        buildContext.createTaskContext().addPipelineContext(0, true, true).addDriverContext();
+
+    JoinBridgeDataManager<LookupSourceFactory> lookupSourceFactoryManager =
+        JoinBridgeDataManager.lookupAllAtOnce(
+            new PartitionedLookupSourceFactory(
+                buildContext.getTypes(),
+                outputChannels
+                    .stream()
+                    .map(buildContext.getTypes()::get)
+                    .collect(toImmutableList()),
+                buildContext
+                    .getHashChannels()
+                    .stream()
+                    .map(buildContext.getTypes()::get)
+                    .collect(toImmutableList()),
+                1,
+                requireNonNull(ImmutableMap.of(), "layout is null"),
+                false));
+    HashBuilderOperatorFactory hashBuilderOperatorFactory =
+        new HashBuilderOperatorFactory(
+            HASH_BUILD_OPERATOR_ID,
+            TEST_PLAN_NODE_ID,
+            lookupSourceFactoryManager,
+            outputChannels,
+            buildContext.getHashChannels(),
+            buildContext.getHashChannel(),
+            Optional.empty(),
+            Optional.empty(),
+            ImmutableList.of(),
+            10_000,
+            new PagesIndex.TestingFactory(false),
+            false,
+            SingleStreamSpillerFactory.unsupportedSingleStreamSpillerFactory());
+
+    Operator operator = hashBuilderOperatorFactory.createOperator(driverContext);
+    for (int i = 0; i < buildSize; i += 1024) {
+      Page buildPage = nextBuild(1024, i, 1, null, null);
+      operator.addInput(buildPage);
+    }
+    operator.finish();
+
+    LookupSourceFactory lookupSourceFactory =
+        lookupSourceFactoryManager.forLifespan(Lifespan.taskWide());
+    ListenableFuture<LookupSourceProvider> lookupSourceProvider =
+        lookupSourceFactory.createLookupSourceProvider();
+    if (!lookupSourceProvider.isDone()) {
+      throw new AssertionError("Expected lookup source provider to be ready");
+    }
+    getFutureValue(lookupSourceProvider).close();
+
+    return lookupSourceFactoryManager;
+  }
+
+  public int benchmarkJoinHash(JoinContext joinContext, int buildSize, int probeSize) {
+    int numResults = 0;
+    int numProbe = 0;
+    ProbeState state = new ProbeState(probeSize);
+    OperatorFactory joinOperatorFactory =
+        LOOKUP_JOIN_OPERATORS.innerJoin(
+            HASH_JOIN_OPERATOR_ID,
+            TEST_PLAN_NODE_ID,
+            joinContext.getLookupSourceFactory(),
+            joinContext.getTypes(),
+            joinContext.getHashChannels(),
+            joinContext.getHashChannel(),
+            Optional.of(joinContext.getOutputChannels()),
+            OptionalInt.empty(),
+            unsupportedPartitioningSpillerFactory());
+
+    DriverContext driverContext =
+        joinContext.createTaskContext().addPipelineContext(0, true, true).addDriverContext();
+    Operator joinOperator = joinOperatorFactory.createOperator(driverContext);
+
+    boolean finishing = false;
+    for (int loops = 0; !joinOperator.isFinished(); loops++) {
+      if (joinOperator.needsInput()) {
+        if (numProbe < probeSize) {
+          Page inputPage = nextProbe(1024, buildSize, numProbe, null, null, state);
+          numProbe += inputPage.getPositionCount();
+          joinOperator.addInput(inputPage);
+        } else if (!finishing) {
+          joinOperator.finish();
+          finishing = true;
+        }
+      }
+
+      Page outputPage = joinOperator.getOutput();
+      if (outputPage != null) {
+        numResults += outputPage.getPositionCount();
+      }
+    }
+
+    return numResults;
+  }
+
+  int testRunPresto(int buildSize, int probeSize, int pageSize, boolean reusePages) {
+    JoinContext joinContext = new JoinContext();
+    long start = System.currentTimeMillis();
+    joinContext.setup(buildSize);
+    long buildTime = System.currentTimeMillis() - start;
+    start = System.currentTimeMillis();
+    int rows = benchmarkJoinHash(joinContext, buildSize, probeSize);
+    long probeTime = System.currentTimeMillis() - start;
+    if (!silent) {
+      System.out.println("Presto " + (reusePages ? "Page reuse" : "new Pages"));
+      System.out.println("Build " + buildSize + ": " + buildTime + " ms");
+      System.out.println("Probe " + probeSize + ": " + probeTime + " ms " + rows + " hits");
+    }
+    return rows;
+  }
+
   public static class TestThread extends Thread {
     int probeSize;
     int buildSize;
@@ -1217,7 +1308,11 @@ public class TestHash {
     public void run() {
       for (int i = 0; i < repeats; ++i) {
         TestHash self = new TestHash();
-        self.testRun(buildSize, probeSize, 1024, reusePages);
+        if (usePrestoOps) {
+          self.testRunPresto(buildSize, probeSize, 1024, reusePages);
+        } else {
+          self.testRun(buildSize, probeSize, 1024, reusePages);
+        }
       }
     }
   }
@@ -1233,6 +1328,9 @@ public class TestHash {
     }
     for (int ctr = 0; ctr < numThreads; ++ctr) {
       threads[ctr].join();
+    }
+    if (usePrestoOps) {
+      title = "Presto " + title;
     }
     long end = System.currentTimeMillis();
     System.out.println(
@@ -1252,50 +1350,14 @@ public class TestHash {
 
   public static void main(String args[]) throws InterruptedException {
     TestHash self = new TestHash();
-    silent = true;
-    runThreads("Small table warmup", 16 * 1024, 16 * 1024, 1, 11000, true);
-    silent = false;
-    System.out.println(
-        "Hash test " + "With Slices" + (recycleTable ? " recycling hash table " : "no recycle"));
-    self.testRun(8 * 1024 * 1024, 1024 * 1024, 1024, true);
-    self.testRun(1024 * 1024, 1024 * 1024, 1024, true);
-    self.testRun(1024 * 1024, 1024 * 1024, 1024, false);
-
-    System.out.println("Selective hash join");
-    useBloomFilter = false;
-    self.testRun(16 * 1024, 16 * 1024 * 1024, 1024, true);
-    self.testRun(8 * 1024 * 1024, 64 * 1024 * 1024, 1024, true);
-    useBloomFilter = true;
-    self.testRun(16 * 1024, 16 * 1024 * 1024, 1024, true);
-    self.testRun(8 * 1024 * 1024, 64 * 1024 * 1024, 1024, true);
-
-    System.out.println("1:1 hash joins");
-    self.testRun(8 * 1024 * 1024, 8 * 1024 * 1024, 1024, true);
+    self.testRunPresto(16 * 1024, 16 * 1024, 1024, false);
+    self.testRunPresto(16 * 1024, 16 * 1024, 1024, false);
+    self.testRun(16 * 1024, 16 * 1024, 1024, false);
+    self.testRun(16 * 1024, 16 * 1024, 1024, false);
+    self.testRunPresto(8 * 1024 * 1024, 8 * 1024 * 1024, 1024, false);
     self.testRun(8 * 1024 * 1024, 8 * 1024 * 1024, 1024, false);
-    recycleTable = false;
-    boolean reusePages = false;
-    clearAllocCache();
-    System.out.println(
-        "Hash test " + "With Slices" + (recycleTable ? " recycling hash table " : "no recycle"));
-    silent = true;
-    runThreads("Small table", 16 * 1024, 16 * 1024, 1, 2048 * 10, reusePages);
-    runThreads("Small table", 16 * 1024, 16 * 1024, 16, 2048 * 10, reusePages);
-    silent = false;
-    System.out.println("Single thread, large table");
-    self.testRun(32 * 1024 * 1024, 32 * 1024 * 1024, 1024, reusePages);
-    runThreads("Large table ", 32 * 1024 * 1024, 32 * 1024 * 1024, 16, 10, reusePages);
-    recycleTable = true;
-    System.out.println("Recycle table, new pages");
-    runThreads("Large table ", 32 * 1024 * 1024, 32 * 1024 * 1024, 16, 10, reusePages);
-    reusePages = true;
-    System.out.println(
-        "Hash test " + "With Slices" + (recycleTable ? " recycling hash table " : "no recycle"));
-    silent = true;
-    runThreads("Small table", 16 * 1024, 16 * 1024, 1, 2048 * 10, reusePages);
-    runThreads("Small table", 16 * 1024, 16 * 1024, 16, 2048 * 10, reusePages);
-    silent = false;
-    System.out.println("Single thread, large table");
-    self.testRun(32 * 1024 * 1024, 32 * 1024 * 1024, 1024, reusePages);
-    runThreads("Large table ", 32 * 1024 * 1024, 32 * 1024 * 1024, 16, 10, reusePages);
+    self.testRunPresto(32 * 1024 * 1024, 32 * 1024 * 1024, 1024, false);
+    usePrestoOps = true;
+    runThreads("Large table ", 32 * 1024 * 1024, 32 * 1024 * 1024, 16, 10, false);
   }
 }
