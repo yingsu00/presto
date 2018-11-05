@@ -305,11 +305,11 @@ public class PageProcessor
                 }
 
                 verify(result.isSuccess());
-                Page page = result.getPage();
+                Page resultPage = result.getPage();
 
                 // if we produced a large page or if the expression is expensive, halve the batch size for the next call
-                long pageSize = page.getSizeInBytes();
-                if (page.getPositionCount() > 1 && (pageSize > MAX_PAGE_SIZE_IN_BYTES || expressionProfiler.isExpressionExpensive())) {
+                long pageSize = resultPage.getSizeInBytes();
+                if (resultPage.getPositionCount() > 1 && (pageSize > MAX_PAGE_SIZE_IN_BYTES || expressionProfiler.isExpressionExpensive())) {
                     projectBatchSize = projectBatchSize / 2;
                 }
 
@@ -330,7 +330,7 @@ public class PageProcessor
                 }
 
                 updateRetainedSize();
-                return ofResult(page);
+                return ofResult(resultPage);
             }
         }
 
