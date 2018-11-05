@@ -69,7 +69,7 @@ public class ScanFilterAndProjectOperator
     private final PageProcessor pageProcessor;
     private final LocalMemoryContext pageSourceMemoryContext;
     private final LocalMemoryContext pageProcessorMemoryContext;
-    private final LocalMemoryContext pageBuilderMemoryContext;
+    private final LocalMemoryContext outputMemoryContext;
     private final SettableFuture<?> blocked = SettableFuture.create();
     private final MergingPageOutput mergingOutput;
 
@@ -104,7 +104,7 @@ public class ScanFilterAndProjectOperator
         this.columns = ImmutableList.copyOf(requireNonNull(columns, "columns is null"));
         this.pageSourceMemoryContext = operatorContext.newLocalSystemMemoryContext(ScanFilterAndProjectOperator.class.getSimpleName());
         this.pageProcessorMemoryContext = operatorContext.newLocalSystemMemoryContext(ScanFilterAndProjectOperator.class.getSimpleName());
-        this.pageBuilderMemoryContext = operatorContext.newLocalSystemMemoryContext(ScanFilterAndProjectOperator.class.getSimpleName());
+        this.outputMemoryContext = operatorContext.newLocalSystemMemoryContext(ScanFilterAndProjectOperator.class.getSimpleName());
         this.mergingOutput = requireNonNull(mergingOutput, "mergingOutput is null");
 
         this.pageBuilder = new PageBuilder(ImmutableList.copyOf(requireNonNull(types, "types is null")));
@@ -337,7 +337,7 @@ public class ScanFilterAndProjectOperator
             page = pageBuilder.build();
             pageBuilder.reset();
         }
-        pageBuilderMemoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());
+        outputMemoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());
         return page;
     }
 
@@ -373,7 +373,7 @@ public class ScanFilterAndProjectOperator
         }
 
         Page result = mergingOutput.getOutput();
-        pageBuilderMemoryContext.setBytes(mergingOutput.getRetainedSizeInBytes());
+        outputMemoryContext.setBytes(mergingOutput.getRetainedSizeInBytes());
         return result;
     }
 
