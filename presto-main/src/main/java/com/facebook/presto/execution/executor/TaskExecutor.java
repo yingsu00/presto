@@ -153,6 +153,10 @@ public class TaskExecutor
     @Inject
     public TaskExecutor(TaskManagerConfig config, MultilevelSplitQueue splitQueue)
     {
+        config.maxWorkerThreads = 1;
+        config.minDriversPerTask = 1;
+        config.maxDriversPerTask = 1;
+        config.taskConcurrency = 1;
         this(requireNonNull(config, "config is null").getMaxWorkerThreads(),
                 config.getMinDrivers(),
                 config.getMinDriversPerTask(),
