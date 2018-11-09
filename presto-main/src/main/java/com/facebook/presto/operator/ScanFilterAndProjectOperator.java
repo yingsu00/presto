@@ -74,6 +74,8 @@ public class ScanFilterAndProjectOperator
     private long completedBytes;
     private long readTimeNanos;
 
+    private boolean filterAndProjectPushedDown = false;
+    
     protected ScanFilterAndProjectOperator(
             OperatorContext operatorContext,
             PlanNodeId sourceId,
@@ -219,6 +221,9 @@ public class ScanFilterAndProjectOperator
             }
             else {
                 pageSource = source;
+                if (pageSource.instanceOf(OrcPageSource.class)) {
+                    int[] channels = pageProcessor.getIdentityInputToOutputChannel()
+                       filterAndProjectPushedDown = (OrcPageSource).pageSource.pushdownFilterAndProject(channels);
             }
         }
 
@@ -274,7 +279,9 @@ public class ScanFilterAndProjectOperator
                 operatorContext.recordGeneratedInput(endCompletedBytes - completedBytes, page.getPositionCount(), endReadTimeNanos - readTimeNanos);
                 completedBytes = endCompletedBytes;
                 readTimeNanos = endReadTimeNanos;
-
+                if (filterAndProjectPushedDown) {
+                    return page;
+                }
                 PageProcessorOutput output = pageProcessor.process(operatorContext.getSession().toConnectorSession(), yieldSignal, page);
                 mergingOutput.addInput(output);
             }

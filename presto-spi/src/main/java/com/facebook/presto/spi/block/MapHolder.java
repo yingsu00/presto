@@ -26,8 +26,8 @@ public class MapHolder {
 		return new int[size];
 	    }
 	int[] array = (int[])arrays.get(arrays.size() - 1);
-	if (array.length >= size)
-	    {
+        arrays.remove(arrays.size() - 1);
+	if (array.length >= size) {
 		return array;
 	    }
 	return new int[size];

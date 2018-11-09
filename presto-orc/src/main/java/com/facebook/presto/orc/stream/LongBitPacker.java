@@ -80,6 +80,57 @@ public final class LongBitPacker
         }
     }
 
+    /* Like unpack but unpacks only selected positions. The positions
+     * are numOffsets elements in offsets starting at
+     * firstOffset. offsetBias is subtracted from the values in
+     * offsets to get a position between 0 and len - 1. */
+    public void unpackAtOffsets(long[] buffer, int offset, int len, int bitSize, int offsets, int firstOffset, int numOffsets, int offsetBias, InputStream input)
+            throws IOException
+    {
+        checkArgument(len <= MAX_BUFFERED_POSITIONS, "Expected ORC files to have runs of at most 512 bit packed longs");
+        switch (bitSize) {
+            case 1:
+                unpack1(buffer, offset, len, input);
+                break;
+            case 2:
+                unpack2(buffer, offset, len, input);
+                break;
+            case 4:
+                unpack4(buffer, offset, len, input);
+                break;
+            case 8:
+                unpack8AtOffsets(buffer, offset, len, offsets, firstOffset, numOffsets, offsetBias, input);
+                break;
+            case 16:
+                unpack16(buffer, offset, len, input);
+                break;
+            case 24:
+                unpack24(buffer, offset, len, input);
+                break;
+            case 32:
+                unpack32(buffer, offset, len, input);
+                break;
+            case 40:
+                unpack40(buffer, offset, len, input);
+                break;
+            case 48:
+                unpack48(buffer, offset, len, input);
+                break;
+            case 56:
+                unpack56(buffer, offset, len, input);
+                break;
+            case 64:
+                unpack64(buffer, offset, len, input);
+                break;
+            default:
+                unpackGeneric(buffer, offset, len, bitSize, input);
+        }
+        for (int i = 0; i < numOffsets; i++) {
+            buffer[i] = buffer[offsets[firstOffset + i] - offsetBias]; 
+        }
+    }
+
+    
     private static void unpackGeneric(long[] buffer, int offset, int len, int bitSize, InputStream input)
             throws IOException
     {
@@ -254,6 +305,17 @@ public final class LongBitPacker
         }
         for (int i = 0; i < len; i++) {
             buffer[offset + i] = 0xFFL & tmp[i];
+        }
+    }
+
+    private void unpack8AtOffsets(long[] buffer, int offset, int len, int offsets, int firstOffset, int numOffsets, int offsetBias, InputStream input)
+            throws IOException
+    {
+        for (int i = 0; i < len; ) {
+            i += input.read(tmp, i, len - i);
+        }
+        for (int i = 0; i < numOffsets; i++) {
+            buffer[offset + i] = 0xFFL & tmp[offsets[i + firstOffset] - offsetBias];
         }
     }
 

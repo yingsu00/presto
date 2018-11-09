@@ -23,6 +23,56 @@ import java.util.List;
 
 public interface StreamReader
 {
+    default boolean scanAtEnd()
+    {
+        return true;
+    }
+
+    default void setInputQualifyingSet(QualifyingSet qualifyingSet)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default QualifyingSet getOutputQualifyingSet()
+    {
+        return null;
+    }
+    
+    /* If filter is non-null, sets the output QualifyingSet by
+     * applying filter to the rows in the input QualifyingSet. If
+     * channel is not -1, appends the values in the post-filter rows
+     * to a Block. The Block can be retrieved by getBlock(). */
+    void setFilterAndChannel(Filter filter, int channel)    {
+        throw new UnsupportedOperationException();
+    }
+
+    /* True if the extracted values depend on a row group
+     * dictionary. Cannot move to the next row group without losing
+     * the dictionary encoding .*/
+    default boolean mustReturnAfterRowGroup()
+    {
+        return false;
+    }
+    
+    default int getChannel()
+    {
+        return -1;
+    }
+
+    default Block getBlock()
+    {
+        return null;
+    }
+
+    default int getValueSize() {
+        return 8;
+    }
+
+    default void scan(int maxResultBytes);
+        {
+        throw new UnsupportedOperationException();
+    }
+    
     Block readBlock(Type type)
             throws IOException;
 

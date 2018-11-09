@@ -113,6 +113,17 @@ public class OrcRecordReader
     private final Optional<StatisticsValidation> rowGroupStatisticsValidation;
     private final Optional<StatisticsValidation> stripeStatisticsValidation;
     private final Optional<StatisticsValidation> fileStatisticsValidation;
+    private OrcPredicate predicate;
+    
+    // Number of complete rows in result Blocks in StreamReaders.
+    int numRowsInResult;
+
+    StreamReader[] streamOrder;
+
+    QualifyingSet initialQualifyingSet;
+
+    
+    boolean reusePages = false;
 
     public OrcRecordReader(
             Map<Integer, Type> includedColumns,
@@ -156,7 +167,8 @@ public class OrcRecordReader
         this.stripeStatisticsValidation = writeValidation.map(validation -> validation.createWriteStatisticsBuilder(includedColumns));
         this.fileStatisticsValidation = writeValidation.map(validation -> validation.createWriteStatisticsBuilder(includedColumns));
         this.systemMemoryUsage = systemMemoryUsage.newAggregatedMemoryContext();
-
+        this.predicate = predicate;
+        
         // reduce the included columns to the set that is also present
         ImmutableSet.Builder<Integer> presentColumns = ImmutableSet.builder();
         ImmutableMap.Builder<Integer, Type> presentColumnsAndTypes = ImmutableMap.builder();
@@ -243,6 +255,11 @@ public class OrcRecordReader
         nextBatchSize = initialBatchSize;
     }
 
+    public void pushdownFilterAndProjection(int[] fieldIdToChannel)
+    {
+        this.fieldIdToChannel = fieldIdToChannel = fieldIdToChannel;
+    }
+    
     private static boolean splitContainsStripe(long splitOffset, long splitLength, StripeInformation stripe)
     {
         long splitEndOffset = splitOffset + splitLength;

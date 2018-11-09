@@ -283,8 +283,28 @@ public interface Block
      * This is defined only for blocks that directly hold data, e.g. are not 
      * Dictionaries or RunLengthEncodedBlocks. This is used when flattening 
      * dictionaries and run length encodings. */
-    default void getContents(BlockContents contents) {
+    default void getContents(BlockContents contents)
+    {
         throw new UnsupportedOperationException(getClass().getName());
+    }
+
+    /* Writes the elements at positions to consecutive positions starting at 
+     * base. E.g. value[base] = value[positions[0]]. */
+    default void compact(int[] positions, int offset, int numPositions)
+    {
+        throw new UnsupportedOperationException(getClass().getName());
+    }
+    
+    public void compact(int[] positions, int base, int numPositions)
+    {
+        for (int i = 0; i < numPositions; i++) {
+            values[base + i] = values[positions[i]];
+        }
+        if (nullValues != null) {
+            nullValues[base + i] = nullValues[positions[i]];
+        }
+        positionCount = base + numValues;
+        }
     }
 
 }

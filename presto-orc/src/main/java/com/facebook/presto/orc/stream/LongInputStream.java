@@ -104,4 +104,9 @@ public interface LongInputStream
         }
         return sum;
     }
+
+    default int scan(Filter filter, int[]offsets, int numOffsets, int end, int[] inputNumbers, int[] rowNumbersOut, int[] inputNumbersOut, long[] valuesOut, int valuesFill)
+    {
+        throw new UnsupportedOperationException();
+    }
 }

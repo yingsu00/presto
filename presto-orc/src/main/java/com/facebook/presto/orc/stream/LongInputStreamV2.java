@@ -43,7 +43,28 @@ public class LongInputStreamV2
     private int used;
     private final boolean skipCorrupt;
     private long lastReadInputCheckpoint;
-
+    // Position of the first value of the run in literals from the checkpoint.
+    private int currentRunOffset;
+    // Positions to visit in scna(), offset from last checkpoint.
+    private int[] offsets;
+    private int numOffsets;
+    private int offsetIdx;
+    // Copies of arguments to scan().
+    Filter filter;
+    int[] rowNumbers;
+    int[] inputNumbers[];
+    int[] rowNumbersOut;
+    int[] inputNumbersOut;
+    lomg[] valuesOut;
+    int valuesFill;
+    int numResults;
+    
+    // readValues sets this to true to indicate that all operations
+    // needed by scan() where performed inside readValues. If false,
+    // scan() must look at the literals.
+    private boolean scanDone = false;
+    
+        
     public LongInputStreamV2(OrcInputStream input, boolean signed, boolean skipCorrupt)
     {
         this.input = input;
@@ -79,6 +100,75 @@ public class LongInputStreamV2
         }
     }
 
+    // Applies filter to values at numOffsets first positions in
+    // offsets. If the filter is true for the value at offsets[i][,
+    // appends inputNumbers[i] to inputNumbersOut and rowNumbers[i] to
+    // rowNumbersOut and the value itself to valuesOut. If filter is
+    // null, all values pass the filter. If rowNumbers is null, the
+    // value at offsets[i] is used instead. If inputNumbers is null, i
+    // is used instead of inputNumbers[i]. valuesOut may be null, in
+    // which case the value is discarded after the filter. Returns the number of values written into the output arrays.
+    public int scan(Filter filter, int[]offsets, int numOffsets, int end, int[] inputNumbers, int[] rowNumbersOut, int[] inputNumbersOut, long[] valuesOut, int valuesFill)
+    {
+        this.offsets = offsets;
+        this.numOffsets = numOffsets;
+        this.rowNumbers = rowNumbers;
+        this.inputNumbers = inputNumbers;
+        this.rowNumbersOut = rowNumbersOut;
+        this.inputNumbersOut = inputNumbersOut;
+        this.valuesOut = valuesOut;
+        this.valuesFill = valuesFill;
+        numResults = 0;
+        if (used < numLiterals) {
+            scanLiterals();
+        }
+        while (offsetIdx < numOffsets) {
+            used = 0;
+            numLiterals = 0;
+            scanDone = false;
+            readValues();
+            if (!scanDone) {
+                scanLiterals();
+            }
+            currentRunOffset += numLiterals;
+        }
+        return numResults;
+    }
+
+    // Apply filter to values materialized in literals.
+    int scanLiterals()
+    {
+        for (;;) {
+            if (offsetIdx >= numOffsets) {
+                return;
+            }
+            int offset = offsets[offsetIdx];
+            if (offset >= numLiterals + currentRunOffset) {
+                return;
+            }
+            long literal = literals[offset - currentRunOffset];
+            if (filter == null || filter.testLong(literal)) {
+                addResult(literal);
+            }
+            ++offsetIdx;
+        }
+    }
+
+    void addResult(long val)
+    {
+        if (rowNumbersOut != null) {
+            rowNumbersOut[numResults] = inputRowNumbers == null
+                ? offsets[offsetIdx] 
+                : inputRowNumbers[offsetIdx];
+            inputNumberOut[numResults] = inputNumbers == null ? offsetIdx : inputNumbers[offsetIdx];
+        }
+        if (valuesOut != null) {
+            valuesOut[numResults + valuesFill] = val;
+        }
+        ++numResults;
+    }
+
+    
     // This comes from the Apache Hive ORC code
     private void readDeltaValues(int firstByte)
             throws IOException
@@ -263,6 +353,33 @@ public class LongInputStreamV2
         // runs are one off
         length += 1;
 
+        if (offsets != null) {
+            int numInRange = numOffsetsWithin(length);
+            if (numInRange == 0 && (fixedBits & 0x7) == 0) {
+                // If packing width is an integer number of bytes, skip.
+                input.skipFully(fixedBits / 8);
+                currentRunOffset += length;
+                scanDone = true;
+                return;
+            }
+            packer.unpackAtOffsets(literals, numLiterals, length, fixedBits, offsets, offsetIdx, numInRange, currentRunOffset, input);
+            if (signed) {
+                for (int i = 0; i < numInRange; i++) {
+                    literals[numLiterals + i] = LongDecode.zigzagDecode(literals[numLiterals + i]);
+                }
+            }
+
+            for (int i = 0; i < numInRange; i++) {
+                long literal = literals[i + numLiterals];
+                if (filter == null || filter.testLong(literal)) {
+                    addResult(literal);
+                }
+                ++offsetIdx;
+            }
+            currentRunOffset += length;
+            scanDone = true;
+            return;
+        }
         // write the unpacked values and zigzag decode to result buffer
         packer.unpack(literals, numLiterals, length, fixedBits, input);
         if (signed) {
@@ -297,12 +414,44 @@ public class LongInputStreamV2
             val = LongDecode.zigzagDecode(val);
         }
 
+        if (offsets != null) {
+            if (offsets[offsetIdx] >= currentRunOffset + length) {
+                currentRunOffset += length;
+                scanDone = true;
+                return;
+            }
+            int numInRle = numOffsetsWithin(length);
+            if (filter == null || filter.testLong(val)) {
+                for (int i = 0; i < numInRle; ++i) {
+                    addResultRow(val);
+                    ++offsetIdx;
+                }
+            }
+            else {
+                offsetIdx += numInRle;
+            }
+            currentRunOffset += length;
+            scanDone = true;
+            return;
+        }
         // repeat the value for length times
         for (int i = 0; i < length; i++) {
             literals[numLiterals++] = val;
         }
     }
 
+    int numOffsetsWithin(int length)
+    {
+        int i;
+        int limit = currentRunOffset + length;
+        for (i = offsetIdx; i < numOffsets; ++i) {
+            if (offsets[i] > limit) {
+                break;
+            }
+        }
+        return i - offsetIdx;
+    }
+    
     /**
      * Read n bytes in big endian order and convert to long.
      */
@@ -353,7 +502,8 @@ public class LongInputStreamV2
             input.seekToCheckpoint(v2Checkpoint.getInputStreamCheckpoint());
             numLiterals = 0;
             used = 0;
-            skip(v2Checkpoint.getOffset());
+            currentRunOffset = v2Checkpoint.getOffset();
+            skip(currentRunOffset);
         }
     }
 

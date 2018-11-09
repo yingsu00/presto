@@ -52,7 +52,7 @@ public class PageProcessor
     private final DictionarySourceIdFunction dictionarySourceIdFunction = new DictionarySourceIdFunction();
     private final Optional<PageFilter> filter;
     private final List<PageProjection> projections;
-
+    private final int[] inputToOutputChannel;
     private int projectBatchSize = MAX_BATCH_SIZE;
 
     public PageProcessor(Optional<PageFilter> filter, List<? extends PageProjection> projections)
@@ -72,6 +72,35 @@ public class PageProcessor
                     return projection;
                 })
                 .collect(toImmutableList());
+        Map inputToOutput = new Map;
+        // If the projection only reorders columns, set
+        // inputToOutputChannel[i] to give the output channel of the
+        // ith channel in the output Page of the PageSource. If the
+        // ith channel is not projected out, use -1.
+        boolean allAreInputPageProjections = true;
+        int maxInputChannel = -1;
+        for (int i = 0; i < projections.size(); i++) {;
+            PageProjection projection = projections.get(i);
+            if (!projection instanceof InputPageProjection) {
+                allAreInputPageProjections = false;
+                break;
+            }
+            List<Integer> inputs = projection.getInputChannels().getInputChannels();
+            if (!inputToOutput.contains(inputs.get(0))) {
+                inputToOutput.put(inputs.get(0), Integer(i));
+                lastInput = math.max(lastInput, inputs.get(0).intValue());
+            } else {
+                allAreInputPageProjections = false;
+                break;
+            }
+        }
+        if (allAreInputProjections) {
+            inputToOutputChannel = new int[maxInputChannel + 1];
+            Arrays.fill(inputToOutputChannel, -1);
+            for (Map.Entry<Integer, Integer> entry : inputToOutput.entrySet()) {
+                inputToOutputChannel[entry.getKey().intValue()] = entry.getValue().intValue();
+            }
+        }
     }
 
     public PageProcessorOutput process(ConnectorSession session, DriverYieldSignal yieldSignal, Page page)
@@ -103,6 +132,17 @@ public class PageProcessor
         return new PageProcessorOutput(pages::getRetainedSizeInBytes, pages);
     }
 
+    public int[] getIdentityInputToOutputChannel()
+    {
+        return inputToOutputChannel;
+    }
+
+    public List<Integer> getProjectionInputChannels()
+    {
+        return projections.stream().map(projection -> { return projection.inputChannels().getInputChannels(); })
+            .toList();
+    }
+    
     @VisibleForTesting
     public List<PageProjection> getProjections()
     {

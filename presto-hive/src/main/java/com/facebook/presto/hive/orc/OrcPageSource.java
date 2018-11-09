@@ -61,6 +61,8 @@ public class OrcPageSource
 
     private final AggregatedMemoryContext systemMemoryContext;
 
+    private boolean useAriaScan = false;
+
     private final FileFormatDataSourceStats stats;
 
     public OrcPageSource(
@@ -109,6 +111,16 @@ public class OrcPageSource
         this.systemMemoryContext = requireNonNull(systemMemoryContext, "systemMemoryContext is null");
     }
 
+    // Sets the channel of the ith Block in the output layout to
+    // inputToOutputChannel[i]. Omits the Block from the output Page
+    // if inputToOutputChannel[i[ == -1. If inputToOutputChannel is
+    // null, the output Page layout is unaffected.
+    void pushDownFilterAndProjection(int[] fieldIdToChannel) 
+    {
+        useAriaScan = true;
+        recordReader.pushdownFilterAndProjection(fieldIdToChannel);
+    }
+
     @Override
     public long getCompletedBytes()
     {
@@ -130,6 +142,9 @@ public class OrcPageSource
     @Override
     public Page getNextPage()
     {
+        if (useAriaScan) {
+            return getNextPageWithFilters();
+        }
         try {
             batchId++;
             int batchSize = recordReader.nextBatch();

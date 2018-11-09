@@ -298,4 +298,55 @@ public class TupleDomainOrcPredicate<C>
                     .toString();
         }
     }
+
+    public Map<Integer, Filter> getFilters(Set<Integer> columnIndices)
+    {
+        Optional<Map<C, Domain>> optionalEffectivePredicateDomains = effectivePredicate.getDomains();
+        Map<Integer, Filter> filters = new Map();
+        if (!optionalEffectivePredicateDomains.isPresent()) {
+            // No filters
+            return filters;
+        }
+        Map<C, Domain> effectivePredicateDomains = optionalEffectivePredicateDomains.get();
+
+        for (ColumnReference<C> columnReference : columnReferences) {
+            Domain predicateDomain = effectivePredicateDomains.get(columnReference.getColumn());
+            if (predicateDomain == null) {
+                // no predicate on this column.
+                continue;
+            }
+            ValueSet values = domainPredicate.getValues();
+            if (values instanceof SortedRangeSet) {
+                List<Range> ranges = ((SortedRangeSet)values).getOrderedRanges();
+                if (ranges.size() != 1) {
+                    return null;
+                }
+                Range range = ranges.get(0);
+                Type type = predicateDomain.getType();
+                if (type != BIGINT) {
+                    return null;
+                }
+                Marker lower = range.getLow();
+                Marker high = range.getHigh();
+                long lower = low.isLowerUnbounded() Long.MIN_VALUE
+                    : low.getValue.longValue();
+                long upper = high.isUpperUnbounded() ? Long.MAX_VALUE
+                    :high.getValue().longValue();
+                if (high.getBound() == BELOW) {
+                    --upper;
+                }
+                if (low.getBound() == ABOVE) {
+                    ++lower;
+                }
+                Filter filter = new Filters.BigintRange(lower, upper);
+                result.put(columnReference.getOrdinal(), filter);
+            }
+            else {
+                // The domain cannot be converted to a filter. Pushdown fails.
+                return null;
+            }
+        }
+        return result;
+    }
+
 }

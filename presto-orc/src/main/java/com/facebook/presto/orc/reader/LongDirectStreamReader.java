@@ -42,6 +42,7 @@ import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 
 public class LongDirectStreamReader
+    extends ColumnReader 
         implements StreamReader
 {
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(LongDirectStreamReader.class).instanceSize();
@@ -66,6 +67,9 @@ public class LongDirectStreamReader
 
     private LocalMemoryContext systemMemoryContext;
 
+    private long[] values = null;
+    private boolean[] valueIsNull = null;
+    
     public LongDirectStreamReader(StreamDescriptor streamDescriptor, LocalMemoryContext systemMemoryContext)
     {
         this.streamDescriptor = requireNonNull(streamDescriptor, "stream is null");
@@ -183,7 +187,52 @@ public class LongDirectStreamReader
         rowGroupOpen = false;
     }
 
-    @Override
+    public void scan()
+            throws IOException
+    {
+        if (!rowGroupOpen) {
+            openRowGroup();
+        }
+        if (blockChannel != -1) {
+            ensureBlockSize();
+        }
+        int numValues = block != null ? block.getPositionCount() : 0;
+        int numOut = dataStream.scan(filter,
+                                     input.getPositions(),
+                                     input.getNumPositions(),
+                                     input.getEnd(),
+                                     output.getOffsets(),
+                                     output.getInputNumbers(),
+                                     values,
+                                     numValues);
+        if (block != null) {
+            block.setPositionCount(numOut + numValues);
+        }
+    }
+
+    public getBlock()
+    {
+        return block;
+    }
+    
+    private void ensureValues()
+    {
+        if (outputChannel == -1) {
+            return;
+        }
+        int numInput = inputQualifyingSet.size();
+        if (block == null) {
+            values = new long[Math.max(numInput, expectNumValues)];
+            block = new LongArrayBlock(0, Optional.empty(), values);
+        }
+        else if (block.getPositionCount() + size < values.length) {
+            int newSize = (block.getPositionCount() + size) * 1.2
+            block = new LongArrayBlock(block.positionCount(), valueIsNull != null ? Arrays.copyOf(valueIsNull, newSize) : null,
+                                       Arrays.copyOf(values, newSize));
+        }
+    }
+
+        @Override
     public String toString()
     {
         return toStringHelper(this)
