@@ -28,10 +28,12 @@ import io.airlift.slice.SizeOf;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
-import java.util.HashMap;
+import static java.lang.Math.max;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;import java.util.HashMap;
 import java.util.function.Function;
 
 import static com.facebook.presto.operator.project.PageProcessorOutput.EMPTY_PAGE_PROCESSOR_OUTPUT;
@@ -72,34 +74,37 @@ public class PageProcessor
                     return projection;
                 })
                 .collect(toImmutableList());
-        Map inputToOutput = new Map;
+        HashMap<Integer, Integer> inputToOutput = new HashMap();
         // If the projection only reorders columns, set
         // inputToOutputChannel[i] to give the output channel of the
         // ith channel in the output Page of the PageSource. If the
         // ith channel is not projected out, use -1.
         boolean allAreInputPageProjections = true;
         int maxInputChannel = -1;
-        for (int i = 0; i < projections.size(); i++) {;
+        for (int i = 0; i < projections.size(); i++) {
             PageProjection projection = projections.get(i);
-            if (!projection instanceof InputPageProjection) {
+            if (!(projection instanceof InputPageProjection)) {
                 allAreInputPageProjections = false;
                 break;
             }
             List<Integer> inputs = projection.getInputChannels().getInputChannels();
-            if (!inputToOutput.contains(inputs.get(0))) {
-                inputToOutput.put(inputs.get(0), Integer(i));
-                lastInput = math.max(lastInput, inputs.get(0).intValue());
+            if (!inputToOutput.containsKey(inputs.get(0))) {
+                inputToOutput.put(inputs.get(0), new Integer(i));
+                maxInputChannel = Math.max(maxInputChannel, inputs.get(0).intValue());
             } else {
                 allAreInputPageProjections = false;
                 break;
             }
         }
-        if (allAreInputProjections) {
+        if (allAreInputPageProjections) {
             inputToOutputChannel = new int[maxInputChannel + 1];
             Arrays.fill(inputToOutputChannel, -1);
             for (Map.Entry<Integer, Integer> entry : inputToOutput.entrySet()) {
                 inputToOutputChannel[entry.getKey().intValue()] = entry.getValue().intValue();
             }
+        }
+        else {
+            inputToOutputChannel = null;
         }
     }
 
@@ -137,12 +142,6 @@ public class PageProcessor
         return inputToOutputChannel;
     }
 
-    public List<Integer> getProjectionInputChannels()
-    {
-        return projections.stream().map(projection -> { return projection.inputChannels().getInputChannels(); })
-            .toList();
-    }
-    
     @VisibleForTesting
     public List<PageProjection> getProjections()
     {

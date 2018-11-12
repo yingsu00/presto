@@ -18,7 +18,9 @@ import com.facebook.presto.orc.metadata.statistics.ColumnStatistics;
 import com.facebook.presto.orc.metadata.statistics.HiveBloomFilter;
 import com.facebook.presto.orc.metadata.statistics.RangeStatistics;
 import com.facebook.presto.spi.predicate.Domain;
+import com.facebook.presto.spi.predicate.Marker;
 import com.facebook.presto.spi.predicate.Range;
+import com.facebook.presto.spi.predicate.SortedRangeSet;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.predicate.ValueSet;
 import com.facebook.presto.spi.type.DecimalType;
@@ -32,6 +34,7 @@ import io.airlift.slice.Slice;
 import org.apache.hive.common.util.BloomFilter;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -299,10 +302,10 @@ public class TupleDomainOrcPredicate<C>
         }
     }
 
-    public Map<Integer, Filter> getFilters(Set<Integer> columnIndices)
+    public Map<Integer, Filter> getFilters(Map<Integer, ?> columnIndices)
     {
         Optional<Map<C, Domain>> optionalEffectivePredicateDomains = effectivePredicate.getDomains();
-        Map<Integer, Filter> filters = new Map();
+        HashMap<Integer, Filter> filters = new HashMap();
         if (!optionalEffectivePredicateDomains.isPresent()) {
             // No filters
             return filters;
@@ -315,7 +318,7 @@ public class TupleDomainOrcPredicate<C>
                 // no predicate on this column.
                 continue;
             }
-            ValueSet values = domainPredicate.getValues();
+            ValueSet values = predicateDomain.getValues();
             if (values instanceof SortedRangeSet) {
                 List<Range> ranges = ((SortedRangeSet)values).getOrderedRanges();
                 if (ranges.size() != 1) {
@@ -326,27 +329,27 @@ public class TupleDomainOrcPredicate<C>
                 if (type != BIGINT) {
                     return null;
                 }
-                Marker lower = range.getLow();
+                Marker low = range.getLow();
                 Marker high = range.getHigh();
-                long lower = low.isLowerUnbounded() Long.MIN_VALUE
-                    : low.getValue.longValue();
-                long upper = high.isUpperUnbounded() ? Long.MAX_VALUE
-                    :high.getValue().longValue();
-                if (high.getBound() == BELOW) {
-                    --upper;
+                long lowerLong = low.isLowerUnbounded() ? Long.MIN_VALUE
+                    : ((Long)low.getValue()).longValue();
+                long upperLong = high.isUpperUnbounded() ? Long.MAX_VALUE
+                    : ((Long)high.getValue()).longValue();
+                if (high.getBound() == Marker.Bound.BELOW) {
+                    --upperLong;
                 }
-                if (low.getBound() == ABOVE) {
-                    ++lower;
+                if (low.getBound() == Marker.Bound.ABOVE) {
+                    ++lowerLong;
                 }
-                Filter filter = new Filters.BigintRange(lower, upper);
-                result.put(columnReference.getOrdinal(), filter);
+                Filter filter = new Filters.BigintRange(lowerLong, upperLong);
+                filters.put(columnReference.getOrdinal(), filter);
             }
             else {
                 // The domain cannot be converted to a filter. Pushdown fails.
                 return null;
             }
         }
-        return result;
+        return filters;
     }
 
 }

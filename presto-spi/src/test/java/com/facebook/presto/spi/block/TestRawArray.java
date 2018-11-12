@@ -70,7 +70,7 @@ public class TestRawArray
       tempLongs[0] = longs;
       //Slice source = new Slice(tempLongs, 0, 24, 24, tempLongs);
       //Slice target = new Slice(tempLongs, 0, 24, 24, tempLongs);
-      //target.putLong(16, source.getLomg(16));
+      //target.putLong(16, source.getLong(16));
       unsafe.copyMemory(tempLongs, 16, tempDoubles, 16, 8);
       return tempDoubles[0];
     }

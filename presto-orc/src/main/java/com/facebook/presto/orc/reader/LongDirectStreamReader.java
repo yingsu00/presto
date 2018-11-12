@@ -14,7 +14,9 @@
 package com.facebook.presto.orc.reader;
 
 import com.facebook.presto.memory.context.LocalMemoryContext;
+import com.facebook.presto.orc.Filter;
 import com.facebook.presto.orc.OrcCorruptionException;
+import com.facebook.presto.orc.QualifyingSet;
 import com.facebook.presto.orc.StreamDescriptor;
 import com.facebook.presto.orc.metadata.ColumnEncoding;
 import com.facebook.presto.orc.stream.BooleanInputStream;
@@ -23,6 +25,7 @@ import com.facebook.presto.orc.stream.InputStreamSources;
 import com.facebook.presto.orc.stream.LongInputStream;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.block.LongArrayBlock;
 import com.facebook.presto.spi.type.Type;
 import org.openjdk.jol.info.ClassLayout;
 
@@ -30,7 +33,9 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 import static com.facebook.presto.orc.OrcReader.MAX_BATCH_SIZE;
 import static com.facebook.presto.orc.metadata.Stream.StreamKind.DATA;
@@ -38,6 +43,7 @@ import static com.facebook.presto.orc.metadata.Stream.StreamKind.PRESENT;
 import static com.facebook.presto.orc.stream.MissingInputStreamSource.missingStreamSource;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static io.airlift.slice.SizeOf.sizeOf;
+import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 
@@ -187,47 +193,75 @@ public class LongDirectStreamReader
         rowGroupOpen = false;
     }
 
-    public void scan()
+    public int erase(int begin, int end, int numResultsBeforeRowGroup, int numErasedFromInput)
+    {
+        if (block != null) {
+            block.erase(numResultsBeforeRowGroup + begin, block.getPositionCount());
+            return 0;
+        }
+        return 0;
+    }
+    
+    public int scan(int maxBytes)
             throws IOException
     {
         if (!rowGroupOpen) {
             openRowGroup();
         }
-        if (blockChannel != -1) {
+        if (outputChannel != -1) {
             ensureBlockSize();
         }
         int numValues = block != null ? block.getPositionCount() : 0;
+        QualifyingSet input = inputQualifyingSet;
+        QualifyingSet output = outputQualifyingSet;
+        int numInput = input.getPositionCount();
         int numOut = dataStream.scan(filter,
                                      input.getPositions(),
-                                     input.getNumPositions(),
+                                     numInput,
                                      input.getEnd(),
-                                     output.getOffsets(),
-                                     output.getInputNumbers(),
+                                     input.getPositions(),
+                                     input.getInputNumbers(),
+                                     output.getMutablePositions(numInput),
+                                     output.getMutableInputNumbers(numInput),
                                      values,
                                      numValues);
+        output.setEnd(input.getEnd());
+        output.setPositionCount(numOut);
         if (block != null) {
             block.setPositionCount(numOut + numValues);
         }
+        return inputQualifyingSet.getEnd();
     }
 
-    public getBlock()
+    @Override
+    public Block getBlock(boolean mayReuse)
     {
-        return block;
+        Block oldBlock = block;
+        if (!mayReuse) {
+            block = null;
+        }
+        return oldBlock;
+    }
+
+    @Override
+    public Filter getFilter()
+    {
+        return filter;
     }
     
-    private void ensureValues()
+    private void ensureBlockSize()
     {
         if (outputChannel == -1) {
             return;
         }
-        int numInput = inputQualifyingSet.size();
+        int numInput = inputQualifyingSet.getPositionCount();
         if (block == null) {
             values = new long[Math.max(numInput, expectNumValues)];
             block = new LongArrayBlock(0, Optional.empty(), values);
         }
-        else if (block.getPositionCount() + size < values.length) {
-            int newSize = (block.getPositionCount() + size) * 1.2
-            block = new LongArrayBlock(block.positionCount(), valueIsNull != null ? Arrays.copyOf(valueIsNull, newSize) : null,
+        else if (block.getPositionCount() + numInput < values.length) {
+            int newSize = (int)((block.getPositionCount() + numInput) * 1.2);
+            block = new LongArrayBlock(block.getPositionCount(), valueIsNull != null ? Optional.of(Arrays.copyOf(valueIsNull, newSize)) : Optional.empty(),
                                        Arrays.copyOf(values, newSize));
         }
     }

@@ -84,7 +84,7 @@ public final class LongBitPacker
      * are numOffsets elements in offsets starting at
      * firstOffset. offsetBias is subtracted from the values in
      * offsets to get a position between 0 and len - 1. */
-    public void unpackAtOffsets(long[] buffer, int offset, int len, int bitSize, int offsets, int firstOffset, int numOffsets, int offsetBias, InputStream input)
+    public void unpackAtOffsets(long[] buffer, int offset, int len, int bitSize, int[] offsets, int firstOffset, int numOffsets, int offsetBias, InputStream input)
             throws IOException
     {
         checkArgument(len <= MAX_BUFFERED_POSITIONS, "Expected ORC files to have runs of at most 512 bit packed longs");
@@ -308,7 +308,7 @@ public final class LongBitPacker
         }
     }
 
-    private void unpack8AtOffsets(long[] buffer, int offset, int len, int offsets, int firstOffset, int numOffsets, int offsetBias, InputStream input)
+    private void unpack8AtOffsets(long[] buffer, int offset, int len, int[] offsets, int firstOffset, int numOffsets, int offsetBias, InputStream input)
             throws IOException
     {
         for (int i = 0; i < len; ) {

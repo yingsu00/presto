@@ -294,4 +294,32 @@ public class LongArrayBlock
 	contents.longs = values;
 	contents.valueIsNull = valueIsNull;
     }
+
+    public void compact(int[] positions, int base, int numPositions)
+    {
+        for (int i = 0; i < numPositions; i++) {
+            values[base + i] = values[base + positions[i]];
+        }
+        if (valueIsNull != null) {
+            for (int i = 0; i < numPositions; i++) {
+                valueIsNull[base + i] = valueIsNull[base + positions[i]];
+            }
+        }
+        positionCount = base + numPositions;
+        }
+
+    public void erase(int begin, int end)
+    {
+        if (end > positionCount || begin < 0 || begin > end) {
+            throw new IllegalArgumentException("begin, end not valid");
+        }
+                    int numMove = positionCount - end;
+        for (int i = end; i < numMove; i++) {
+            values[begin + i] = values[end + i];
+            if (valueIsNull != null) {
+                valueIsNull[begin + i] = valueIsNull[end + i];
+            }
+        }
+        positionCount -= end - begin;
+    }
 }

@@ -1,17 +1,33 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.facebook.presto.orc;
 
-class Filter
+import io.airlift.slice.Slice;
+
+public class Filter
 {
 
     private long nIn = 0;
     private long nOut = 0;
     private long time = 0;
 
-    bool testLong(long value)
+    public boolean testLong(long value)
     {
         return false;
     }
 
-    bool testSlice(Slice slice, int offset, int length)
+    public boolean testSlice(Slice slice, int offset, int length)
     {
         return false;
     }
@@ -23,18 +39,18 @@ class Filter
         this.time += time;
     }    
         
-    double getScore() {
+    double getTimePerDroppedValue() {
             return (double)time / (1 + nIn - nOut);
 }
 
-void decayStats()
-    nIn /= 2;
-    nOut /= 2;
-    time /= 2;
+    void decayStats()
     {
-
-        
-        // If there are no scores, return a number for making initial filter order. Less is better.
+        nIn /= 2;
+        nOut /= 2;
+        time /= 2;
+    }
+       
+    // If there are no scores, return a number for making initial filter order. Less is better.
         int staticScore()
         {
             return 100;

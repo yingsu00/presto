@@ -294,17 +294,11 @@ public interface Block
     {
         throw new UnsupportedOperationException(getClass().getName());
     }
-    
-    public void compact(int[] positions, int base, int numPositions)
-    {
-        for (int i = 0; i < numPositions; i++) {
-            values[base + i] = values[positions[i]];
-        }
-        if (nullValues != null) {
-            nullValues[base + i] = nullValues[positions[i]];
-        }
-        positionCount = base + numValues;
-        }
-    }
 
+    default void erase(int begin, int end)
+    {
+        throw new UnsupportedOperationException(getClass().getName());
+    }
 }
+
+

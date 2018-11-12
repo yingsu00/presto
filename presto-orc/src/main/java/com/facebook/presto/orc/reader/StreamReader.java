@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.orc.reader;
 
+import com.facebook.presto.orc.Filter;
+import com.facebook.presto.orc.QualifyingSet;
 import com.facebook.presto.orc.metadata.ColumnEncoding;
 import com.facebook.presto.orc.stream.InputStreamSources;
 import com.facebook.presto.spi.block.Block;
@@ -33,6 +35,11 @@ public interface StreamReader
         throw new UnsupportedOperationException();
     }
 
+    default QualifyingSet getInputQualifyingSet()
+    {
+        return null;
+    }
+    
     default QualifyingSet getOutputQualifyingSet()
     {
         return null;
@@ -42,7 +49,7 @@ public interface StreamReader
      * applying filter to the rows in the input QualifyingSet. If
      * channel is not -1, appends the values in the post-filter rows
      * to a Block. The Block can be retrieved by getBlock(). */
-    void setFilterAndChannel(Filter filter, int channel)    {
+    default void setFilterAndChannel(Filter filter, int channel)    {
         throw new UnsupportedOperationException();
     }
 
@@ -59,17 +66,28 @@ public interface StreamReader
         return -1;
     }
 
-    default Block getBlock()
+    default Block getBlock(boolean mayReuse)
     {
         return null;
     }
 
+    default Filter getFilter()
+    {
+        return null;
+    }
+    
     default int getValueSize() {
         return 8;
     }
 
-    default void scan(int maxResultBytes);
-        {
+    default int erase(int begin, int end, int numValuesBeforeRowGroup, int numErasedFromInput)
+    {
+        throw new UnsupportedOperationException();
+    }
+    
+    default int scan(int maxResultBytes)
+        throws IOException
+    {
         throw new UnsupportedOperationException();
     }
     

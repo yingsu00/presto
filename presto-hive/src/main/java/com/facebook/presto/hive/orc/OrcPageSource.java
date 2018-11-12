@@ -118,7 +118,7 @@ public class OrcPageSource
     void pushDownFilterAndProjection(int[] fieldIdToChannel) 
     {
         useAriaScan = true;
-        recordReader.pushdownFilterAndProjection(fieldIdToChannel);
+        recordReader.pushdownFilterAndProjection(fieldIdToChannel, hiveColumnIndexes);
     }
 
     @Override
@@ -142,10 +142,10 @@ public class OrcPageSource
     @Override
     public Page getNextPage()
     {
-        if (useAriaScan) {
-            return getNextPageWithFilters();
-        }
         try {
+            if (useAriaScan) {
+                return recordReader.getNextPage();
+            }
             batchId++;
             int batchSize = recordReader.nextBatch();
             if (batchSize <= 0) {

@@ -47,6 +47,7 @@ import org.openjdk.jol.info.ClassLayout;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -120,11 +121,17 @@ public class OrcRecordReader
 
     StreamReader[] streamOrder;
 
-    QualifyingSet initialQualifyingSet;
-
+    QualifyingSet initialQualifyingSet = new QualifyingSet();
+    QualifyingSet tempQualifyingSet;
     
     boolean reusePages = false;
+    Page reusedPage;
+    Block[] reusedPageBlocks;
 
+        int lastTruncatedStreamIdx = -1;
+    int maxOutputChannel = -1;
+    int numResultsBeforeRowGroup = 0;
+    
     public OrcRecordReader(
             Map<Integer, Type> includedColumns,
             OrcPredicate predicate,
@@ -255,11 +262,6 @@ public class OrcRecordReader
         nextBatchSize = initialBatchSize;
     }
 
-    public void pushdownFilterAndProjection(int[] fieldIdToChannel)
-    {
-        this.fieldIdToChannel = fieldIdToChannel = fieldIdToChannel;
-    }
-    
     private static boolean splitContainsStripe(long splitOffset, long splitLength, StripeInformation stripe)
     {
         long splitEndOffset = splitOffset + splitLength;
@@ -738,4 +740,248 @@ public class OrcRecordReader
             return new LinearProbeRangeFinder(diskRanges);
         }
     }
+
+    public boolean pushdownFilterAndProjection(int[] targetChannels, int[] channelColumns)
+    {
+        Map<Integer, Filter> filters = predicate.getFilters(includedColumns);
+        if (filters == null) {
+            return false;
+        }
+        for (int i = 0; i < channelColumns.length; i++) {
+            int columnIndex = channelColumns[i];
+            if (!presentColumns.contains(columnIndex)) {
+                continue;
+            }
+            int outputChannel = targetChannels[i];
+            Filter filter = filters.get(columnIndex);
+            streamReaders[i].setFilterAndChannel(filter, outputChannel);
+            maxOutputChannel = Math.max(maxOutputChannel, outputChannel);
+        }
+        return true;
+    }
+
+    static int compareReaders(StreamReader a, StreamReader b)
+        {
+            // A stream with filter goes before one without.
+            Filter aFilter = a.getFilter();
+            Filter bFilter = b.getFilter();
+            if (aFilter != null && bFilter == null) {
+                return -1;
+            }
+            if (aFilter == null && bFilter != null) {
+                return 1;
+            }
+            if (aFilter != null) {
+                double aScore = aFilter.getTimePerDroppedValue();
+                double bScore = bFilter.getTimePerDroppedValue();
+                if (aScore != bScore) {
+                    return aScore < bScore ? -1 : 1;
+                }
+                // If the score is a draw, e.g., at start of scan, the shorter data type/stricter comparison goes first.
+                return aFilter.staticScore() - bFilter.staticScore();
+            }
+            // Streans that have no filters go longer data type first. This hits maximum batch size sooner.
+            return b.getValueSize() - a.getValueSize();
+        }
+
+    void setupStreamOrder()
+    {
+        int numReaders = 0;
+        for (StreamReader reader : streamReaders) {
+            if (reader != null) {
+                numReaders++;
+            }
+        }
+        streamOrder = new StreamReader[numReaders];
+        int fill = 0;
+        for (StreamReader reader : streamReaders) {
+            if (reader != null) {
+                streamOrder[fill++] = reader;
+            }
+        }
+        Arrays.sort(streamOrder, (StreamReader a, StreamReader b) -> compareReaders(a, b));
+    }
+
+    /* Sets up all new Blocks if returning new Blocks or removes the
+     * previously returned data from Blocks if reusing Blocks. May
+     * alter filter order if we have no column values from prior
+     * processing being carried over to the new batch. */
+    void newBatch()
+    {
+    }
+
+
+    // Makes a Page based the Blocks in StreamReaders.
+    Page resultPage()
+    {
+        if (reusePages) {
+            Block[] blocks = reusedPageBlocks;
+            if (blocks == null) {
+                blocks = new Block[maxOutputChannel + 1];
+                reusedPageBlocks = blocks;
+            }
+            for (StreamReader reader : streamOrder) {
+                int channel = reader.getChannel();
+                if (channel != -1) {
+                    blocks[channel] = reader.getBlock(true);
+                }
+            }
+            if (reusedPage == null) {
+                reusedPage = new Page(0, blocks);
+                reusedPage.setBlocks(blocks);
+            }
+            reusedPage.setPositionCount(numRowsInResult);
+            return reusedPage;
+        }
+        else {
+            Block[] blocks = new Block[maxOutputChannel + 1];
+            for (StreamReader reader : streamOrder) {
+                int channel = reader.getChannel();
+                if (channel != -1) {
+                    blocks[channel] = reader.getBlock(false);
+        }
+    }
+            return new Page(numRowsInResult, blocks);
+        }
+    }
+    
+    // Removes the first numValues values from all Blocks and
+    // QualifyingSets. This is called at the start of a batch when
+    // reusing Blocks. */
+    void discardBatch(int numValues)
+    {
+        numRowsInResult = 0;
+        if (!reusePages) {
+            return;
+        }
+        /*
+        for (int i = streamIdx - 1; i >= 0; i--) {
+            streamOrder[i].deleteHitsBetween(0, numValues);
+        */
+    }
+
+
+    
+    public Page getNextPage()
+        throws IOException
+    {
+        QualifyingSet qualifyingSet = null;
+        newBatch();
+        nextRowGroup:
+        for (;;) {
+            if (currentRowGroup == -1 || currentGroupRowCount == nextRowInGroup) {
+                if (currentPosition == totalRowCount) {
+                    return null;
+                }
+                if (!advanceToNextRowGroup()) {
+                    filePosition = fileRowCount;
+                    currentPosition = totalRowCount;
+                    return resultPage();
+                }
+            }
+
+            qualifyingSet = initialQualifyingSet;
+            initialQualifyingSet.setRange((int)nextRowInGroup, (int)currentGroupRowCount);
+            resumeTruncated:
+            for (;;) {
+                int firstStreamIdx;
+                if (lastTruncatedStreamIdx == -1) {
+                    firstStreamIdx = 0;
+                }
+                else {
+                    firstStreamIdx = lastTruncatedStreamIdx;
+                    qualifyingSet = tempQualifyingSet;
+                    throw new UnsupportedOperationException("Truncated result columns not supported");
+                    //qualifyingSet.setContinueAfterTruncate(streamOrder[firstStreamIdx - 1].getOutputQualifyingSet(), streamOrder[firstStreamIdx].getOutputQualifyingSet())
+                }
+                int numStreams = streamOrder.length;
+                for (int streamIdx = firstStreamIdx; streamIdx < numStreams; ++streamIdx) {
+                    StreamReader reader = streamOrder[streamIdx];
+                    reader.setInputQualifyingSet(qualifyingSet);
+                    reader.scan(0);
+                    qualifyingSet = reader.getOutputQualifyingSet();
+                    if (qualifyingSet.isEmpty()) {
+                        discardBatchSoFar(streamIdx);
+                        lastTruncatedStreamIdx = findLastTruncatedStreamIdx(numStreams - 1);
+                        if (lastTruncatedStreamIdx == -1) {
+                            nextRowInGroup = currentGroupRowCount;
+                            continue nextRowGroup;
+                        }
+                        continue resumeTruncated;
+                    }
+                }
+                lastTruncatedStreamIdx = findLastTruncatedStreamIdx(numStreams - 1);
+
+                compactSparseBlocks(streamOrder.length - 1);
+                return resultPage();
+            }
+        }
+    }
+
+    // 
+    private void discardBatchSoFar(int streamIdx)
+    {
+        for (int i = 0; i < streamIdx; i++) {
+            streamOrder[i].erase(0, (int)currentGroupRowCount, numResultsBeforeRowGroup, 0);
+        }
+    }
+
+    /* Compacts Blocks that contain values on rows that subsequent
+         * filters have dropped. lastStreamIdx is the position in
+         * streamOrder for the rightmost stream that has values for
+         * this batch. */
+    void compactSparseBlocks(int lastStreamIdx)
+    {
+        // The first row number in the row group that is above the
+        // range of rows being considered. All values and qualifying
+        // sets at or above this positions survive. -1 if not
+        // applicable.
+        int firstAboveRange = -1;
+        int[] survivingRows = null;
+        int numSurviving;
+        StreamReader lastStream = streamOrder[lastStreamIdx];
+        Block lastBlock = lastStream.getBlock(true);
+        if (lastBlock != null) {
+            numSurviving = lastBlock.getPositionCount() - numResultsBeforeRowGroup;
+        }
+        else {
+            QualifyingSet output = lastStream.getOutputQualifyingSet();
+            survivingRows = output.getInputNumbers();
+            numSurviving = output.getPositionCount();
+        }
+        for (int streamIdx = lastStreamIdx - 1; streamIdx >= 0; --streamIdx) {
+            StreamReader reader = streamOrder[streamIdx];
+            Block block = reader.getBlock(true);
+            if (block != null && survivingRows != null) {
+                block.compact(survivingRows, numSurviving, numResultsBeforeRowGroup);
+            }
+            if (reader.getFilter() == null) {
+                continue;
+            }
+            if (streamIdx == 0) {
+                break;
+            }
+            QualifyingSet output = reader.getOutputQualifyingSet();
+            QualifyingSet input = reader.getInputQualifyingSet();
+            if (output.getPositionCount() == input.getPositionCount()) {
+                continue;
+            }
+            if (survivingRows == null) {
+                survivingRows = output.getInputNumbers();
+            }
+            else {
+                int[] inputs = output.getInputNumbers();
+                for (int i = 0; i < numSurviving; i++) {
+                    survivingRows[i] = inputs[survivingRows[i]];
+                }
+            }
+        }
+        //
+    }
+
+    int findLastTruncatedStreamIdx(int streamIdx)
+    {
+        return -1;
+    }
+
 }

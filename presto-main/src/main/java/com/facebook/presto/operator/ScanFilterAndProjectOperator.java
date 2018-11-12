@@ -221,12 +221,10 @@ public class ScanFilterAndProjectOperator
             }
             else {
                 pageSource = source;
-                if (pageSource.instanceOf(OrcPageSource.class)) {
-                    int[] channels = pageProcessor.getIdentityInputToOutputChannel()
-                       filterAndProjectPushedDown = (OrcPageSource).pageSource.pushdownFilterAndProject(channels);
+                int[] channels = pageProcessor.getIdentityInputToOutputChannel();
+                filterAndProjectPushedDown = pageSource.pushdownFilterAndProject(channels);
             }
         }
-
         if (pageSource != null) {
             return processPageSource();
         }

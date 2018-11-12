@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.orc.stream;
 
+import com.facebook.presto.orc.Filter;
 import com.facebook.presto.orc.OrcCorruptionException;
 import com.facebook.presto.orc.checkpoint.LongStreamCheckpoint;
 import com.facebook.presto.orc.checkpoint.LongStreamV2Checkpoint;
@@ -45,19 +46,21 @@ public class LongInputStreamV2
     private long lastReadInputCheckpoint;
     // Position of the first value of the run in literals from the checkpoint.
     private int currentRunOffset;
-    // Positions to visit in scna(), offset from last checkpoint.
+    // Positions to visit in scan(), offset from last checkpoint.
     private int[] offsets;
     private int numOffsets;
     private int offsetIdx;
     // Copies of arguments to scan().
-    Filter filter;
-    int[] rowNumbers;
-    int[] inputNumbers[];
-    int[] rowNumbersOut;
-    int[] inputNumbersOut;
-    lomg[] valuesOut;
-    int valuesFill;
-    int numResults;
+    private Filter filter;
+    private int[] inputRowNumbers;
+    private int[] inputNumbers;
+    // Offset of first row not covered by the current call to scan().
+    private int endOffset;
+    private int[] rowNumbersOut;
+    private int[] inputNumbersOut;
+    private long[] valuesOut;
+    private int valuesFill;
+    private int numResults;
     
     // readValues sets this to true to indicate that all operations
     // needed by scan() where performed inside readValues. If false,
@@ -108,11 +111,13 @@ public class LongInputStreamV2
     // value at offsets[i] is used instead. If inputNumbers is null, i
     // is used instead of inputNumbers[i]. valuesOut may be null, in
     // which case the value is discarded after the filter. Returns the number of values written into the output arrays.
-    public int scan(Filter filter, int[]offsets, int numOffsets, int end, int[] inputNumbers, int[] rowNumbersOut, int[] inputNumbersOut, long[] valuesOut, int valuesFill)
+    public int scan(Filter filter, int[]offsets, int numOffsets, int endOffset, int[] rowNumbers, int[] inputNumbers, int[] rowNumbersOut, int[] inputNumbersOut, long[] valuesOut, int valuesFill)
+        throws IOException
     {
         this.offsets = offsets;
         this.numOffsets = numOffsets;
-        this.rowNumbers = rowNumbers;
+        this.endOffset = endOffset;
+        this.inputRowNumbers = rowNumbers;
         this.inputNumbers = inputNumbers;
         this.rowNumbersOut = rowNumbersOut;
         this.inputNumbersOut = inputNumbersOut;
@@ -136,7 +141,7 @@ public class LongInputStreamV2
     }
 
     // Apply filter to values materialized in literals.
-    int scanLiterals()
+    private void scanLiterals()
     {
         for (;;) {
             if (offsetIdx >= numOffsets) {
@@ -160,7 +165,7 @@ public class LongInputStreamV2
             rowNumbersOut[numResults] = inputRowNumbers == null
                 ? offsets[offsetIdx] 
                 : inputRowNumbers[offsetIdx];
-            inputNumberOut[numResults] = inputNumbers == null ? offsetIdx : inputNumbers[offsetIdx];
+            inputNumbersOut[numResults] = inputNumbers == null ? offsetIdx : inputNumbers[offsetIdx];
         }
         if (valuesOut != null) {
             valuesOut[numResults + valuesFill] = val;
@@ -423,7 +428,7 @@ public class LongInputStreamV2
             int numInRle = numOffsetsWithin(length);
             if (filter == null || filter.testLong(val)) {
                 for (int i = 0; i < numInRle; ++i) {
-                    addResultRow(val);
+                    addResult(val);
                     ++offsetIdx;
                 }
             }

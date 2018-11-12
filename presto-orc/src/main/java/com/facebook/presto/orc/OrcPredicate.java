@@ -39,5 +39,8 @@ public interface OrcPredicate
     boolean matches(long numberOfRows, Map<Integer, ColumnStatistics> statisticsByColumnIndex);
 
     // Returns a map from column index to Filter. Returns null if some predicate could not be translated to a Filter.
-    Map<Integer, Filter> getFilters(Set<Integer> columnIndices);
+    default Map<Integer, Filter> getFilters(Map<Integer, ?> columnIndices)
+    {
+        throw new UnsupportedOperationException();
+    }
 }

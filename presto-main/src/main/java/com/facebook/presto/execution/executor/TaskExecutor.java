@@ -153,16 +153,26 @@ public class TaskExecutor
     @Inject
     public TaskExecutor(TaskManagerConfig config, MultilevelSplitQueue splitQueue)
     {
-        config.maxWorkerThreads = 1;
-        config.minDriversPerTask = 1;
-        config.maxDriversPerTask = 1;
-        config.taskConcurrency = 1;
+        // config.maxWorkerThreads = 1;
+        // config.minDriversPerTask = 1;
+        // config.maxDriversPerTask = 1;
+        // config.taskConcurrency = 1;
+        // Single threaded 
+        this(1 /*requireNonNull(config, "config is null").getMaxWorkerThreads() */,
+                            1 /*config.getMinDrivers() */,
+                            1 /*config.getMinDriversPerTask() */,
+                            1 /*config.getMaxDriversPerTask() */,
+                splitQueue,
+                Ticker.systemTicker());
+
+        /* Multithreaded
         this(requireNonNull(config, "config is null").getMaxWorkerThreads(),
                 config.getMinDrivers(),
                 config.getMinDriversPerTask(),
                 config.getMaxDriversPerTask(),
                 splitQueue,
                 Ticker.systemTicker());
+        */
     }
 
     @VisibleForTesting
