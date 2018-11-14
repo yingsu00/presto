@@ -223,10 +223,12 @@ public class ScanFilterAndProjectOperator
             else {
                 pageSource = source;
                 boolean enableAria = SystemSessionProperties.enableAria(operatorContext.getSession()); 
-                int[] channels = pageProcessor.getIdentityInputToOutputChannel();
-                filterAndProjectPushedDown = pageSource.pushdownFilterAndProjection(channels);
+                if (enableAria) {
+                    int[] channels = pageProcessor.getIdentityInputToOutputChannel();
+                    filterAndProjectPushedDown = pageSource.pushdownFilterAndProjection(channels);
+                }
             }
-        }
+            }
         if (pageSource != null) {
             return processPageSource();
         }

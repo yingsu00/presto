@@ -108,6 +108,7 @@ public final class SystemSessionProperties
     public static final String STATISTICS_CPU_TIMER_ENABLED = "statistics_cpu_timer_enabled";
     public static final String ENABLE_STATS_CALCULATOR = "enable_stats_calculator";
     public static final String ARIA = "aria";
+    public static final String ARIA_REUSE_PAGES = "aria_reuse_pages";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -503,6 +504,12 @@ public final class SystemSessionProperties
                         "Enable Aria Presto! optimizations",
                         true,
                         false));
+
+                                                                     booleanProperty(
+                                                                                     ARIA_REUSE_PAGES,
+                                                                                     "Enable Aria Presto! reuse of Pages",
+                                                                                     true,
+                                                                                     false));
     }
 
     public List<PropertyMetadata<?>> getSessionProperties()
@@ -834,4 +841,10 @@ public final class SystemSessionProperties
     {
         return session.getSystemProperty(ARIA, Boolean.class);
     }
+
+    public static boolean enableAriaReusePages(Session session)
+    {
+        return session.getSystemProperty(ARIA_REUSE_PAGES, Boolean.class);
+    }
+
 }

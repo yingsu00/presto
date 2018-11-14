@@ -145,7 +145,11 @@ public class OrcPageSource
     {
         try {
             if (useAriaScan) {
-                return recordReader.getNextPage();
+                Page page = recordReader.getNextPage();
+                if (page == null) {
+                    close();
+                }
+                return page;
             }
             batchId++;
             int batchSize = recordReader.nextBatch();
