@@ -17,7 +17,8 @@ import com.facebook.presto.orc.Filter;
 import com.facebook.presto.orc.QualifyingSet;
 import com.facebook.presto.spi.block.Block;
 
-class ColumnReader
+abstract class ColumnReader
+    implements StreamReader
 {
     QualifyingSet inputQualifyingSet;
     QualifyingSet outputQualifyingSet;
@@ -29,5 +30,35 @@ class ColumnReader
     public QualifyingSet getInputQualifyingSet()
     {
         return inputQualifyingSet;
+    }
+
+    public void setInputQualifyingSet(QualifyingSet qualifyingSet)
+    {
+        inputQualifyingSet = qualifyingSet;
+    }
+
+    
+    public QualifyingSet getOutputQualifyingSet()
+    {
+        return outputQualifyingSet;
+    }
+
+
+    @Override
+    public void setFilterAndChannel(Filter filter, int channel)
+    {
+        this.filter = filter;
+        outputChannel = channel;
+    }
+
+    @Override
+    public int getChannel()
+    {
+        return outputChannel;
+    }
+    @Override
+    public Filter getFilter()
+    {
+        return filter;
     }
 }

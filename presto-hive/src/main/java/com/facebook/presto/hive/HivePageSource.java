@@ -703,4 +703,13 @@ public class HivePageSource
             return ids;
         }
     }
+
+    @Override
+    public boolean pushdownFilterAndProjection(int[] fieldIdToChannel) 
+    {
+        if (delegate != null) {
+            return delegate.pushdownFilterAndProjection(fieldIdToChannel);
+        }
+        return false;
+    }
 }

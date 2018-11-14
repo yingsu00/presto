@@ -193,6 +193,7 @@ public class LongDirectStreamReader
         rowGroupOpen = false;
     }
 
+    @Override
     public int erase(int begin, int end, int numResultsBeforeRowGroup, int numErasedFromInput)
     {
         if (block != null) {
@@ -202,6 +203,7 @@ public class LongDirectStreamReader
         return 0;
     }
     
+    @Override
     public int scan(int maxBytes)
             throws IOException
     {
@@ -215,7 +217,12 @@ public class LongDirectStreamReader
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
         int numInput = input.getPositionCount();
-        int numOut = dataStream.scan(filter,
+        int numOut;
+        if (filter != null) {
+            if (outputQualifyingSet == null) {
+                output = outputQualifyingSet = new QualifyingSet();
+            }
+            numOut = dataStream.scan(filter,
                                      input.getPositions(),
                                      numInput,
                                      input.getEnd(),
@@ -225,9 +232,24 @@ public class LongDirectStreamReader
                                      output.getMutableInputNumbers(numInput),
                                      values,
                                      numValues);
-        output.setEnd(input.getEnd());
-        output.setPositionCount(numOut);
-        if (block != null) {
+            output.setEnd(input.getEnd());
+        }
+        else {
+            numOut = dataStream.scan(null,
+                                     input.getPositions(),
+                                     numInput,
+                                     input.getEnd(),
+                                     null,
+                                     null,
+                                     null,
+                                     null,
+                                     values,
+                                     numValues);
+        }
+        if (output != null) {
+            output.setPositionCount(numOut);
+        }
+            if (block != null) {
             block.setPositionCount(numOut + numValues);
         }
         return inputQualifyingSet.getEnd();

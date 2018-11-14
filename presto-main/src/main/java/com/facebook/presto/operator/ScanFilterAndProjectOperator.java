@@ -20,6 +20,7 @@ import com.facebook.presto.operator.project.CursorProcessorOutput;
 import com.facebook.presto.operator.project.MergingPageOutput;
 import com.facebook.presto.operator.project.PageProcessor;
 import com.facebook.presto.operator.project.PageProcessorOutput;
+import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPageSource;
 import com.facebook.presto.spi.Page;
@@ -221,8 +222,9 @@ public class ScanFilterAndProjectOperator
             }
             else {
                 pageSource = source;
+                boolean enableAria = SystemSessionProperties.enableAria(operatorContext.getSession()); 
                 int[] channels = pageProcessor.getIdentityInputToOutputChannel();
-                filterAndProjectPushedDown = pageSource.pushdownFilterAndProject(channels);
+                filterAndProjectPushedDown = pageSource.pushdownFilterAndProjection(channels);
             }
         }
         if (pageSource != null) {

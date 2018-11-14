@@ -107,6 +107,7 @@ public final class SystemSessionProperties
     public static final String LEGACY_UNNEST = "legacy_unnest";
     public static final String STATISTICS_CPU_TIMER_ENABLED = "statistics_cpu_timer_enabled";
     public static final String ENABLE_STATS_CALCULATOR = "enable_stats_calculator";
+    public static final String ARIA = "aria";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -496,6 +497,11 @@ public final class SystemSessionProperties
                         ENABLE_STATS_CALCULATOR,
                         "Experimental: Enable statistics calculator",
                         featuresConfig.isEnableStatsCalculator(),
+                        false),
+                                                             booleanProperty(
+                        ARIA,
+                        "Enable Aria Presto! optimizations",
+                        true,
                         false));
     }
 
@@ -822,5 +828,10 @@ public final class SystemSessionProperties
     public static boolean isEnableStatsCalculator(Session session)
     {
         return session.getSystemProperty(ENABLE_STATS_CALCULATOR, Boolean.class);
+    }
+
+    public static boolean enableAria(Session session)
+    {
+        return session.getSystemProperty(ARIA, Boolean.class);
     }
 }

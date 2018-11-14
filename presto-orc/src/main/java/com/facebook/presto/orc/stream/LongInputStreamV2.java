@@ -20,6 +20,7 @@ import com.facebook.presto.orc.checkpoint.LongStreamV2Checkpoint;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 
 /**
  * @see {@link org.apache.hadoop.hive.ql.io.orc.RunLengthIntegerWriterV2} for description of various lightweight compression techniques.
@@ -114,6 +115,7 @@ public class LongInputStreamV2
     public int scan(Filter filter, int[]offsets, int numOffsets, int endOffset, int[] rowNumbers, int[] inputNumbers, int[] rowNumbersOut, int[] inputNumbersOut, long[] valuesOut, int valuesFill)
         throws IOException
     {
+        this.filter = filter;
         this.offsets = offsets;
         this.numOffsets = numOffsets;
         this.endOffset = endOffset;
@@ -357,33 +359,33 @@ public class LongInputStreamV2
         length |= input.read();
         // runs are one off
         length += 1;
-
         if (offsets != null) {
             int numInRange = numOffsetsWithin(length);
             if (numInRange == 0 && (fixedBits & 0x7) == 0) {
                 // If packing width is an integer number of bytes, skip.
-                input.skipFully(fixedBits / 8);
+                input.skipFully(length * fixedBits / 8);
                 currentRunOffset += length;
                 scanDone = true;
                 return;
             }
-            packer.unpackAtOffsets(literals, numLiterals, length, fixedBits, offsets, offsetIdx, numInRange, currentRunOffset, input);
-            if (signed) {
-                for (int i = 0; i < numInRange; i++) {
+            if (numInRange > 0) {
+                packer.unpackAtOffsets(literals, numLiterals, length, fixedBits, offsets, offsetIdx, numInRange, currentRunOffset, input);
+                if (signed) {
+                    for (int i = 0; i < numInRange; i++) {
                     literals[numLiterals + i] = LongDecode.zigzagDecode(literals[numLiterals + i]);
+                    }
                 }
-            }
-
-            for (int i = 0; i < numInRange; i++) {
-                long literal = literals[i + numLiterals];
-                if (filter == null || filter.testLong(literal)) {
-                    addResult(literal);
+                for (int i = 0; i < numInRange; i++) {
+                    long literal = literals[i + numLiterals];
+                    if (filter == null || filter.testLong(literal)) {
+                        addResult(literal);
+                    }
+                    ++offsetIdx;
                 }
-                ++offsetIdx;
+                currentRunOffset += length;
+                scanDone = true;
+                return;
             }
-            currentRunOffset += length;
-            scanDone = true;
-            return;
         }
         // write the unpacked values and zigzag decode to result buffer
         packer.unpack(literals, numLiterals, length, fixedBits, input);
@@ -426,35 +428,44 @@ public class LongInputStreamV2
                 return;
             }
             int numInRle = numOffsetsWithin(length);
-            if (filter == null || filter.testLong(val)) {
-                for (int i = 0; i < numInRle; ++i) {
-                    addResult(val);
-                    ++offsetIdx;
+            if (numInRle > 0) {
+                if (filter == null || filter.testLong(val)) {
+                    for (int i = 0; i < numInRle; ++i) {
+                        addResult(val);
+                        ++offsetIdx;
+                    }
                 }
+                else {
+                    offsetIdx += numInRle;
+                }
+                currentRunOffset += length;
+                scanDone = true;
+                return;
             }
-            else {
-                offsetIdx += numInRle;
-            }
-            currentRunOffset += length;
-            scanDone = true;
-            return;
         }
-        // repeat the value for length times
+            // repeat the value for length times
         for (int i = 0; i < length; i++) {
             literals[numLiterals++] = val;
         }
     }
 
-    int numOffsetsWithin(int length)
+    private int numOffsetsWithin(int length)
     {
         int i;
         int limit = currentRunOffset + length;
-        for (i = offsetIdx; i < numOffsets; ++i) {
-            if (offsets[i] > limit) {
-                break;
-            }
+        if (offsets[offsetIdx] >= limit) {
+            return 0;
         }
-        return i - offsetIdx;
+        if (limit > endOffset) {
+            return -1;
+        }
+        int last = Math.min(offsetIdx + length, numOffsets);
+        if (offsets[last - 1] - currentRunOffset == length - 1) {
+            // Fast check for dense range.
+            return length;
+        }
+        int position = Arrays.binarySearch(offsets, offsetIdx, last, limit);
+        return position > 0 ? position - offsetIdx : (-position - 1) - offsetIdx;
     }
     
     /**

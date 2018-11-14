@@ -130,7 +130,7 @@ public class OrcRecordReader
 
         int lastTruncatedStreamIdx = -1;
     int maxOutputChannel = -1;
-    int numResultsBeforeRowGroup = 0;
+    int targetNumRows = 10000;
     
     public OrcRecordReader(
             Map<Integer, Type> includedColumns,
@@ -752,11 +752,12 @@ public class OrcRecordReader
             if (!presentColumns.contains(columnIndex)) {
                 continue;
             }
-            int outputChannel = targetChannels[i];
+            int outputChannel = i < targetChannels.length ? targetChannels[i] : -1;
             Filter filter = filters.get(columnIndex);
-            streamReaders[i].setFilterAndChannel(filter, outputChannel);
+            streamReaders[columnIndex].setFilterAndChannel(filter, outputChannel);
             maxOutputChannel = Math.max(maxOutputChannel, outputChannel);
         }
+        setupStreamOrder();
         return true;
     }
 
@@ -808,6 +809,8 @@ public class OrcRecordReader
      * processing being carried over to the new batch. */
     void newBatch()
     {
+        discardBatch(numRowsInResult);
+        numRowsInResult = 0;
     }
 
 
@@ -854,12 +857,10 @@ public class OrcRecordReader
         if (!reusePages) {
             return;
         }
-        /*
-        for (int i = streamIdx - 1; i >= 0; i--) {
-            streamOrder[i].deleteHitsBetween(0, numValues);
-        */
+        for (int i = streamOrder.length - 1; i >= 0; i--) {
+            streamOrder[i].erase(0, numValues, 0, 0);
+        }
     }
-
 
     
     public Page getNextPage()
@@ -899,21 +900,26 @@ public class OrcRecordReader
                     StreamReader reader = streamOrder[streamIdx];
                     reader.setInputQualifyingSet(qualifyingSet);
                     reader.scan(0);
-                    qualifyingSet = reader.getOutputQualifyingSet();
-                    if (qualifyingSet.isEmpty()) {
-                        discardBatchSoFar(streamIdx);
-                        lastTruncatedStreamIdx = findLastTruncatedStreamIdx(numStreams - 1);
-                        if (lastTruncatedStreamIdx == -1) {
-                            nextRowInGroup = currentGroupRowCount;
-                            continue nextRowGroup;
+                    if (reader.getFilter() != null) {
+                        qualifyingSet = reader.getOutputQualifyingSet();
+                        if (qualifyingSet.isEmpty()) {
+                            discardBatchSoFar(streamIdx);
+                            lastTruncatedStreamIdx = findLastTruncatedStreamIdx(numStreams - 1);
+                            if (lastTruncatedStreamIdx == -1) {
+                                nextRowInGroup = currentGroupRowCount;
+                                continue nextRowGroup;
+                            }
+                            continue resumeTruncated;
                         }
-                        continue resumeTruncated;
-                    }
                 }
-                lastTruncatedStreamIdx = findLastTruncatedStreamIdx(numStreams - 1);
-
+                    lastTruncatedStreamIdx = findLastTruncatedStreamIdx(numStreams - 1);
+                }
                 compactSparseBlocks(streamOrder.length - 1);
-                return resultPage();
+                numRowsInResult += qualifyingSet.getPositionCount();
+                if (numRowsInResult >= targetNumRows) {
+                    return resultPage();
+                }
+                continue nextRowGroup;
             }
         }
     }
@@ -922,7 +928,7 @@ public class OrcRecordReader
     private void discardBatchSoFar(int streamIdx)
     {
         for (int i = 0; i < streamIdx; i++) {
-            streamOrder[i].erase(0, (int)currentGroupRowCount, numResultsBeforeRowGroup, 0);
+            streamOrder[i].erase(0, (int)currentGroupRowCount, numRowsInResult, 0);
         }
     }
 
@@ -942,7 +948,7 @@ public class OrcRecordReader
         StreamReader lastStream = streamOrder[lastStreamIdx];
         Block lastBlock = lastStream.getBlock(true);
         if (lastBlock != null) {
-            numSurviving = lastBlock.getPositionCount() - numResultsBeforeRowGroup;
+            numSurviving = lastBlock.getPositionCount() - numRowsInResult;
         }
         else {
             QualifyingSet output = lastStream.getOutputQualifyingSet();
@@ -953,7 +959,7 @@ public class OrcRecordReader
             StreamReader reader = streamOrder[streamIdx];
             Block block = reader.getBlock(true);
             if (block != null && survivingRows != null) {
-                block.compact(survivingRows, numSurviving, numResultsBeforeRowGroup);
+                block.compact(survivingRows, numSurviving, numRowsInResult);
             }
             if (reader.getFilter() == null) {
                 continue;

@@ -115,10 +115,11 @@ public class OrcPageSource
     // inputToOutputChannel[i]. Omits the Block from the output Page
     // if inputToOutputChannel[i[ == -1. If inputToOutputChannel is
     // null, the output Page layout is unaffected.
-    void pushDownFilterAndProjection(int[] fieldIdToChannel) 
+    @Override
+    public boolean pushdownFilterAndProjection(int[] fieldIdToChannel) 
     {
         useAriaScan = true;
-        recordReader.pushdownFilterAndProjection(fieldIdToChannel, hiveColumnIndexes);
+        return recordReader.pushdownFilterAndProjection(fieldIdToChannel, hiveColumnIndexes);
     }
 
     @Override

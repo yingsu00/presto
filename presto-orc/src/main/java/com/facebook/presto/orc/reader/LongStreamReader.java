@@ -14,6 +14,8 @@
 package com.facebook.presto.orc.reader;
 
 import com.facebook.presto.memory.context.AggregatedMemoryContext;
+import com.facebook.presto.orc.Filter;
+import com.facebook.presto.orc.QualifyingSet;
 import com.facebook.presto.orc.StreamDescriptor;
 import com.facebook.presto.orc.metadata.ColumnEncoding;
 import com.facebook.presto.orc.metadata.ColumnEncoding.ColumnEncodingKind;
@@ -58,12 +60,66 @@ public class LongStreamReader
     }
 
     @Override
+    public void setInputQualifyingSet(QualifyingSet qualifyingSet)
+    {
+        currentReader.setInputQualifyingSet(qualifyingSet);
+    }
+
+    @Override
+    public QualifyingSet getInputQualifyingSet()
+    {
+        return currentReader.getInputQualifyingSet();
+    }
+    
+    @Override
+    public QualifyingSet getOutputQualifyingSet()
+    {
+        return currentReader.getOutputQualifyingSet();
+    }
+    
+    @Override
+public void setFilterAndChannel(Filter filter, int channel)
+    {
+        directReader.setFilterAndChannel(filter, channel);
+    }
+
+    @Override
+    public int getChannel()
+    {
+        return directReader.getChannel();
+    }
+
+    @Override
+    public Block getBlock(boolean mayReuse)
+    {
+        return currentReader.getBlock(mayReuse);
+    }
+
+    @Override
+    public Filter getFilter()
+    {
+        return directReader.getFilter();
+    }
+    
+    @Override
+    public int erase(int begin, int end, int numValuesBeforeRowGroup, int numErasedFromInput)
+    {
+        return currentReader.erase(begin, end, numValuesBeforeRowGroup, numErasedFromInput);
+    }
+    
+    public int scan(int maxResultBytes)
+        throws IOException
+    {
+        return currentReader.scan(maxResultBytes);
+    }
+    
+    @Override
     public Block readBlock(Type type)
             throws IOException
     {
         return currentReader.readBlock(type);
     }
-
+    
     @Override
     public void startStripe(InputStreamSources dictionaryStreamSources, List<ColumnEncoding> encoding)
             throws IOException
