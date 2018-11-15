@@ -136,6 +136,13 @@ public class LongArrayBlock
     }
 
     @Override
+    public void setPositionCount(int positionCount)
+    {
+        this.positionCount = positionCount;
+    }
+
+    
+    @Override
     public long getLong(int position, int offset)
     {
         checkReadablePosition(position);

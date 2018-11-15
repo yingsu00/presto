@@ -49,18 +49,20 @@ public class QualifyingSet
     {
         this.begin = begin;
         this.end = end;
-        if (allZeros.length < end - begin) {
+        int[] zeros = allZeros;
+        if (zeros.length < end - begin) {
             int[] newZeros = new int[end - begin];
             Arrays.fill(newZeros, 0);
             allZeros = newZeros;
             inputNumbers = newZeros;
         }
         else {
-            inputNumbers = allZeros;
+            inputNumbers = zeros;
         }
         if (begin == 0) {
-            if (wholeRowGroup.length <= end) {
-                positions = wholeRowGroup;
+            int[] rowGroup = wholeRowGroup;
+            if (rowGroup.length >= end) {
+                positions = rowGroup;
             }
             else {
                 // Thread safe.  If many concurrently create a new wholeRowGroup, many are created but all but one become garbage and everybody has a right size array.

@@ -503,7 +503,7 @@ public final class SystemSessionProperties
                         ARIA,
                         "Enable Aria Presto! optimizations",
                         true,
-                        false));
+                        false),
 
                                                                      booleanProperty(
                                                                                      ARIA_REUSE_PAGES,

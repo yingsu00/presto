@@ -137,8 +137,8 @@ public class LongInputStreamV2
             if (!scanDone) {
                 scanLiterals();
             }
-            currentRunOffset += numLiterals;
         }
+        this.offsets = null;
         return numResults;
     }
 
@@ -151,6 +151,9 @@ public class LongInputStreamV2
             }
             int offset = offsets[offsetIdx];
             if (offset >= numLiterals + currentRunOffset) {
+                currentRunOffset += numLiterals;
+                used = 0;
+                numLiterals = 0;
                 return;
             }
             long literal = literals[offset - currentRunOffset];
@@ -459,11 +462,11 @@ public class LongInputStreamV2
         if (limit > endOffset) {
             return -1;
         }
-        int last = Math.min(offsetIdx + length, numOffsets);
-        if (offsets[last - 1] - currentRunOffset == length - 1) {
-            // Fast check for dense range.
+        // Are all the offsets consecutive for the length of the run?
+        if (offsetIdx + length < numOffsets && offsets[offsetIdx + length - 1] == currentRunOffset + length - 1) {
             return length;
         }
+        int last = Math.min(offsetIdx + length, numOffsets);
         int position = Arrays.binarySearch(offsets, offsetIdx, last, limit);
         return position > 0 ? position - offsetIdx : (-position - 1) - offsetIdx;
     }
@@ -503,14 +506,15 @@ public class LongInputStreamV2
         return LongStreamV2Checkpoint.class;
     }
 
+    static boolean enableSeekInBuffer = true; 
+    
     @Override
     public void seekToCheckpoint(LongStreamCheckpoint checkpoint)
             throws IOException
     {
         LongStreamV2Checkpoint v2Checkpoint = (LongStreamV2Checkpoint) checkpoint;
-
         // if the checkpoint is within the current buffer, just adjust the pointer
-        if (lastReadInputCheckpoint == v2Checkpoint.getInputStreamCheckpoint() && v2Checkpoint.getOffset() <= numLiterals) {
+        if (enableSeekInBuffer && lastReadInputCheckpoint == v2Checkpoint.getInputStreamCheckpoint() && v2Checkpoint.getOffset() <= numLiterals) {
             used = v2Checkpoint.getOffset();
         }
         else {
@@ -518,8 +522,9 @@ public class LongInputStreamV2
             input.seekToCheckpoint(v2Checkpoint.getInputStreamCheckpoint());
             numLiterals = 0;
             used = 0;
-            currentRunOffset = v2Checkpoint.getOffset();
-            skip(currentRunOffset);
+            // The checkpoint can be in the middle of the run. So offset 0 in scan offsets corresponds to offset checkpoint.offset().
+            currentRunOffset = -v2Checkpoint.getOffset();
+            skip(v2Checkpoint.getOffset());
         }
     }
 

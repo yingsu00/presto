@@ -109,7 +109,8 @@ public class HivePageSource
     private final Function<Block, Block>[] coercers;
 
     private final ConnectorPageSource delegate;
-
+    private boolean filterAndProjectPushedDown = false;
+    
     public HivePageSource(
             List<ColumnMapping> columnMappings,
             Optional<BucketAdaptation> bucketAdaptation,
@@ -225,7 +226,9 @@ public class HivePageSource
             if (dataPage == null) {
                 return null;
             }
-
+            if (filterAndProjectPushedDown) {
+                return dataPage;
+            }
             if (bucketAdapter.isPresent()) {
                 IntArrayList rowsToKeep = bucketAdapter.get().computeEligibleRowIds(dataPage);
                 Block[] adaptedBlocks = new Block[dataPage.getChannelCount()];
@@ -708,7 +711,8 @@ public class HivePageSource
     public boolean pushdownFilterAndProjection(int[] fieldIdToChannel) 
     {
         if (delegate != null) {
-            return delegate.pushdownFilterAndProjection(fieldIdToChannel);
+            filterAndProjectPushedDown =  delegate.pushdownFilterAndProjection(fieldIdToChannel);
+            return filterAndProjectPushedDown;
         }
         return false;
     }
