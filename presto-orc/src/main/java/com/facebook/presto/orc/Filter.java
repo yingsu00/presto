@@ -27,11 +27,16 @@ public class Filter
         return false;
     }
 
-    public boolean testSlice(Slice slice, int offset, int length)
+    public boolean testBytes(byte[] buffer, int offset, int length)
     {
         return false;
     }
 
+    public boolean testNull()
+    {
+        return false;
+    }
+    
     void updateStats(int nIn, int nOut, long time)
     {
         this.nIn += nIn;

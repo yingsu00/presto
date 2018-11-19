@@ -109,6 +109,7 @@ public final class SystemSessionProperties
     public static final String ENABLE_STATS_CALCULATOR = "enable_stats_calculator";
     public static final String ARIA = "aria";
     public static final String ARIA_REUSE_PAGES = "aria_reuse_pages";
+    public static final String ARIA_REORDER = "aria_reorder";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -509,6 +510,11 @@ public final class SystemSessionProperties
                                                                                      ARIA_REUSE_PAGES,
                                                                                      "Enable Aria Presto! reuse of Pages",
                                                                                      true,
+                                                                                     false),
+                                                                     booleanProperty(
+                                                                                     ARIA_REORDER,
+                                                                                     "Enable Aria Presto! reorder of filters",
+                                                                                     true,
                                                                                      false));
     }
 
@@ -847,4 +853,8 @@ public final class SystemSessionProperties
         return session.getSystemProperty(ARIA_REUSE_PAGES, Boolean.class);
     }
 
+        public static boolean ariaReorderFilters(Session session)
+    {
+        return session.getSystemProperty(ARIA_REORDER, Boolean.class);
+    }
 }

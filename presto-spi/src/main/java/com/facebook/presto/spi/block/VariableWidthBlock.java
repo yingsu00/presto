@@ -36,7 +36,7 @@ public class VariableWidthBlock
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(VariableWidthBlock.class).instanceSize();
 
     private final int arrayOffset;
-    private final int positionCount;
+    private int positionCount;
     private final Slice slice;
     private final int[] offsets;
     @Nullable
@@ -109,6 +109,12 @@ public class VariableWidthBlock
     public int getPositionCount()
     {
         return positionCount;
+    }
+
+        @Override
+    public void setPositionCount(int positionCount)
+    {
+        this.positionCount = positionCount;
     }
 
     @Override
@@ -197,6 +203,52 @@ public class VariableWidthBlock
             return this;
         }
         return new VariableWidthBlock(0, length, newSlice, newOffsets, newValueIsNull);
+    }
+
+        @Override
+    public void getContents(BlockContents contents) {
+	contents.slice = slice;
+        contents.offsets = offsets;
+	contents.valueIsNull = valueIsNull;
+        contents.arrayOffset = arrayOffset;
+    }
+
+    @Override
+    public void compact(int[] positions, int base, int numPositions)
+    {
+        int toOffset = offsets[base];
+        for (int i = 0; i < numPositions; i++) {
+            int fromPosition = base + positions[i];
+            int len = offsets[fromPosition + 1] - offsets[fromPosition];
+            slice.getBytes(toOffset, slice, offsets[fromPosition], len);
+            toOffset += len;
+        }
+        if (valueIsNull != null) {
+            for (int i = 0; i < numPositions; i++) {
+                valueIsNull[base + i] = valueIsNull[base + positions[i]];
+            }
+        }
+        positionCount = base + numPositions;
+        }
+
+    public void erase(int begin, int end)
+    {
+        if (end > positionCount || begin < 0 || begin > end || arrayOffset != 0) {
+            throw new IllegalArgumentException("begin, end not valid");
+        }
+                    int numMove = positionCount - end;
+                    int toOffset = offsets[begin];
+                    
+                    for (int i = end; i < numMove; i++) {
+                        int len = offsets[i + 1] - offsets[i];
+                        offsets[begin + i] = toOffset;
+                        slice.getBytes(toOffset, slice, offsets[i], len);
+                        toOffset += len;
+            if (valueIsNull != null) {
+                valueIsNull[begin + i] = valueIsNull[end + i];
+            }
+        }
+        positionCount -= end - begin;
     }
 
     @Override

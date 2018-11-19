@@ -21,6 +21,7 @@ import com.facebook.presto.orc.OrcDataSource;
 import com.facebook.presto.orc.OrcRecordReader;
 import com.facebook.presto.spi.ConnectorPageSource;
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.PageSourceOptions;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
@@ -116,10 +117,10 @@ public class OrcPageSource
     // if inputToOutputChannel[i[ == -1. If inputToOutputChannel is
     // null, the output Page layout is unaffected.
     @Override
-    public boolean pushdownFilterAndProjection(int[] fieldIdToChannel) 
+    public boolean pushdownFilterAndProjection(PageSourceOptions options) 
     {
-        useAriaScan = true;
-        return recordReader.pushdownFilterAndProjection(fieldIdToChannel, hiveColumnIndexes);
+        useAriaScan = recordReader.pushdownFilterAndProjection(options, hiveColumnIndexes);
+        return useAriaScan;
     }
 
     @Override

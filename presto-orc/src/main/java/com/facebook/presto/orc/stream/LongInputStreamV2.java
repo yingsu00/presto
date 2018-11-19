@@ -126,6 +126,7 @@ public class LongInputStreamV2
         this.valuesOut = valuesOut;
         this.valuesFill = valuesFill;
         numResults = 0;
+        offsetIdx = 0;
         if (used < numLiterals) {
             scanLiterals();
         }
@@ -516,6 +517,7 @@ public class LongInputStreamV2
         // if the checkpoint is within the current buffer, just adjust the pointer
         if (enableSeekInBuffer && lastReadInputCheckpoint == v2Checkpoint.getInputStreamCheckpoint() && v2Checkpoint.getOffset() <= numLiterals) {
             used = v2Checkpoint.getOffset();
+            currentRunOffset = -used;
         }
         else {
             // otherwise, discard the buffer and start over

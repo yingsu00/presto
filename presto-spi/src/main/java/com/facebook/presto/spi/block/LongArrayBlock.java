@@ -141,7 +141,6 @@ public class LongArrayBlock
         this.positionCount = positionCount;
     }
 
-    
     @Override
     public long getLong(int position, int offset)
     {
@@ -300,8 +299,10 @@ public class LongArrayBlock
     public void getContents(BlockContents contents) {
 	contents.longs = values;
 	contents.valueIsNull = valueIsNull;
+        contents.arrayOffset = arrayOffset;
     }
 
+    @Override
     public void compact(int[] positions, int base, int numPositions)
     {
         for (int i = 0; i < numPositions; i++) {
@@ -315,9 +316,10 @@ public class LongArrayBlock
         positionCount = base + numPositions;
         }
 
+    @Override
     public void erase(int begin, int end)
     {
-        if (end > positionCount || begin < 0 || begin > end) {
+        if (end > positionCount || begin < 0 || begin > end || arrayOffset != 0) {
             throw new IllegalArgumentException("begin, end not valid");
         }
                     int numMove = positionCount - end;

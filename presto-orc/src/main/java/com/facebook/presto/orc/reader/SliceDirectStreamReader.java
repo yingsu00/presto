@@ -16,6 +16,7 @@ package com.facebook.presto.orc.reader;
 import com.facebook.presto.orc.OrcCorruptionException;
 import com.facebook.presto.orc.StreamDescriptor;
 import com.facebook.presto.orc.metadata.ColumnEncoding;
+import com.facebook.presto.orc.QualifyingSet;
 import com.facebook.presto.orc.stream.BooleanInputStream;
 import com.facebook.presto.orc.stream.ByteArrayInputStream;
 import com.facebook.presto.orc.stream.InputStreamSource;
@@ -34,6 +35,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,7 +55,8 @@ import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 public class SliceDirectStreamReader
-        implements StreamReader
+    extends ColumnReader
+    implements StreamReader
 {
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(SliceDirectStreamReader.class).instanceSize();
     private static final int ONE_GIGABYTE = toIntExact(new DataSize(1, GIGABYTE).toBytes());
@@ -80,11 +83,37 @@ public class SliceDirectStreamReader
 
     private boolean rowGroupOpen;
 
+    // Number of values in bytes, resultOffsets, valueIsNull before scan().
+    int numValues = 0;
+    // Number of result rows in scan() so far.
+    private int numResults;
+    // Content bytes to be returned in Block.
+    private byte[] bytes;
+    // Start offsets for use in returned Block.
+    private int[] resultOffsets;
+    // Null flags for use in result Block.
+    boolean[] valueIsNull;
+    // Temp space for extracting values to filter when a value straddles buffers.
+    private byte[] tempBytes;
+    // Lengths for the rows of the input QualifyingSet.
+    private int[] lengths;
+    //Present flag for each row in input QualifyingSet.
+    boolean[] present;
+    // position of first element of lengths from the start of RowGroup.
+    int posInRowGroup;
+    // positions of non-null values from start of row group. Set only if presentStream != null.
+    int[] nonNullRows;
+    // Result arrays from outputQualifyingSet.
+    int[] outputRows;
+    int[] resultInputNumbers;
+    
     public SliceDirectStreamReader(StreamDescriptor streamDescriptor)
     {
         this.streamDescriptor = requireNonNull(streamDescriptor, "stream is null");
     }
 
+    
+    
     @Override
     public void prepareNextRead(int batchSize)
     {
@@ -213,7 +242,7 @@ public class SliceDirectStreamReader
         presentStream = presentStreamSource.openStream();
         lengthStream = lengthStreamSource.openStream();
         dataStream = dataByteSource.openStream();
-
+        posInRowGroup = 0;
         rowGroupOpen = true;
     }
 
@@ -249,6 +278,222 @@ public class SliceDirectStreamReader
         dataStream = null;
 
         rowGroupOpen = false;
+    }
+
+        @Override
+    public int erase(int begin, int end, int numResultsBeforeRowGroup, int numErasedFromInput)
+    {
+        if (block != null) {
+            block.erase(numResultsBeforeRowGroup + begin, block.getPositionCount());
+        }
+        if (resultOffsets != null) {
+            resultOffsets[0] = 0;
+            resultOffsets[1] = 0;
+                                    }
+        if (valueIsNull != null) {
+            Arrays.fill(valueIsNull, false);
+        }
+        numValues = 0;
+        return 0;
+    }
+    
+    @Override
+    public int scan(int maxBytes)
+            throws IOException
+    {
+        if (resultOffsets == null) {
+            resultOffsets = new int[10001];
+            bytes = new byte[100000];
+            numValues = 0;
+            resultOffsets[0] = 0;
+            resultOffsets[1] = 0;
+        }
+        if (!rowGroupOpen) {
+            openRowGroup();
+        }
+        numResults = 0;
+        int numLengths = 0;
+        QualifyingSet input = inputQualifyingSet;
+        QualifyingSet output = outputQualifyingSet;
+        int numInput = input.getPositionCount();
+        int end = input.getEnd();
+        int rowsInRange = end - posInRowGroup;
+        if (presentStream == null) {
+            numLengths = end;
+        } else {
+            if (nonNullRows == null || nonNullRows.length < end) {
+                nonNullRows = new int[end];
+            }
+            if (present == null || present.length < end) {
+                present = new boolean[end];
+            }
+            presentStream.getSetBits(rowsInRange, present);
+            for (int i = 0; i < end; i++) {
+                if (present[i]) {
+                    numLengths++;
+                    if (filter != null) {
+                        nonNullRows[numLengths - 1] = i + posInRowGroup;
+                    }
+                }
+            }
+        }
+        if (lengths == null || lengths.length < numLengths) {
+            lengths = new int[numLengths];
+        }
+        lengthStream.nextIntVector(rowsInRange, lengths, numLengths);
+        outputRows = filter != null ? output.getMutablePositions(rowsInRange) : null;
+        resultInputNumbers = filter != null ? output.getMutableInputNumbers(rowsInRange) : null;
+        int toOffset = 0;
+        int[] inputPositions = input.getPositions();
+        int lengthIdx = 0;
+        int nextActive = inputPositions[0];
+        int activeIdx = 0;
+        int numActive = input.getPositionCount();
+        int toSkip = 0;
+        for (int i = 0; i < rowsInRange; i++) {
+            if (i + posInRowGroup == nextActive) {
+                if (present != null && !present[i]) {
+                    if (filter == null || filter.testNull()) {
+                        addNullResult(i + posInRowGroup, activeIdx);
+                    }
+                }
+                    else {
+                    if (toSkip > 0) {
+                        dataStream.skip(toSkip);
+                        toSkip = 0;
+                    }
+                    int length = lengths[lengthIdx];
+                    if (filter != null) {
+                        byte[] buffer = dataStream.getBuffer(length);
+                        int pos = 0;
+                        if (buffer == null) {
+                            // The value to test is not fully contained in the buffer. Read it to tempBytes.
+                            if (tempBytes == null || tempBytes.length < length) {
+                                tempBytes = new byte[(int)(length * 1.2)];
+                            }
+                            buffer = tempBytes;
+                            dataStream.next(tempBytes, 0, length);
+                            pos = 0;
+                        }
+                        else {
+                            pos = dataStream.getOffsetInBuffer();
+                            toSkip += length;
+                        }
+                        if (filter.testBytes(buffer, pos, length)) {
+                            outputRows[numResults] = presentStream != null ? nonNullRows[lengthIdx] : i + posInRowGroup;
+                            resultInputNumbers[numResults] = activeIdx;
+                            if (outputChannel != -1) {
+                                addResultBytes(buffer, pos, length);
+                            }
+                            numResults++;
+                        }
+                    }
+                    else {
+                        // No filter.
+                        addResultFromStream(length);
+                    }
+                }
+                if (++activeIdx == numActive) {
+                    for (int i2 = lengthIdx; i2 < numLengths; i2++) {
+                        toSkip += lengths[i2];
+                    }
+                    break;
+                }
+                nextActive = inputPositions[activeIdx];
+                continue;
+            }
+            else {
+                // The row is notg in the input qualifying set. Add length to skip if non-null.
+                if (present == null || present[i]) {
+                    toSkip += lengths[lengthIdx++];
+                }
+            }
+        }   
+        if (toSkip > 0) {
+            dataStream.skip(toSkip);
+        }
+        if (output != null) {
+            output.setPositionCount(numResults);
+        }
+        numValues += numResults;
+        if (block != null) {
+            block.setPositionCount(numValues);
+        }
+            
+            posInRowGroup = end;
+            return end;
+    }
+
+    void addNullResult(int row, int activeIdx)
+    {
+        if (outputChannel != -1) {
+            if (valueIsNull == null) {
+                valueIsNull = new boolean[resultOffsets.length];
+            }
+            ensureResultRows();
+            valueIsNull[numResults + numValues] = true;
+            resultOffsets[numValues + numResults + 1] = resultOffsets[numValues + numResults];
+        }
+        if (filter != null) {
+            outputRows[numResults] = row;
+            resultInputNumbers[numResults] = activeIdx;
+        }
+        numResults++;
+    }
+
+    void addResultBytes(byte[] buffer, int pos, int length)
+    {
+        ensureResultBytes(length);
+        ensureResultRows();
+        int endOffset = resultOffsets[numValues + numResults + 1];
+        System.arraycopy(bytes, endOffset, buffer, pos, length);
+        resultOffsets[numValues + numResults + 2] = endOffset + length;
+    }
+    
+    void addResultFromStream(int length)
+        throws IOException
+    {
+        ensureResultBytes(length);
+        ensureResultRows();
+        int endOffset = resultOffsets[numValues + numResults + 1];
+        dataStream.next(bytes, endOffset, length);
+        resultOffsets[numValues + numResults + 2] = endOffset + length;
+    }
+
+    void ensureResultBytes(int length)
+    {
+        int offset = resultOffsets[numResults + numValues + 1];
+        if (bytes.length < length + offset) {
+            bytes = Arrays.copyOf(bytes, Math.max(bytes.length * 2, bytes.length + length));
+            block = null;
+        }
+        }
+
+    void ensureResultRows()
+    {
+        if (resultOffsets.length <= numValues + numResults + 1) {
+            resultOffsets = Arrays.copyOf(resultOffsets, resultOffsets.length * 2);
+            if (valueIsNull != null) {
+                valueIsNull = Arrays.copyOf(valueIsNull, resultOffsets.length);
+            }
+            block = null;
+        }
+    }
+   
+    @Override
+    public Block getBlock(boolean mayReuse)
+    {
+        if (block == null) {
+            block = new VariableWidthBlock(numValues, Slices.wrappedBuffer(bytes, 0, resultOffsets[numValues + 1]), resultOffsets, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull));
+        }
+        Block oldBlock = block;
+        if (!mayReuse) {
+            resultOffsets = null;
+            valueIsNull = null;
+            bytes = null;
+            block = null;
+        }
+        return oldBlock;
     }
 
     @Override

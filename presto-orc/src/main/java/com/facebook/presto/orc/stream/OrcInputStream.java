@@ -49,6 +49,7 @@ public final class OrcInputStream
 
     private byte[] buffer;
     private final LocalMemoryContext bufferMemoryUsage;
+    private boolean isUncompressed = false;
 
     public OrcInputStream(
             OrcDataSourceId orcDataSourceId,
@@ -101,6 +102,19 @@ public final class OrcInputStream
         return false;
     }
 
+    public byte[] getBuffer(int minBytes)
+    {
+        if (isUncompressed || available() < minBytes) {
+            return null;
+        }
+        return buffer;
+    }
+
+    public int getOffsetInBuffer()
+    {
+        return (int)current.position();
+    }
+    
     @Override
     public int read()
             throws IOException
@@ -238,7 +252,7 @@ public final class OrcInputStream
         int b1 = compressedSliceInput.readUnsignedByte();
         int b2 = compressedSliceInput.readUnsignedByte();
 
-        boolean isUncompressed = (b0 & 0x01) == 1;
+        isUncompressed = (b0 & 0x01) == 1;
         int chunkLength = (b2 << 15) | (b1 << 7) | (b0 >>> 1);
         if (chunkLength < 0 || chunkLength > compressedSliceInput.remaining()) {
             throw new OrcCorruptionException(orcDataSourceId, "The chunkLength (%s) must not be negative or greater than remaining size (%s)", chunkLength, compressedSliceInput.remaining());

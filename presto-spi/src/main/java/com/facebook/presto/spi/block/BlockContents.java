@@ -24,7 +24,6 @@ public class BlockContents {
     public int[] offsets;
     public int[] rowNumberMap;
     int arrayOffset;
-    public int positionCount;
     public boolean isIdentityMap;
     boolean isMapOwned;
 

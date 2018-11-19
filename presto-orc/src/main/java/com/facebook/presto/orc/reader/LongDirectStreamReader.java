@@ -210,6 +210,10 @@ public class LongDirectStreamReader
         if (!rowGroupOpen) {
             openRowGroup();
         }
+        if (presentStream != null) {
+            throw new UnsupportedOperationException("scan() does not support nulls");
+        }
+
         if (outputChannel != -1) {
             ensureBlockSize();
         }
@@ -227,7 +231,7 @@ public class LongDirectStreamReader
                                      numInput,
                                      input.getEnd(),
                                      input.getPositions(),
-                                     input.getInputNumbers(),
+                                     null,
                                      output.getMutablePositions(numInput),
                                      output.getMutableInputNumbers(numInput),
                                      values,
@@ -258,19 +262,18 @@ public class LongDirectStreamReader
     @Override
     public Block getBlock(boolean mayReuse)
     {
+        if (block == null) {
+            block = new LongArrayBlock(0, Optional.empty(), new long[0]);
+        }
         Block oldBlock = block;
         if (!mayReuse) {
+            values = null;
+            valueIsNull = null;
             block = null;
         }
         return oldBlock;
     }
 
-    @Override
-    public Filter getFilter()
-    {
-        return filter;
-    }
-    
     private void ensureBlockSize()
     {
         if (outputChannel == -1) {
@@ -281,10 +284,14 @@ public class LongDirectStreamReader
             values = new long[Math.max(numInput, expectNumValues)];
             block = new LongArrayBlock(0, Optional.empty(), values);
         }
-        else if (block.getPositionCount() + numInput < values.length) {
+        else if (block.getPositionCount() + numInput > values.length) {
             int newSize = (int)((block.getPositionCount() + numInput) * 1.2);
-            block = new LongArrayBlock(block.getPositionCount(), valueIsNull != null ? Optional.of(Arrays.copyOf(valueIsNull, newSize)) : Optional.empty(),
-                                       Arrays.copyOf(values, newSize));
+            if (valueIsNull != null) {
+                valueIsNull = Arrays.copyOf(valueIsNull, newSize);
+            }
+            values = Arrays.copyOf(values, newSize);
+            block = new LongArrayBlock(block.getPositionCount(), valueIsNull != null ? Optional.of(valueIsNull) : Optional.empty(),
+                                       values);
         }
     }
 

@@ -25,6 +25,7 @@ import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPageSource;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
+import com.facebook.presto.spi.PageSourceOptions;
 import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.RecordPageSource;
 import com.facebook.presto.spi.UpdatablePageSource;
@@ -225,10 +226,14 @@ public class ScanFilterAndProjectOperator
                 boolean enableAria = SystemSessionProperties.enableAria(operatorContext.getSession()); 
                 if (enableAria) {
                     int[] channels = pageProcessor.getIdentityInputToOutputChannel();
-                    filterAndProjectPushedDown = pageSource.pushdownFilterAndProjection(channels);
+                    boolean reusePages = SystemSessionProperties.enableAriaReusePages(operatorContext.getSession());
+                    boolean reorderFilters = SystemSessionProperties.ariaReorderFilters(operatorContext.getSession());
+                    if (channels != null) {
+                        filterAndProjectPushedDown = pageSource.pushdownFilterAndProjection(new PageSourceOptions(channels, reusePages, null, reorderFilters, mergingOutput.getMinPageSizeInBytes()));
+                    }
                 }
             }
-            }
+        }
         if (pageSource != null) {
             return processPageSource();
         }

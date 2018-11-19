@@ -69,7 +69,7 @@ public interface ConnectorPageSource
         return NOT_BLOCKED;
     }
 
-    default boolean pushdownFilterAndProjection(int[] outputChannels) {
+    default boolean pushdownFilterAndProjection(PageSourceOptions options) {
         return false;
     }
 }

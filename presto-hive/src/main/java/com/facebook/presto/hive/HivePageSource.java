@@ -17,6 +17,7 @@ import com.facebook.presto.hive.HivePageSourceProvider.BucketAdaptation;
 import com.facebook.presto.hive.HivePageSourceProvider.ColumnMapping;
 import com.facebook.presto.spi.ConnectorPageSource;
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.PageSourceOptions;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.block.ArrayBlock;
 import com.facebook.presto.spi.block.Block;
@@ -708,10 +709,10 @@ public class HivePageSource
     }
 
     @Override
-    public boolean pushdownFilterAndProjection(int[] fieldIdToChannel) 
+    public boolean pushdownFilterAndProjection(PageSourceOptions options) 
     {
         if (delegate != null) {
-            filterAndProjectPushedDown =  delegate.pushdownFilterAndProjection(fieldIdToChannel);
+            filterAndProjectPushedDown =  delegate.pushdownFilterAndProjection(options);
             return filterAndProjectPushedDown;
         }
         return false;

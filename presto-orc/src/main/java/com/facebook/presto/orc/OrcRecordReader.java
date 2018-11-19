@@ -29,6 +29,7 @@ import com.facebook.presto.orc.reader.StreamReader;
 import com.facebook.presto.orc.reader.StreamReaders;
 import com.facebook.presto.orc.stream.InputStreamSources;
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.PageSourceOptions;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.type.Type;
 import com.google.common.annotations.VisibleForTesting;
@@ -125,12 +126,15 @@ public class OrcRecordReader
     QualifyingSet tempQualifyingSet;
     
     boolean reusePages = false;
+    boolean reorderFilters = false;
     Page reusedPage;
     Block[] reusedPageBlocks;
 
         int lastTruncatedStreamIdx = -1;
     int maxOutputChannel = -1;
     int targetNumRows = 10000;
+    // The number of leading elements in streamOredr that is subject to reordering.
+    int numFilters = 0;
     
     public OrcRecordReader(
             Map<Integer, Type> includedColumns,
@@ -741,12 +745,13 @@ public class OrcRecordReader
         }
     }
 
-    public boolean pushdownFilterAndProjection(int[] targetChannels, int[] channelColumns)
+    public boolean pushdownFilterAndProjection(PageSourceOptions options, int[] channelColumns)
     {
         Map<Integer, Filter> filters = predicate.getFilters(includedColumns);
         if (filters == null) {
             return false;
         }
+        int[] targetChannels = options.getOutputChannels();
         for (int i = 0; i < channelColumns.length; i++) {
             int columnIndex = channelColumns[i];
             if (!presentColumns.contains(columnIndex)) {
@@ -757,6 +762,8 @@ public class OrcRecordReader
             streamReaders[columnIndex].setFilterAndChannel(filter, outputChannel);
             maxOutputChannel = Math.max(maxOutputChannel, outputChannel);
         }
+        reusePages = options.getReusePages();
+        reorderFilters = options.getReorderFilters();
         setupStreamOrder();
         return true;
     }
@@ -792,6 +799,9 @@ public class OrcRecordReader
             if (reader != null) {
                 numReaders++;
             }
+            if (reader.getFilter() != null) {
+                numFilters++;
+            }
         }
         streamOrder = new StreamReader[numReaders];
         int fill = 0;
@@ -801,8 +811,30 @@ public class OrcRecordReader
             }
         }
         Arrays.sort(streamOrder, (StreamReader a, StreamReader b) -> compareReaders(a, b));
+        if (numFilters < 2) {
+            reorderFilters = false;
+        }
     }
 
+    void maybeReorderFilters()
+    {
+        double time = 0;
+        boolean reorder = false;
+        for (int i = 0; i < numFilters; i++) {
+            Filter filter = streamOrder[i].getFilter();
+            double filterTime = filter.getTimePerDroppedValue();
+            if (filterTime < time) {
+                reorder = true;
+            }
+            time = filterTime;
+            filter.decayStats();
+        }
+        if (!reorder) {
+            return;
+        }
+        Arrays.sort(streamOrder, 0, numFilters, (StreamReader a, StreamReader b) -> compareReaders(a, b));
+    }
+    
     /* Sets up all new Blocks if returning new Blocks or removes the
      * previously returned data from Blocks if reusing Blocks. May
      * alter filter order if we have no column values from prior
@@ -880,12 +912,16 @@ public class OrcRecordReader
                     return resultPage();
                 }
             }
-
+            if (reorderFilters && (currentRowGroup & 0x3) != 0  && currentRowGroup != 0) {
+                // Reconsider filter order Every 4 row groups.
+                maybeReorderFilters();
+            }
             qualifyingSet = initialQualifyingSet;
             initialQualifyingSet.setRange((int)nextRowInGroup, (int)currentGroupRowCount);
             resumeTruncated:
             for (;;) {
                 int firstStreamIdx;
+                int endRowInGroup = 0;
                 if (lastTruncatedStreamIdx == -1) {
                     firstStreamIdx = 0;
                 }
@@ -897,11 +933,20 @@ public class OrcRecordReader
                 }
                 int numStreams = streamOrder.length;
                 for (int streamIdx = firstStreamIdx; streamIdx < numStreams; ++streamIdx) {
+                    long startTime = 0;
                     StreamReader reader = streamOrder[streamIdx];
+                    Filter filter = reader.getFilter();
                     reader.setInputQualifyingSet(qualifyingSet);
-                    reader.scan(0);
-                    if (reader.getFilter() != null) {
+                    if (reorderFilters && filter != null) {
+                        startTime = System.nanoTime();
+                    }
+                    endRowInGroup =                     reader.scan(0);
+                    if (filter != null) {
+                        QualifyingSet input = qualifyingSet;
                         qualifyingSet = reader.getOutputQualifyingSet();
+                        if (reorderFilters) {
+                            filter.updateStats(input.getPositionCount(), qualifyingSet.getPositionCount(), System.nanoTime() - startTime);
+                        }
                         if (qualifyingSet.isEmpty()) {
                             discardBatchSoFar(streamIdx);
                             lastTruncatedStreamIdx = findLastTruncatedStreamIdx(numStreams - 1);
@@ -916,6 +961,7 @@ public class OrcRecordReader
                 }
                 compactSparseBlocks(streamOrder.length - 1);
                 numRowsInResult += qualifyingSet.getPositionCount();
+                nextRowInGroup = endRowInGroup;
                 if (numRowsInResult >= targetNumRows) {
                     return resultPage();
                 }
@@ -959,7 +1005,7 @@ public class OrcRecordReader
             StreamReader reader = streamOrder[streamIdx];
             Block block = reader.getBlock(true);
             if (block != null && survivingRows != null) {
-                block.compact(survivingRows, numSurviving, numRowsInResult);
+                block.compact(survivingRows, numRowsInResult, numSurviving);
             }
             if (reader.getFilter() == null) {
                 continue;

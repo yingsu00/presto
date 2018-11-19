@@ -104,6 +104,9 @@ public void setFilterAndChannel(Filter filter, int channel)
     @Override
     public int erase(int begin, int end, int numValuesBeforeRowGroup, int numErasedFromInput)
     {
+        if (currentReader == null) {
+            return 0;
+        }
         return currentReader.erase(begin, end, numValuesBeforeRowGroup, numErasedFromInput);
     }
     
