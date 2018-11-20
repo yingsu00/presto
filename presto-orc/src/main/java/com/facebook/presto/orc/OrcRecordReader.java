@@ -798,11 +798,11 @@ public class OrcRecordReader
         for (StreamReader reader : streamReaders) {
             if (reader != null) {
                 numReaders++;
+                if (reader.getFilter() != null) {
+                    numFilters++;
+                }
             }
-            if (reader.getFilter() != null) {
-                numFilters++;
             }
-        }
         streamOrder = new StreamReader[numReaders];
         int fill = 0;
         for (StreamReader reader : streamReaders) {

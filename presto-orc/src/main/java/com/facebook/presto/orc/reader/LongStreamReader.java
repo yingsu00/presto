@@ -60,6 +60,38 @@ public class LongStreamReader
     }
 
     @Override
+    public Block readBlock(Type type)
+            throws IOException
+    {
+        return currentReader.readBlock(type);
+    }
+    
+    @Override
+    public void startStripe(InputStreamSources dictionaryStreamSources, List<ColumnEncoding> encoding)
+            throws IOException
+    {
+        ColumnEncodingKind kind = encoding.get(streamDescriptor.getStreamId()).getColumnEncodingKind();
+        if (kind == DIRECT || kind == DIRECT_V2 || kind == DWRF_DIRECT) {
+            currentReader = directReader;
+        }
+        else if (kind == DICTIONARY) {
+            currentReader = dictionaryReader;
+        }
+        else {
+            throw new IllegalArgumentException("Unsupported encoding " + kind);
+        }
+
+        currentReader.startStripe(dictionaryStreamSources, encoding);
+    }
+
+    @Override
+    public void startRowGroup(InputStreamSources dataStreamSources)
+            throws IOException
+    {
+        currentReader.startRowGroup(dataStreamSources);
+    }
+
+        @Override
     public void setInputQualifyingSet(QualifyingSet qualifyingSet)
     {
         currentReader.setInputQualifyingSet(qualifyingSet);
@@ -114,38 +146,6 @@ public void setFilterAndChannel(Filter filter, int channel)
         throws IOException
     {
         return currentReader.scan(maxResultBytes);
-    }
-    
-    @Override
-    public Block readBlock(Type type)
-            throws IOException
-    {
-        return currentReader.readBlock(type);
-    }
-    
-    @Override
-    public void startStripe(InputStreamSources dictionaryStreamSources, List<ColumnEncoding> encoding)
-            throws IOException
-    {
-        ColumnEncodingKind kind = encoding.get(streamDescriptor.getStreamId()).getColumnEncodingKind();
-        if (kind == DIRECT || kind == DIRECT_V2 || kind == DWRF_DIRECT) {
-            currentReader = directReader;
-        }
-        else if (kind == DICTIONARY) {
-            currentReader = dictionaryReader;
-        }
-        else {
-            throw new IllegalArgumentException("Unsupported encoding " + kind);
-        }
-
-        currentReader.startStripe(dictionaryStreamSources, encoding);
-    }
-
-    @Override
-    public void startRowGroup(InputStreamSources dataStreamSources)
-            throws IOException
-    {
-        currentReader.startRowGroup(dataStreamSources);
     }
 
     @Override
