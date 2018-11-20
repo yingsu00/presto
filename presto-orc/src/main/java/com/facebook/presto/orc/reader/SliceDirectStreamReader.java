@@ -307,6 +307,9 @@ public class SliceDirectStreamReader
             numValues = 0;
             resultOffsets[0] = 0;
             resultOffsets[1] = 0;
+            if (filter != null && outputQualifyingSet == null) {
+                outputQualifyingSet = new QualifyingSet();
+            }
         }
         if (!rowGroupOpen) {
             openRowGroup();
@@ -340,7 +343,7 @@ public class SliceDirectStreamReader
         if (lengths == null || lengths.length < numLengths) {
             lengths = new int[numLengths];
         }
-        lengthStream.nextIntVector(rowsInRange, lengths, numLengths);
+        lengthStream.nextIntVector(numLengths, lengths, 0);
         outputRows = filter != null ? output.getMutablePositions(rowsInRange) : null;
         resultInputNumbers = filter != null ? output.getMutableInputNumbers(rowsInRange) : null;
         int toOffset = 0;
@@ -446,7 +449,7 @@ public class SliceDirectStreamReader
         ensureResultBytes(length);
         ensureResultRows();
         int endOffset = resultOffsets[numValues + numResults + 1];
-        System.arraycopy(bytes, endOffset, buffer, pos, length);
+        System.arraycopy(buffer, pos, bytes, endOffset, length);
         resultOffsets[numValues + numResults + 2] = endOffset + length;
     }
     

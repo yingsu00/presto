@@ -86,7 +86,7 @@ public class Filters {
             }
             if (upper != null) {
                 int upperCmp = memcmp(buffer, offset, length, upper, 0, upper.length);
-                return upperCmp > 0 || (upperInclusive && upperCmp == 0);
+                return upperCmp < 0 || (upperInclusive && upperCmp == 0);
             }
             return true;
         }

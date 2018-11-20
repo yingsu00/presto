@@ -363,9 +363,12 @@ public final class LongBitPacker
             }
             fromSlice = slice;
         }
-            for (int i = 0; i < numOffsets; i++) {
-                buffer[offset + i] = 0xFF_FFFFL & (Integer.reverseBytes(getIntUnchecked(fromSlice, 3 * (offsets[i + firstOffset] - offsetBias))) >>> 8);
-                    }
+        for (int i = 0; i < numOffsets; i++) {
+            buffer[offset + i] = 0xFF_FFFFL & (Integer.reverseBytes(getIntUnchecked(fromSlice, 3 * (offsets[i + firstOffset] - offsetBias))) >>> 8);
+        }
+        if (bytes != null) {
+            input.skipFully(len);
+        }
     }
     
     private void unpack32(long[] buffer, int offset, int len, InputStream input)
@@ -380,7 +383,7 @@ public final class LongBitPacker
         }
     }
 
-        private void unpack32AtOffsets(long[] buffer, int offset, int len, int[] offsets, int firstOffset, int numOffsets, int offsetBias, OrcInputStream input)
+    private void unpack32AtOffsets(long[] buffer, int offset, int len, int[] offsets, int firstOffset, int numOffsets, int offsetBias, OrcInputStream input)
             throws IOException
     {
         Slice fromSlice;
@@ -394,9 +397,12 @@ public final class LongBitPacker
             }
             fromSlice = slice;
         }
-            for (int i = 0; i < numOffsets; i++) {
-                buffer[offset + i] = Integer.reverseBytes(getIntUnchecked(fromSlice, 4 * (offsets[i + firstOffset] - offsetBias)));
-                    }
+        for (int i = 0; i < numOffsets; i++) {
+            buffer[offset + i] = Integer.reverseBytes(getIntUnchecked(fromSlice, 4 * (offsets[i + firstOffset] - offsetBias)));
+        }
+        if (bytes != null) {
+            input.skipFully(len);
+        }
     }
 
     private void unpack40(long[] buffer, int offset, int len, InputStream input)

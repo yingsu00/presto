@@ -1003,8 +1003,8 @@ public class OrcRecordReader
         }
         for (int streamIdx = lastStreamIdx - 1; streamIdx >= 0; --streamIdx) {
             StreamReader reader = streamOrder[streamIdx];
-            Block block = reader.getBlock(true);
-            if (block != null && survivingRows != null) {
+            if (survivingRows != null && reader.getChannel() != -1) {
+                Block block = reader.getBlock(true);
                 block.compact(survivingRows, numRowsInResult, numSurviving);
             }
             if (reader.getFilter() == null) {
