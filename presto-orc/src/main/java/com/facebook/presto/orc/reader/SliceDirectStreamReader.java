@@ -361,7 +361,8 @@ public class SliceDirectStreamReader
                     }
                 }
                     else {
-                    if (toSkip > 0) {
+                        // Non-null row in qualifying set.
+                        if (toSkip > 0) {
                         dataStream.skip(toSkip);
                         toSkip = 0;
                     }
@@ -395,7 +396,8 @@ public class SliceDirectStreamReader
                         // No filter.
                         addResultFromStream(length);
                     }
-                }
+                    lengthIdx++;
+                    }
                 if (++activeIdx == numActive) {
                     for (int i2 = lengthIdx; i2 < numLengths; i2++) {
                         toSkip += lengths[i2];
@@ -422,9 +424,11 @@ public class SliceDirectStreamReader
         if (block != null) {
             block.setPositionCount(numValues);
         }
-            
-            posInRowGroup = end;
-            return end;
+        if (output != null) {
+            output.setEnd(end);
+        }
+        posInRowGroup = end;
+        return end;
     }
 
     void addNullResult(int row, int activeIdx)
@@ -474,7 +478,7 @@ public class SliceDirectStreamReader
 
     void ensureResultRows()
     {
-        if (resultOffsets.length <= numValues + numResults + 1) {
+        if (resultOffsets.length <= numValues + numResults + 2) {
             resultOffsets = Arrays.copyOf(resultOffsets, resultOffsets.length * 2);
             if (valueIsNull != null) {
                 valueIsNull = Arrays.copyOf(valueIsNull, resultOffsets.length);
@@ -487,7 +491,11 @@ public class SliceDirectStreamReader
     public Block getBlock(boolean mayReuse)
     {
         if (block == null) {
-            block = new VariableWidthBlock(numValues, Slices.wrappedBuffer(bytes, 0, resultOffsets[numValues + 1]), resultOffsets, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull));
+            if (bytes == null) {
+                // We must be skipping over whole row groups. Make a small bytes to start with.
+                bytes = new byte[1024];
+            }
+            block = new VariableWidthBlock(numValues, Slices.wrappedBuffer(bytes), resultOffsets, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull));
         }
         Block oldBlock = block;
         if (!mayReuse) {

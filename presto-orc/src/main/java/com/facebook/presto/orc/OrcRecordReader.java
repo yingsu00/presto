@@ -894,6 +894,7 @@ public class OrcRecordReader
         }
     }
 
+    int trapRowGroup = 10000000;
     
     public Page getNextPage()
         throws IOException
@@ -911,6 +912,9 @@ public class OrcRecordReader
                     currentPosition = totalRowCount;
                     return resultPage();
                 }
+            }
+            if (currentRowGroup >= trapRowGroup) {
+                System.out.println("***");
             }
             if (reorderFilters && (currentRowGroup & 0x3) != 0  && currentRowGroup != 0) {
                 // Reconsider filter order Every 4 row groups.

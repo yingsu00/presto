@@ -103,7 +103,8 @@ public class LongInputStreamV2
             readDeltaValues(firstByte);
         }
     }
-
+    int trapOffsetIdx = 100000;
+    
     // Applies filter to values at numOffsets first positions in
     // offsets. If the filter is true for the value at offsets[i][,
     // appends inputNumbers[i] to inputNumbersOut and rowNumbers[i] to
@@ -127,10 +128,13 @@ public class LongInputStreamV2
         this.valuesFill = valuesFill;
         numResults = 0;
         offsetIdx = 0;
-        if (used < numLiterals) {
+        if (numLiterals > 0) {
             scanLiterals();
         }
         while (offsetIdx < numOffsets) {
+            if (offsetIdx >= trapOffsetIdx) {
+                System.out.println("***");
+            }
             used = 0;
             numLiterals = 0;
             scanDone = false;
@@ -543,6 +547,12 @@ public class LongInputStreamV2
             long consume = Math.min(items, numLiterals - used);
             used += consume;
             items -= consume;
+            if (items != 0) {
+                // A skip of multiple runs can take place at seeking
+                // to checkpoint. Keep track of the start of the run
+                // in literals for use by next scan().
+                currentRunOffset += (int)consume;
+            }
         }
     }
 }
