@@ -996,8 +996,8 @@ public class OrcRecordReader
         int[] survivingRows = null;
         int numSurviving;
         StreamReader lastStream = streamOrder[lastStreamIdx];
-        Block lastBlock = lastStream.getBlock(true);
-        if (lastBlock != null) {
+        if (lastStream.getChannel() != -1) {
+            Block lastBlock = lastStream.getBlock(true);
             numSurviving = lastBlock.getPositionCount() - numRowsInResult;
         }
         else {
@@ -1032,7 +1032,6 @@ public class OrcRecordReader
                 }
             }
         }
-        //
     }
 
     int findLastTruncatedStreamIdx(int streamIdx)

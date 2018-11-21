@@ -395,6 +395,7 @@ public class SliceDirectStreamReader
                     else {
                         // No filter.
                         addResultFromStream(length);
+                        numResults++;
                     }
                     lengthIdx++;
                     }
