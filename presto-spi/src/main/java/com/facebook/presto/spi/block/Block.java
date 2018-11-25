@@ -299,6 +299,16 @@ public interface Block
     {
         throw new UnsupportedOperationException(getClass().getName());
     }
+
+    /* Adds the combined size of elements offsets[i] ... offsets[i +
+     * 1] to sizes[i]. offsets can be null, in which case the function
+     * works as if offsets were {0, 1, ... positionCount}. This adds
+     * the pairwise corresponding element's size to each element in
+     * sizes[].*/
+    default void int addElementSizes(int offsets[], int[] sizes, MapHolder mapHolder)
+    {
+        throw new UnsupportedOperationException(getClass().getName());
+    }
 }
 
 

@@ -52,6 +52,11 @@ public class PagesSerde
         checkArgument(compressor.isPresent() == decompressor.isPresent(), "compressor and decompressor must both be present or both be absent");
     }
 
+    public BlockEncodingSerde getBlockEncodingSerde()
+    {
+        return blockEncodingSerde;
+    }
+    
     public SerializedPage serialize(Page page)
     {
         SliceOutput serializationBuffer = new DynamicSliceOutput(toIntExact((page.getSizeInBytes() + Integer.BYTES))); // block length is an int

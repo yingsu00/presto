@@ -110,6 +110,7 @@ public final class SystemSessionProperties
     public static final String ARIA = "aria";
     public static final String ARIA_REUSE_PAGES = "aria_reuse_pages";
     public static final String ARIA_REORDER = "aria_reorder";
+    public static final String ARIA_REORDER = "aria_flags";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -515,6 +516,12 @@ public final class SystemSessionProperties
                                                                                      ARIA_REORDER,
                                                                                      "Enable Aria Presto! reorder of filters",
                                                                                      true,
+                                                                                     false),
+
+                                             IntegerProperty(
+                                                                                     ARIA_FLAGS,
+                                                                                     "Enable Aria Presto! reorder of filters",
+                                                                                     0,
                                                                                      false));
     }
 
@@ -857,4 +864,10 @@ public final class SystemSessionProperties
     {
         return session.getSystemProperty(ARIA_REORDER, Boolean.class);
     }
+        public static int ariaFlags(Session session)
+    {
+        return session.getSystemProperty(ARIA_FLAGS, Integer.class);
+    }
+
+    
 }

@@ -43,4 +43,26 @@ public interface BlockEncoding
     {
         return Optional.empty();
     }
+    
+    default int reserveBufferBytes(BlockContents contents, int numValues, int offsetInBuffer, EncodingState state)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default void addValues(BlockContents contents, int[] rows, int firstRow, int numRows, EncodingState state)
+            {
+        throw new UnsupportedOperationException();
+    }
+
+    int getFinalSize(EncodingState state)
+    {
+        throw new UnsupportedOperationException();
+        {
+
+            void finish(EncodingState state, int newOffsetInBuffer, Slice buffer)
+            {
+                throw new UnsupportedOperationException();
+            }
+
+        }
 }

@@ -17,6 +17,7 @@ import io.airlift.slice.Slice;
 import static java.lang.System.arraycopy;
 
 public class BlockContents {
+    public Block leafBlock;
     public long[] longs;
     public double[] doubles;
     public boolean[] valueIsNull;
@@ -31,97 +32,120 @@ public class BlockContents {
 
     static int[] getIdentityMap(int size, int start, MapHolder mapHolder)
     {
-	if (start == 0) {
-	    int[] map = identityMap;
-	    if (map != null && map.length >= size) {
-		return map;
-	    }
-	    map = new int[size + 100];
-	    for (int i = 0; i < map.length; ++i) {
-		map[i] = i;
-	    }
-	    identityMap = map;
-	    return map;
-	}
-	int[] map = mapHolder.getIntArray(size);
-	for (int i = 0; i < size; ++i) {
-	    map[i] = i + start;
-	}
-	return map;
+        if (start == 0) {
+            int[] map = identityMap;
+            if (map != null && map.length >= size) {
+                return map;
+            }
+            map = new int[size + 100];
+            for (int i = 0; i < map.length; ++i) {
+                map[i] = i;
+            }
+            identityMap = map;
+            return map;
+        }
+        int[] map = mapHolder.getIntArray(size);
+        for (int i = 0; i < size; ++i) {
+            map[i] = i + start;
+        }
+        return map;
     }
 
     public void decodeBlock(Block block, MapHolder mapHolder) {
-	int positionCount = block.getPositionCount();
-	isMapOwned = false;
-	isIdentityMap = true;
+        int positionCount = block.getPositionCount();
+        isMapOwned = false;
+        isIdentityMap = true;
         longs = null;
         slice = null;
         offsets = null;
         rowNumberMap = null;
-	int[] map = null;
-	for (;;) {
-	    if (block instanceof DictionaryBlock)
-		{
-		    int[] ids = ((DictionaryBlock)block).getIdsArray();
-		    int offset = ((DictionaryBlock)block).getIdsOffset();
-			if (map == null) {
-			    map = ids;
-			    if (offset != 0) {
+        int[] map = null;
+        for (;;) {
+            if (block instanceof DictionaryBlock) {
+                isIdentityMap = false;
+                int[] ids = ((DictionaryBlock)block).getIdsArray();
+                    int offset = ((DictionaryBlock)block).getIdsOffset();
+                        if (map == null) {
+                            map = ids;
+                            if (offset != 0) {
                               int[] newMap = mapHolder.getIntArray(positionCount);
                               System.arraycopy(map, offset, newMap, 0, positionCount);
-				isMapOwned = true;
-				map = newMap;
-			    }
-			}
-			else {
-			    if (!isMapOwned) {
-				int[] newMap = mapHolder.getIntArray(positionCount);
-				for (int i = 0; i < positionCount; ++i) {
-				    newMap[i] = ids[map[i] + offset];
-				}
-				isMapOwned = true;
-			    }
-			    else {
-				for (int i = 0; i < positionCount; ++i) {
-				    map[i] = ids[map[i] + offset];
-				}
-			    }
-			}
-		    block = ((DictionaryBlock)block).getDictionary();
-		}
-	    else if (block instanceof RunLengthEncodedBlock)
-		{
-		if (map == null || !isMapOwned) {
-	    map = mapHolder.getIntArray(positionCount);
-	    isMapOwned = true;
-	    isIdentityMap = false;
-	}
+                                isMapOwned = true;
+                                map = newMap;
+                            }
+                        }
+                        else {
+                            if (!isMapOwned) {
+                                int[] newMap = mapHolder.getIntArray(positionCount);
+                                for (int i = 0; i < positionCount; ++i) {
+                                    newMap[i] = ids[map[i] + offset];
+                                }
+                                isMapOwned = true;
+                            }
+                            else {
+                                for (int i = 0; i < positionCount; ++i) {
+                                    map[i] = ids[map[i] + offset];
+                                }
+                            }
+                        }
+                    block = ((DictionaryBlock)block).getDictionary();
+                }
+            else if (block instanceof RunLengthEncodedBlock)
+                {
+                    if (map == null || !isMapOwned) {
+            map = mapHolder.getIntArray(positionCount);
+            isMapOwned = true;
+            isIdentityMap = false;
+        }
     for (int i = 0; i < positionCount; ++i) {
-	map[i] = 0;
+        map[i] = 0;
     }
     block = ((RunLengthEncodedBlock)block).getValue();
-		}
-	    else {
-		block.getContents(this);
-		if (map == null) {
-                  rowNumberMap = getIdentityMap(positionCount, arrayOffset, mapHolder);
-		    if (arrayOffset != 0) {
-			isMapOwned = true;
-			isIdentityMap = false;
-		    }
-		} else {
-		    rowNumberMap = map;
-		}
-		return;
-	    }
-	}
+                }
+            else {
+                leafBlock = block;
+                block.getContents(this);
+                if (arrayOffset != 0) {
+                    if (isMapOwned) {
+                        for (int = 0; i < positionCount; i++) {
+                            map[i] += arrayOffset;
+                        }
+                    }
+                    else if (map == null) {
+                        map = mapHolder.getIntArray(positionCount);
+                        for (int i = 0; i < positionCount; i++) {
+                            map[i] = i + arrayOffset;
+                        }
+                    }
+                    else {
+                        int[] newMap = mapHolder.getIntArray(positionCount);
+                        System.arraycopy(map, 0, newMap, 0, positionCount);
+                        for (int i = 0; i  < positionCount; i++) {
+                            newMap[i] += arrayOffset;
+                        }
+                    }
+                    isMapOwned = true;
+                    isIdentityMap = false;
+                }
+                else {
+                    if (map == null) {
+                        isIdentityMap = arrayOffset == 0;
+                        rowNumberMap = getIdentityMap(positionCount, arrayOffset, mapHolder);
+                    }
+                    else {
+                        rowNumberMap = map;
+                    }
+                }
+                return;
+            }
+        }
     }
 
-  public void release(MapHolder mapHolder) {
+    public void release(MapHolder mapHolder) {
     if (isMapOwned) {
       mapHolder.store(rowNumberMap);
       isMapOwned = false;
       rowNumberMap = null;
     }
   }
-	    }
+            }

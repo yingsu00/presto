@@ -33,4 +33,9 @@ public interface HashGenerator
         checkState(partition >= 0 && partition < partitionCount);
         return partition;
     }
+
+    default void getPartitions(int partitionCount, Page page, int[] partitionsOut)
+    {
+        throw new UnsupportedOperationException();
+    }
 }

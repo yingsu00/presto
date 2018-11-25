@@ -27,4 +27,6 @@ public interface BlockEncodingSerde
      * Write a blockEncoding to the output.
      */
     void writeBlock(SliceOutput output, Block block);
+
+    BlockEncoding getEncoding(Block block);
 }

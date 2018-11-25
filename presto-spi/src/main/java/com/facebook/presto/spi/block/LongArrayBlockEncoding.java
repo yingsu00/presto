@@ -61,4 +61,46 @@ public class LongArrayBlockEncoding
 
         return new LongArrayBlock(0, positionCount, valueIsNull, values);
     }
+
+    @Override
+    int reserveBytesInBuffer(BlockContents contents, int rows, int offsetInBuffer, EncodingState state) {
+        //  Reserves space for serialized 'rows' non-null longs
+        // including headers. 5 for vallue count and null indicator, 4
+        // for name character count + length of the name string.
+        int size = 8 * rows + 5 + 4 + NAME.length;
+        state.startInBuffer = offsetInBuffer;
+        return offsetInBuffer + size;
+    }
+
+    @Override
+    void addValues(BlockContents contents, int[] rows, int firstRow, int numRows, EncodingState state)
+    {
+                long[] longs = contents.longs;
+                int[] map = content.rowNumberMap;
+                valueOffset = state.valueOffset;
+                        for (int i = firstRow; i < firstRow + numRows; i++) {
+                    setLongUnchecked(state.topLevelSlice, valuesOffset + i *8, longs[map[rows[i]]]);
+                    state.numValues += numRows;
+                        }
+
+
+    }
+    
+    @Override
+    int getFinalSize(EncodingState state)
+    {
+        return 8 * state.numValues + (state.valueOffset - state.startInBuffer) + 5;
+    }
+
+    @Override
+    void finish(EncodingState state, int newOffsetInBuffer, Slice buffer)
+    {
+        state.topLevelBuffer.setInt(state.valueOffset - 5, state.numValues);
+        state.topLevelBuffer.setByte(state.valueOffset - 1, 0);
+        if (buffer == state.topLevelBuffer && !state.anyNulls && state.startInBuffer == newStartInBuffer) {
+            return;
+        }
+        int size = getFinalSize(state);
+        System.arraycopy((byte[])state.topLevelBuffer.getBase(), state.startInBuffer, (byte[])buffer.getBase(), newStartInBuffer, size);;
+    }
 }
