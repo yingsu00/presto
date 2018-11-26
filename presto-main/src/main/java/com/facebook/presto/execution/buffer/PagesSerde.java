@@ -18,6 +18,7 @@ import com.facebook.presto.spi.block.BlockEncodingSerde;
 import io.airlift.compress.Compressor;
 import io.airlift.compress.Decompressor;
 import io.airlift.slice.DynamicSliceOutput;
+import io.airlift.slice.Slice;
 import io.airlift.slice.SliceOutput;
 import io.airlift.slice.Slices;
 
@@ -43,7 +44,8 @@ public class PagesSerde
     private final BlockEncodingSerde blockEncodingSerde;
     private final Optional<Compressor> compressor;
     private final Optional<Decompressor> decompressor;
-
+    private byte[] compressionBuffer = null;
+    
     public PagesSerde(BlockEncodingSerde blockEncodingSerde, Optional<Compressor> compressor, Optional<Decompressor> decompressor)
     {
         this.blockEncodingSerde = requireNonNull(blockEncodingSerde, "blockEncodingSerde is null");
@@ -59,6 +61,7 @@ public class PagesSerde
     
     public SerializedPage serialize(Page page)
     {
+        
         SliceOutput serializationBuffer = new DynamicSliceOutput(toIntExact((page.getSizeInBytes() + Integer.BYTES))); // block length is an int
         writeRawPage(page, serializationBuffer, blockEncodingSerde);
 
@@ -81,6 +84,30 @@ public class PagesSerde
                 serializationBuffer.size());
     }
 
+    public SerializedPage wrapBuffer(Slice buffer, int positionCount)
+    {
+        if (!compressor.isPresent()) {
+            return new SerializedPage(buffer, UNCOMPRESSED, positionCount, buffer.length());
+        }
+
+        int maxCompressedLength = maxCompressedLength(buffer.length());
+        if (compressionBuffer == null || compressionBuffer.length < maxCompressedLength) {
+            compressionBuffer = new byte[maxCompressedLength];
+        }
+            int actualCompressedLength = compressor.get().compress((byte[])buffer.getBase(), 0, buffer.length(), compressionBuffer, 0, maxCompressedLength);
+
+        if (((1.0 * actualCompressedLength) / buffer.length()) > MINIMUM_COMPRESSION_RATIO) {
+            return new SerializedPage(buffer, UNCOMPRESSED, positionCount, buffer.length());
+        }
+
+        return new SerializedPage(
+                                  Slices.copyOf(Slices.wrappedBuffer(compressionBuffer, 0, actualCompressedLength)),
+                                  COMPRESSED,
+                                  positionCount,
+                                  buffer.length());
+
+    }
+    
     public Page deserialize(SerializedPage serializedPage)
     {
         checkArgument(serializedPage != null, "serializedPage is null");

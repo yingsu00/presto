@@ -47,4 +47,9 @@ public class BucketPartitionFunction
         int bucket = bucketFunction.getBucket(functionArguments, position);
         return bucketToPartition[bucket];
     }
+
+    public void getPartitions(int partitionCount, Page page, int[] partitionsOut)
+    {
+        bucketFunction.getBuckets(        partitionCount, page, partitionsOut);
+    }
 }

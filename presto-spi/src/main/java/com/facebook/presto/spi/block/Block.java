@@ -305,7 +305,7 @@ public interface Block
      * works as if offsets were {0, 1, ... positionCount}. This adds
      * the pairwise corresponding element's size to each element in
      * sizes[].*/
-    default void int addElementSizes(int offsets[], int[] sizes, MapHolder mapHolder)
+    default void addElementSizes(int offsets[], int[] sizes, MapHolder mapHolder)
     {
         throw new UnsupportedOperationException(getClass().getName());
     }

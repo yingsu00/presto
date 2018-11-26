@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.spi.block;
 
+import io.airlift.slice.Slice;
 import io.airlift.slice.SliceInput;
 import io.airlift.slice.SliceOutput;
 
@@ -63,44 +64,55 @@ public class LongArrayBlockEncoding
     }
 
     @Override
-    int reserveBytesInBuffer(BlockContents contents, int rows, int offsetInBuffer, EncodingState state) {
+    public int reserveBytesInBuffer(BlockContents contents, int numValues, int startInBuffer, EncodingState state)
+    {
         //  Reserves space for serialized 'rows' non-null longs
         // including headers. 5 for vallue count and null indicator, 4
         // for name character count + length of the name string.
-        int size = 8 * rows + 5 + 4 + NAME.length;
-        state.startInBuffer = offsetInBuffer;
-        return offsetInBuffer + size;
+        int size = 8 * numValues + 5 + 4 + NAME.length();
+        state.startInBuffer = startInBuffer;
+        state.bytesInBuffer = size;
+        state.encodingName = NAME;
+        return startInBuffer + size;
     }
 
     @Override
-    void addValues(BlockContents contents, int[] rows, int firstRow, int numRows, EncodingState state)
+    public void addValues(BlockContents contents, int[] rows, int firstRow, int numRows, EncodingState state)
     {
                 long[] longs = contents.longs;
-                int[] map = content.rowNumberMap;
-                valueOffset = state.valueOffset;
+                int[] map = contents.rowNumberMap;
+                int longsOffset = state.valueOffset + 5;
                         for (int i = firstRow; i < firstRow + numRows; i++) {
-                    setLongUnchecked(state.topLevelSlice, valuesOffset + i *8, longs[map[rows[i]]]);
-                    state.numValues += numRows;
+                            state.topLevelBuffer.setLong(longsOffset + i *8, longs[map[rows[i]]]);
                         }
+                        state.numValues += numRows;
+    }
 
-
+    
+    @Override
+    public int prepareFinish(EncodingState state, int newStartInBuffer)
+    {
+        state.newStartInBuffer = newStartInBuffer;
+        return finalSize(state);
+    }
+    int finalSize(EncodingState state)
+    {
+        return         8 * state.numValues + (state.valueOffset - state.startInBuffer) + 5;
     }
     
     @Override
-    int getFinalSize(EncodingState state)
-    {
-        return 8 * state.numValues + (state.valueOffset - state.startInBuffer) + 5;
-    }
-
-    @Override
-    void finish(EncodingState state, int newOffsetInBuffer, Slice buffer)
+    public void finish(EncodingState state, Slice buffer)
     {
         state.topLevelBuffer.setInt(state.valueOffset - 5, state.numValues);
         state.topLevelBuffer.setByte(state.valueOffset - 1, 0);
-        if (buffer == state.topLevelBuffer && !state.anyNulls && state.startInBuffer == newStartInBuffer) {
+        if (buffer == state.topLevelBuffer && !state.anyNulls && state.startInBuffer == state.newStartInBuffer) {
             return;
         }
-        int size = getFinalSize(state);
-        System.arraycopy((byte[])state.topLevelBuffer.getBase(), state.startInBuffer, (byte[])buffer.getBase(), newStartInBuffer, size);;
+        int size = finalSize(state);
+        System.arraycopy((byte[])state.topLevelBuffer.getBase(),
+                         state.startInBuffer,
+                         (byte[])buffer.getBase(),
+                         state.newStartInBuffer,
+                         size);
     }
 }

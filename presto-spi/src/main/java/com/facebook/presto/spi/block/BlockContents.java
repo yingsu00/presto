@@ -107,7 +107,7 @@ public class BlockContents {
                 block.getContents(this);
                 if (arrayOffset != 0) {
                     if (isMapOwned) {
-                        for (int = 0; i < positionCount; i++) {
+                        for (int i = 0; i < positionCount; i++) {
                             map[i] += arrayOffset;
                         }
                     }

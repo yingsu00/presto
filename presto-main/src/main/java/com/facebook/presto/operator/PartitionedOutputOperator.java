@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.execution.buffer.OutputBuffer;
 import com.facebook.presto.execution.buffer.PagesSerde;
 import com.facebook.presto.execution.buffer.PagesSerdeFactory;
@@ -21,18 +22,25 @@ import com.facebook.presto.memory.context.LocalMemoryContext;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.BlockContents;
 import com.facebook.presto.spi.block.BlockEncoding;
 import com.facebook.presto.spi.block.EncodingState;
+import com.facebook.presto.spi.block.MapHolder;
 import com.facebook.presto.spi.block.RunLengthEncodedBlock;
 import com.facebook.presto.spi.predicate.NullableValue;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.spi.type.VariableWidthType;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.facebook.presto.util.Mergeable;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.util.concurrent.ListenableFuture;
+import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
 import io.airlift.units.DataSize;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -214,7 +222,7 @@ public class PartitionedOutputOperator
         this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
         this.pagePreprocessor = requireNonNull(pagePreprocessor, "pagePreprocessor is null");
         this.outputBuffer = requireNonNull(outputBuffer, "outputBuffer is null");
-        boolean useAria = (operatorContext.getAriaFlags() & 1) != 0;
+        boolean useAria = (SystemSessionProperties.ariaFlags(operatorContext.getSession()) & 1) != 0;
         this.partitionFunction = new PagePartitioner(
                 partitionFunction,
                 partitionChannels,
@@ -301,76 +309,152 @@ public class PartitionedOutputOperator
 
     private static class PartitionData
     {
-        int numRows = 0;
-        int filledRows = 0;
+        private final int partition;
+        private final AtomicLong rowsAdded;
+        private final AtomicLong pagesAdded;
+        int numNewRows = 0;
+        int bufferedRows = 0;
         int maxRows;
-        int numBytes;
-        // Row numbers in the current Page that go to this destination.
+        int bufferedBytes;
+        int maxBytes;
+        // Row numbers in the current Page that go to this destination. 0..numNewRows
         int rows[] = new int[100];
-        byte[] buffer;
-        EncodingState[] columns;
+        byte[] topLevelBuffer;
+        EncodingState[] encodingStates;
         BlockEncoding[] encodings;
-        Slice bufferSlice;
-
+        Slice topLevelSlice;
+        PagesSerde serde;
+        
+        PartitionData(int partition, AtomicLong pagesAdded, AtomicLong rowsAdded, PagesSerde serde)
+        {
+            this.partition = partition;
+            this.pagesAdded = pagesAdded;
+            this.rowsAdded = rowsAdded;
+            this.serde = serde;
+        }
+        
         void prepareBatch()
         {
-            numRows = 0;
+            numNewRows = 0;
         }
 
-        void send(BlockContents[] contents, sourceTypes types, int partition, OutputBuffer buffer, PagesSerde serde)
+        void appendRows(BlockContents[] contents, int partition, int fixedRowSize, int[] rowSizes, OutputBuffer outputBuffer)
         {
-            if (columns == null) {
-                prepareBuffer(contents, positionCount, serde);
+            if (bufferedRows == 0) {
+                prepareBuffer(contents, serde);
             }
-            int firstNewRow = 0;
-            int numRowsFit = Math.min(maxRows - filledRows, numRows);
-            for  (int i = 0; i < contents.length; i++) {
-                long[] longs = content.longs;
-                int[] map = content.rowNumberMap;
-                valueOffset = columns[i].valueOffset;
-                for (int i = firstNewRow; i < firstNewRow + numRowsFit; i++) {
-                    setLongUnchecked(fullSlice, valuesOffset + i *8, longs[map[rows[i]]]);
+                int rowsToWrite = numNewRows;
+            int rowsWritten = 0;
+            do {
+                int numRowsFit = calculateNumRowsInBatch(rowsWritten, fixedRowSize, rowSizes);
+                for  (int i = 0; i < contents.length; i++) {
+                    encodings[i].addValues(contents[i], rows, rowsWritten, numRowsFit, encodingStates[i]);
+                }
+                if (numRowsFit - rowsWritten < numNewRows) {
+                    flush(outputBuffer);
+                    prepareBuffer(contents, serde);
+                }
+                rowsWritten += numRowsFit;
+            } while (rowsWritten < rowsToWrite);
+            numNewRows = 0;
+        }
+
+        int calculateNumRowsInBatch(int firstToWrite, int fixedRowSize, int[] rowSizes)
+        {
+            if (rowSizes == null) {
+                int space = Math.min(numNewRows - firstToWrite, maxRows - bufferedRows);
+            bufferedRows += space;
+            return space;
+            }
+            int numRows = 0;
+            int row = firstToWrite;
+            int last = Math.min(numNewRows, firstToWrite + maxRows - bufferedRows); 
+            for (; row < last; row++) {
+                int size = rowSizes[rows[row]];
+                if (size + bufferedBytes > maxBytes) {
+                    if (bufferedBytes == 0) {
+                        bufferedBytes = size;
+                        return 1;
+                    }
+                    return row - firstToWrite;
+                }
+                bufferedBytes += size;
+            }
+            return row - firstToWrite;
+        }
+
+        void flush(OutputBuffer outputBuffer)
+        {
+            int finalSize = 0;
+            boolean allFits = true;
+            for (int i = 0; i < encodings.length; i++) {
+                EncodingState state = encodingStates[i];
+                int size = encodings[i].prepareFinish(state, finalSize);
+                finalSize += size;
+                if (size > state.getBytesInBuffer()) {
+                    allFits = false;
                 }
             }
-        }
+            Slice buffer;
+            if (allFits) {
+                buffer = Slices.wrappedBuffer(topLevelBuffer, 0, finalSize);
+            }
+            else {
+                buffer = Slices.allocate(finalSize);
+                buffer.setInt(0, encodings.length);
+            }
+            for (int i = 0; i < encodings.length; i++) {
+                encodings[i].finish(encodingStates[i], buffer);
+            }
+            SerializedPage serialized = serde.wrapBuffer(buffer, bufferedRows);
+            if (serialized.getSlice() == buffer) {
+                topLevelBuffer = null;
+                topLevelSlice = null;
+            }
+            ArrayList<SerializedPage> list = new ArrayList();
+            list.add(serialized);
+            outputBuffer.enqueue(partition, list);
+            pagesAdded.incrementAndGet();
+            rowsAdded.addAndGet(bufferedRows);
+            bufferedRows = 0;
+            bufferedBytes = 0;
+    }
 
         static int elementSize(Block block)
         {
             return 8;
         }
 
-        void prepareBuffer(BlockContents[] contents, int positionCount, PagesSerde serde)
+        void prepareBuffer(BlockContents[] contents, PagesSerde serde)
         {
             int targetBytes = DEFAULT_MAX_PAGE_SIZE_IN_BYTES;
-            int fill = 0;
             int size = 0;
-            encodings = new BlockEncoding[contents.length];
-            encodingStates = new EncodingState[contents.length];
-            int rowBytes = 0;
-            for (int i = 0; i < contents.length; i++) {
-                BlockContents content = contents[i];
-                rowBytes += elementSize(contents.leadfBlock); 
-                encodings[i] = serde.getBlockEncodingSerde().getEncoding(contents.leafBlock);
-                encodingStates[i] = new EncodingState();
-            }
-            int targetRows = targetBytes / rowBytes;
-            int bufferSize = 0;
-            for (BlockEncoding encoding : encodings) {
-                bufferSize = encoding.reserveSpace(targetRows, bufferSize)
-                    }
-
-
+            if (encodings == null) {
+                encodings = new BlockEncoding[contents.length];
+                encodingStates = new EncodingState[contents.length];
+                int rowBytes = 0;
+                for (int i = 0; i < contents.length; i++) {
+                    BlockContents content = contents[i];
+                    rowBytes += elementSize(content.leafBlock); 
+                    encodings[i] = serde.getBlockEncodingSerde().getEncoding(content.leafBlock);
+                    encodingStates[i] = new EncodingState();
                 }
-                else {
-                    nonNullCount++;
-                }
-                columns[i].valueOffset = fill;
-                fill += 8 * positionCount;
+                maxRows = Math.max(1, targetBytes / rowBytes);
             }
-            int size = fill + nonNullCount * nullBitsBytes;
-
+            int bufferSize = 4;
+            for (int i = 0; i < encodings.length; i++) {
+                bufferSize = encodings[i].reserveBytesInBuffer(contents[i], maxRows, bufferSize, encodingStates[i]);
+            }
+            if (topLevelBuffer == null || topLevelBuffer.length < bufferSize) {
+                topLevelBuffer = new byte[bufferSize];
+                topLevelSlice = Slices.wrappedBuffer(topLevelBuffer);
+                topLevelSlice.setInt(0, contents.length);
+            }
+            for (EncodingState state : encodingStates) {
+                state.setBuffer(topLevelSlice);
+            }
         }
-
+    }
     
     private static class PagePartitioner
     {
@@ -387,10 +471,14 @@ public class PartitionedOutputOperator
         private final AtomicLong pagesAdded = new AtomicLong();
         private boolean hasAnyRowBeenReplicated;
         private PartitionData[] partitionData;
-        privat int[] partitionOfRow;
+        private int[] partitionOfRow;
+        private int fixedRowSize = 0;
+        private int[] rowSizes;
+        private ArrayList<Integer> variableWidthChannels;
         private BlockContents[] blockContents;
         private BlockEncoding[] encodings;
         private MapHolder mapHolder;
+        private boolean useAria;
         
         public PagePartitioner(
                 PartitionFunction partitionFunction,
@@ -414,11 +502,19 @@ public class PartitionedOutputOperator
             this.outputBuffer = requireNonNull(outputBuffer, "outputBuffer is null");
             this.sourceTypes = requireNonNull(sourceTypes, "sourceTypes is null");
             this.serde = requireNonNull(serdeFactory, "serdeFactory is null").createPagesSerde();
-
+            this.useAria = useAria;
             int partitionCount = partitionFunction.getPartitionCount();
             int pageSize = min(DEFAULT_MAX_PAGE_SIZE_IN_BYTES, ((int) maxMemory.toBytes()) / partitionCount);
             pageSize = max(1, pageSize);
-            for (Type type : sourceTypes) {
+            for (int i = 0; i < sourceTypes.size(); i++) {
+                Type type = sourceTypes.get(i);
+                fixedRowSize += fixedSerializedLength(type);
+                if (isVariableWidth(type)) {
+                    if (variableWidthChannels == null) {
+                        variableWidthChannels = new ArrayList();
+                    }
+                    variableWidthChannels.add(i);
+                }
                 if (type != BIGINT) {
                     useAria = false;
                 }
@@ -426,13 +522,14 @@ public class PartitionedOutputOperator
             if (useAria) {
                 partitionData = new PartitionData[partitionCount];
                 for (int i = 0; i < partitionCount; i++) {
-                    partitionData[i] = new PartitionData();
+                    partitionData[i] = new PartitionData(i, pagesAdded, rowsAdded, serde);
                 }
-                contents = new BlockContents[sourceTypes.size()];
-                for (int i = 0; i < contents.length; i++) {
-                    contents = new BlockContents();
+                blockContents = new BlockContents[sourceTypes.size()];
+                for (int i = 0; i < blockContents.length; i++) {
+                    blockContents[i] = new BlockContents();
                 }
                 mapHolder = new MapHolder();
+                this.pageBuilders = null;
                 return;
             }
             this.pageBuilders = new PageBuilder[partitionCount];
@@ -441,6 +538,16 @@ public class PartitionedOutputOperator
             }
         }
 
+
+        private int fixedSerializedLength(Type type)
+        {
+            return 8;
+        }
+
+        private boolean isVariableWidth(Type type) {
+            return type instanceof VariableWidthType;
+        }
+        
         public ListenableFuture<?> isFull()
         {
             return outputBuffer.isFull();
@@ -484,7 +591,7 @@ public class PartitionedOutputOperator
                 if (partitionOfRow == null || partitionOfRow.length < positionCount) {
                     partitionOfRow = new int[(int)(positionCount * 1.2)];
                 }
-                partitionFunction.getPartitions(partitionCount, page, partitionOfRow);
+                partitionFunction.getPartitions(partitionData.length, page, partitionOfRow);
                 ariaPartitionPage(page, positionCount);
                 return;
             }
@@ -532,6 +639,15 @@ public class PartitionedOutputOperator
 
         public void flush(boolean force)
         {
+            if (partitionData != null) {
+                if (!force) {
+                    return;
+                }
+                for (PartitionData data : partitionData) {
+                    data.flush(outputBuffer);
+                }
+                return;
+            }
             // add all full pages to output buffer
             for (int partition = 0; partition < pageBuilders.length; partition++) {
                 PageBuilder partitionPageBuilder = pageBuilders[partition];
@@ -558,20 +674,30 @@ public class PartitionedOutputOperator
         void ariaPartitionPage(Page page, int positionCount)
         {
             for (int i = 0; i < sourceTypes.size(); i++) {
-                contents[i].decodeBlock(page.getBlock(i), mapHolder);
+                blockContents[i].decodeBlock(page.getBlock(i), mapHolder);
+            }
+            
+            if (variableWidthChannels != null) {
+                if (rowSizes == null || rowSizes.length < positionCount) {
+                    rowSizes = new int[(int)(positionCount * 1.2)];
+                }
+                Arrays.fill(rowSizes, 0);
+                for (int i = 0; i < variableWidthChannels.size(); i++) {
+                    page.getBlock(variableWidthChannels.get(i).intValue()).addElementSizes(null, rowSizes, mapHolder);
+                }
             }
             for (PartitionData target : partitionData) {
                 target.prepareBatch();
             }
             for (int i = 0; i < positionCount; i++) {
                 PartitionData target = partitionData[partitionOfRow[i]];
-                if (target.rows.length < target.numRows) {
+                if (target.rows.length < target.numNewRows) {
                     target.rows = Arrays.copyOf(target.rows, 2 * target.rows.length);
                 }
-                target.rows[target.numRows++] = i;
+                target.rows[target.numNewRows++] = i;
             }
-            for (int i = 0; i  < partitionCount; i++) {
-                partitionData[i].appendRows(contents, sourceTypes, i, outputBuffer);
+            for (int i = 0; i  < partitionData.length; i++) {
+                partitionData[i].appendRows(blockContents, i, fixedRowSize, rowSizes, outputBuffer);
             }
         }
     }

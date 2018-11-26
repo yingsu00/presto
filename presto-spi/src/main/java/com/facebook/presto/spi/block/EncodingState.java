@@ -13,7 +13,10 @@
  */
 package com.facebook.presto.spi.block;
 
-import io.airlift.slice.SliceInput;
+import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class EncodingState
 {
@@ -23,22 +26,27 @@ public class EncodingState
     byte[] nullBits;
     Slice topLevelBuffer;
     int startInBuffer;
-    int bytesInBuffer
-        int valueOffset;
-        Slice contentBuffer;
+    int newStartInBuffer;
+    int bytesInBuffer;
+    int valueOffset;
+    Slice contentBuffer;
     long totalValues = 0;
     long totalBytes = 0;
+    String encodingName;
+
+    public int getBytesInBuffer()
+    {
+        return bytesInBuffer;
+    }
     
-    void reset(int maxValues, Slice buffer, int startInBuffer, String name)
+    public void setBuffer(Slice buffer)
     {
         numValues = 0;
         anyNulls = false;
-        this.maxValues =maxValues;
         topLevelBuffer = buffer;
-                byte[] bytes = name.getBytes(UTF_8);
-                buffer.setInt(startInBuffer, bytes.length);
-                buffer.setBytes(startInBuffer + 4, Slices.wrappedBuffer(bytes));
-                
-                valueOffset = startInBuffer + 4 + bytes.length;
+                byte[] nameBytes = encodingName.getBytes(UTF_8);
+                buffer.setInt(startInBuffer, nameBytes.length);
+                buffer.setBytes(startInBuffer + 4, Slices.wrappedBuffer(nameBytes));
+                valueOffset = startInBuffer + 4 + nameBytes.length;
     }
 }

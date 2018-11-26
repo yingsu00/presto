@@ -130,7 +130,7 @@ public final class BlockEncodingManager
         }
     }
 
-    BlockEncoding getEncoding(Block block)
+    public BlockEncoding getEncoding(Block block)
     {
         return blockEncodings.get(block.getEncodingName());
     }

@@ -20,4 +20,9 @@ public interface BucketFunction
      * Note the tuple values may be null.
      */
     int getBucket(Page page, int position);
+
+    default void getBuckets(int partitionCount, Page page, int[] partitionsOut)
+    {
+        throw new UnsupportedOperationException();
+    }
 }

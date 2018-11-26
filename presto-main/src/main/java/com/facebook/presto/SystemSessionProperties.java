@@ -110,7 +110,7 @@ public final class SystemSessionProperties
     public static final String ARIA = "aria";
     public static final String ARIA_REUSE_PAGES = "aria_reuse_pages";
     public static final String ARIA_REORDER = "aria_reorder";
-    public static final String ARIA_REORDER = "aria_flags";
+    public static final String ARIA_FLAGS = "aria_flags";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -518,7 +518,7 @@ public final class SystemSessionProperties
                                                                                      true,
                                                                                      false),
 
-                                             IntegerProperty(
+                integerProperty(
                                                                                      ARIA_FLAGS,
                                                                                      "Enable Aria Presto! reorder of filters",
                                                                                      0,

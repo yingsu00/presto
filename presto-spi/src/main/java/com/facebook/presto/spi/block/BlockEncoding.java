@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.spi.block;
 
+import io.airlift.slice.Slice;
 import io.airlift.slice.SliceInput;
 import io.airlift.slice.SliceOutput;
 
@@ -44,7 +45,7 @@ public interface BlockEncoding
         return Optional.empty();
     }
     
-    default int reserveBufferBytes(BlockContents contents, int numValues, int offsetInBuffer, EncodingState state)
+    default int reserveBytesInBuffer(BlockContents contents, int numValues, int startInBuffer, EncodingState state)
     {
         throw new UnsupportedOperationException();
     }
@@ -54,15 +55,17 @@ public interface BlockEncoding
         throw new UnsupportedOperationException();
     }
 
-    int getFinalSize(EncodingState state)
+    // Returns the final size of the encoded data. Sets newStartOffset
+    // to be the place where finish() will copy the buffered data.
+    default int prepareFinish(EncodingState state, int newStartOffset)
     {
         throw new UnsupportedOperationException();
-        {
+    }
 
-            void finish(EncodingState state, int newOffsetInBuffer, Slice buffer)
-            {
-                throw new UnsupportedOperationException();
-            }
-
-        }
+    // Copies the data into the buffer at the position recorded by prepareFinish.
+    default void finish(EncodingState state, Slice buffer)
+    {
+        throw new UnsupportedOperationException();
+    }
 }
+

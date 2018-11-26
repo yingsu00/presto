@@ -14,8 +14,9 @@
 package com.facebook.presto.operator;
 
 import com.facebook.presto.spi.Page;
-import com.facebook.presto.spi.block/BlockContents;
-import com.facebook.presto.spi.block/MapHolder;
+import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.BlockContents;
+import com.facebook.presto.spi.block.MapHolder;
 import com.facebook.presto.spi.type.BigintType;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
@@ -39,7 +40,7 @@ public class PrecomputedHashGenerator
     }
 
     @Override
-    void getPartitions(int partitionCount, Page page, int[] partitionsOut)
+    public void getPartitions(int partitionCount, Page page, int[] partitionsOut)
     {
         if (contents == null) {
             contents = new BlockContents();
@@ -51,13 +52,13 @@ public class PrecomputedHashGenerator
         long[] longs = contents.longs;
         if (contents.isIdentityMap) {
             for (int i = 0; i < positionCount; i++) {
-                partitionsOut[i] = (longs[i] & 0x7fffffffffff) % partitionCount;
+                partitionsOut[i] = (int)((longs[i] & 0x7fffffffffffL) % partitionCount);
             }
-            else {
-                int[] map = contents.rowNumberMap;
-                for (int i = 0; i < positionCount; i++) {
-                    partitionsOut[i] = (longs[map[i]] & 0x7fffffffffff) % partitionCount;
-                }
+        }
+        else {
+            int[] map = contents.rowNumberMap;
+            for (int i = 0; i < positionCount; i++) {
+                partitionsOut[i] = (int)((longs[map[i]] & 0x7fffffffffffL) % partitionCount);
             }
         }
         contents.release(mapHolder);
