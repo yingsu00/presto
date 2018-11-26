@@ -84,7 +84,7 @@ public class TestDriver
         scheduledExecutor = newScheduledThreadPool(2, daemonThreadsNamed("test-scheduledExecutor-%s"));
 
         driverContext = createTaskContext(executor, scheduledExecutor, TEST_SESSION)
-                .addPipelineContext(0, true, true)
+                .addPipelineContext(0, true, true, false)
                 .addDriverContext();
     }
 
@@ -118,7 +118,7 @@ public class TestDriver
     }
 
     // The race can be reproduced somewhat reliably when the invocationCount is 10K, but we use 1K iterations to cap the test runtime.
-    @Test(invocationCount = 1_000, timeOut = 1_000)
+    @Test(invocationCount = 1_000, timeOut = 10_000)
     public void testConcurrentClose()
     {
         List<Type> types = ImmutableList.of(VARCHAR, BIGINT, BIGINT);

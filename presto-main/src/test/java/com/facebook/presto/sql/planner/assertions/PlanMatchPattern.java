@@ -42,9 +42,11 @@ import com.facebook.presto.sql.planner.plan.PlanNode;
 import com.facebook.presto.sql.planner.plan.ProjectNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
+import com.facebook.presto.sql.planner.plan.SpatialJoinNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
 import com.facebook.presto.sql.planner.plan.TopNNode;
 import com.facebook.presto.sql.planner.plan.UnionNode;
+import com.facebook.presto.sql.planner.plan.UnnestNode;
 import com.facebook.presto.sql.planner.plan.ValuesNode;
 import com.facebook.presto.sql.planner.plan.WindowNode;
 import com.facebook.presto.sql.tree.Expression;
@@ -77,8 +79,6 @@ import static com.facebook.presto.sql.planner.assertions.MatchResult.NO_MATCH;
 import static com.facebook.presto.sql.planner.assertions.MatchResult.match;
 import static com.facebook.presto.sql.planner.assertions.StrictAssignedSymbolsMatcher.actualAssignments;
 import static com.facebook.presto.sql.planner.assertions.StrictSymbolsMatcher.actualOutputs;
-import static com.facebook.presto.sql.planner.plan.JoinNode.Type.INNER;
-import static com.facebook.presto.sql.planner.plan.JoinNode.Type.LEFT;
 import static com.facebook.presto.sql.tree.SortItem.NullOrdering.FIRST;
 import static com.facebook.presto.sql.tree.SortItem.NullOrdering.UNDEFINED;
 import static com.facebook.presto.sql.tree.SortItem.Ordering.ASCENDING;
@@ -355,14 +355,24 @@ public final class PlanMatchPattern
 
     public static PlanMatchPattern spatialJoin(String expectedFilter, PlanMatchPattern left, PlanMatchPattern right)
     {
-        return node(JoinNode.class, left, right).with(
-                new SpatialJoinMatcher(INNER, rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedFilter, new ParsingOptions()))));
+        return spatialJoin(expectedFilter, Optional.empty(), left, right);
+    }
+
+    public static PlanMatchPattern spatialJoin(String expectedFilter, Optional<String> kdbTree, PlanMatchPattern left, PlanMatchPattern right)
+    {
+        return node(SpatialJoinNode.class, left, right).with(
+                new SpatialJoinMatcher(SpatialJoinNode.Type.INNER, rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedFilter, new ParsingOptions())), kdbTree));
     }
 
     public static PlanMatchPattern spatialLeftJoin(String expectedFilter, PlanMatchPattern left, PlanMatchPattern right)
     {
-        return node(JoinNode.class, left, right).with(
-                new SpatialJoinMatcher(LEFT, rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedFilter, new ParsingOptions()))));
+        return node(SpatialJoinNode.class, left, right).with(
+                new SpatialJoinMatcher(SpatialJoinNode.Type.LEFT, rewriteIdentifiersToSymbolReferences(new SqlParser().createExpression(expectedFilter, new ParsingOptions())), Optional.empty()));
+    }
+
+    public static PlanMatchPattern unnest(PlanMatchPattern source)
+    {
+        return node(UnnestNode.class, source);
     }
 
     public static PlanMatchPattern exchange(PlanMatchPattern... sources)

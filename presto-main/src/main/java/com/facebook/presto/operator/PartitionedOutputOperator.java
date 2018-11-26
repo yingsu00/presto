@@ -201,7 +201,6 @@ public class PartitionedOutputOperator
     private final OperatorContext operatorContext;
     private final Function<Page, Page> pagePreprocessor;
     private final PagePartitioner partitionFunction;
-    private final OutputBuffer outputBuffer;
     private final LocalMemoryContext systemMemoryContext;
     private final long partitionsInitialRetainedSize;
     private boolean finished;
@@ -221,7 +220,6 @@ public class PartitionedOutputOperator
     {
         this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
         this.pagePreprocessor = requireNonNull(pagePreprocessor, "pagePreprocessor is null");
-        this.outputBuffer = requireNonNull(outputBuffer, "outputBuffer is null");
         boolean useAria = (SystemSessionProperties.ariaFlags(operatorContext.getSession()) & 1) != 0;
         this.partitionFunction = new PagePartitioner(
                 partitionFunction,
@@ -290,7 +288,7 @@ public class PartitionedOutputOperator
         page = pagePreprocessor.apply(page);
         partitionFunction.partitionPage(page);
 
-        operatorContext.recordGeneratedOutput(page.getSizeInBytes(), page.getPositionCount());
+        operatorContext.recordOutput(page.getSizeInBytes(), page.getPositionCount());
 
         // We use getSizeInBytes() here instead of getRetainedSizeInBytes() for an approximation of
         // the amount of memory used by the pageBuilders, because calculating the retained

@@ -114,6 +114,11 @@ public final class TestingBlockEncodingSerde
         }
     }
 
+    public BlockEncoding getEncoding(Block block)
+    {
+        return blockEncodings.get(block.getEncodingName());
+    }
+    
     private static String readLengthPrefixedString(SliceInput input)
     {
         int length = input.readInt();

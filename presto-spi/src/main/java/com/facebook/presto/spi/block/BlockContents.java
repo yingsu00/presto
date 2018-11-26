@@ -16,7 +16,8 @@ package com.facebook.presto.spi.block;
 import io.airlift.slice.Slice;
 import static java.lang.System.arraycopy;
 
-public class BlockContents {
+public class BlockContents
+{
     public Block leafBlock;
     public long[] longs;
     public double[] doubles;
@@ -64,43 +65,43 @@ public class BlockContents {
             if (block instanceof DictionaryBlock) {
                 isIdentityMap = false;
                 int[] ids = ((DictionaryBlock)block).getIdsArray();
-                    int offset = ((DictionaryBlock)block).getIdsOffset();
-                        if (map == null) {
-                            map = ids;
-                            if (offset != 0) {
-                              int[] newMap = mapHolder.getIntArray(positionCount);
-                              System.arraycopy(map, offset, newMap, 0, positionCount);
-                                isMapOwned = true;
-                                map = newMap;
-                            }
-                        }
-                        else {
-                            if (!isMapOwned) {
-                                int[] newMap = mapHolder.getIntArray(positionCount);
-                                for (int i = 0; i < positionCount; ++i) {
-                                    newMap[i] = ids[map[i] + offset];
-                                }
-                                isMapOwned = true;
-                            }
-                            else {
-                                for (int i = 0; i < positionCount; ++i) {
-                                    map[i] = ids[map[i] + offset];
-                                }
-                            }
-                        }
-                    block = ((DictionaryBlock)block).getDictionary();
+                int offset = ((DictionaryBlock)block).getIdsOffset();
+                if (map == null) {
+                    map = ids;
+                    if (offset != 0) {
+                        int[] newMap = mapHolder.getIntArray(positionCount);
+                        System.arraycopy(map, offset, newMap, 0, positionCount);
+                        isMapOwned = true;
+                        map = newMap;
+                    }
                 }
+                else {
+                    if (!isMapOwned) {
+                        int[] newMap = mapHolder.getIntArray(positionCount);
+                        for (int i = 0; i < positionCount; ++i) {
+                            newMap[i] = ids[map[i] + offset];
+                        }
+                        isMapOwned = true;
+                    }
+                    else {
+                        for (int i = 0; i < positionCount; ++i) {
+                            map[i] = ids[map[i] + offset];
+                        }
+                    }
+                }
+                block = ((DictionaryBlock)block).getDictionary();
+            }
             else if (block instanceof RunLengthEncodedBlock)
                 {
                     if (map == null || !isMapOwned) {
-            map = mapHolder.getIntArray(positionCount);
-            isMapOwned = true;
-            isIdentityMap = false;
-        }
-    for (int i = 0; i < positionCount; ++i) {
-        map[i] = 0;
-    }
-    block = ((RunLengthEncodedBlock)block).getValue();
+                        map = mapHolder.getIntArray(positionCount);
+                        isMapOwned = true;
+                        isIdentityMap = false;
+                    }
+                    for (int i = 0; i < positionCount; ++i) {
+                        map[i] = 0;
+                    }
+                    block = ((RunLengthEncodedBlock)block).getValue();
                 }
             else {
                 leafBlock = block;
@@ -142,10 +143,10 @@ public class BlockContents {
     }
 
     public void release(MapHolder mapHolder) {
-    if (isMapOwned) {
-      mapHolder.store(rowNumberMap);
-      isMapOwned = false;
-      rowNumberMap = null;
+        if (isMapOwned) {
+            mapHolder.store(rowNumberMap);
+            isMapOwned = false;
+            rowNumberMap = null;
+        }
     }
-  }
-            }
+}

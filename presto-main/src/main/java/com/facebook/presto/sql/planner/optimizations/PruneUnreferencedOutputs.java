@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.sql.planner.PartitioningScheme;
 import com.facebook.presto.sql.planner.PlanNodeIdAllocator;
@@ -48,6 +49,7 @@ import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SetOperationNode;
 import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.planner.plan.SortNode;
+import com.facebook.presto.sql.planner.plan.SpatialJoinNode;
 import com.facebook.presto.sql.planner.plan.StatisticAggregations;
 import com.facebook.presto.sql.planner.plan.TableFinishNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
@@ -101,7 +103,7 @@ public class PruneUnreferencedOutputs
         implements PlanOptimizer
 {
     @Override
-    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator, WarningCollector warningCollector)
     {
         requireNonNull(plan, "plan is null");
         requireNonNull(session, "session is null");
@@ -214,10 +216,9 @@ public class PruneUnreferencedOutputs
                         .build();
             }
             else {
-                Set<Symbol> seenSymbol = new HashSet<>();
                 outputSymbols = node.getOutputSymbols().stream()
                         .filter(context.get()::contains)
-                        .filter(seenSymbol::add)
+                        .distinct()
                         .collect(toImmutableList());
             }
 
@@ -253,6 +254,31 @@ public class PruneUnreferencedOutputs
                     node.getSourceHashSymbol(),
                     node.getFilteringSourceHashSymbol(),
                     node.getDistributionType());
+        }
+
+        @Override
+        public PlanNode visitSpatialJoin(SpatialJoinNode node, RewriteContext<Set<Symbol>> context)
+        {
+            Set<Symbol> requiredInputs = ImmutableSet.<Symbol>builder()
+                    .addAll(SymbolsExtractor.extractUnique(node.getFilter()))
+                    .addAll(context.get())
+                    .build();
+
+            ImmutableSet.Builder<Symbol> leftInputs = ImmutableSet.builder();
+            node.getLeftPartitionSymbol().map(leftInputs::add);
+
+            ImmutableSet.Builder<Symbol> rightInputs = ImmutableSet.builder();
+            node.getRightPartitionSymbol().map(rightInputs::add);
+
+            PlanNode left = context.rewrite(node.getLeft(), leftInputs.addAll(requiredInputs).build());
+            PlanNode right = context.rewrite(node.getRight(), rightInputs.addAll(requiredInputs).build());
+
+            List<Symbol> outputSymbols = node.getOutputSymbols().stream()
+                    .filter(context.get()::contains)
+                    .distinct()
+                    .collect(toImmutableList());
+
+            return new SpatialJoinNode(node.getId(), node.getType(), left, right, outputSymbols, node.getFilter(), node.getLeftPartitionSymbol(), node.getRightPartitionSymbol(), node.getKdbTree());
         }
 
         @Override

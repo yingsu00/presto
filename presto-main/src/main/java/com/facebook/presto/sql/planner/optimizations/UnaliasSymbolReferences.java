@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Signature;
 import com.facebook.presto.spi.block.SortOrder;
 import com.facebook.presto.sql.planner.DeterminismEvaluator;
@@ -52,6 +53,7 @@ import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SetOperationNode;
 import com.facebook.presto.sql.planner.plan.SimplePlanRewriter;
 import com.facebook.presto.sql.planner.plan.SortNode;
+import com.facebook.presto.sql.planner.plan.SpatialJoinNode;
 import com.facebook.presto.sql.planner.plan.TableFinishNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
@@ -105,7 +107,7 @@ public class UnaliasSymbolReferences
         implements PlanOptimizer
 {
     @Override
-    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator, WarningCollector warningCollector)
     {
         requireNonNull(plan, "plan is null");
         requireNonNull(session, "session is null");
@@ -500,6 +502,15 @@ public class UnaliasSymbolReferences
                     canonicalize(node.getSourceHashSymbol()),
                     canonicalize(node.getFilteringSourceHashSymbol()),
                     node.getDistributionType());
+        }
+
+        @Override
+        public PlanNode visitSpatialJoin(SpatialJoinNode node, RewriteContext<Void> context)
+        {
+            PlanNode left = context.rewrite(node.getLeft());
+            PlanNode right = context.rewrite(node.getRight());
+
+            return new SpatialJoinNode(node.getId(), node.getType(), left, right, canonicalizeAndDistinct(node.getOutputSymbols()), canonicalize(node.getFilter()), canonicalize(node.getLeftPartitionSymbol()), canonicalize(node.getRightPartitionSymbol()), node.getKdbTree());
         }
 
         @Override

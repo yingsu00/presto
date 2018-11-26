@@ -15,6 +15,7 @@ package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.GroupingProperty;
 import com.facebook.presto.spi.LocalProperty;
@@ -52,6 +53,7 @@ import com.facebook.presto.sql.planner.plan.ProjectNode;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
+import com.facebook.presto.sql.planner.plan.SpatialJoinNode;
 import com.facebook.presto.sql.planner.plan.TableFinishNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
@@ -129,7 +131,7 @@ public class AddExchanges
     }
 
     @Override
-    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator, WarningCollector warningCollector)
     {
         PlanWithProperties result = plan.accept(new Rewriter(idAllocator, symbolAllocator, session), PreferredProperties.any());
         return result.getNode();
@@ -520,7 +522,7 @@ public class AddExchanges
                 }
             }
 
-            if (partitioningScheme.isPresent() && !source.getProperties().isNodePartitionedOn(partitioningScheme.get().getPartitioning(), false)) {
+            if (partitioningScheme.isPresent() && !source.getProperties().isCompatibleTablePartitioningWith(partitioningScheme.get().getPartitioning(), false, metadata, session)) {
                 source = withDerivedProperties(
                         partitionedExchange(
                                 idAllocator.getNextId(),
@@ -594,7 +596,7 @@ public class AddExchanges
                 return rebaseAndDeriveProperties(node, child);
             }
 
-            if (!child.getProperties().isSingleNode() || !child.getProperties().isCoordinatorOnly()) {
+            if (!child.getProperties().isCoordinatorOnly()) {
                 child = withDerivedProperties(
                         gatheringExchange(idAllocator.getNextId(), REMOTE, child.getNode()),
                         child.getProperties());
@@ -666,7 +668,7 @@ public class AddExchanges
             if (left.getProperties().isNodePartitionedOn(leftSymbols) && !left.getProperties().isSingleNode()) {
                 Partitioning rightPartitioning = left.getProperties().translate(createTranslator(leftToRight)).getNodePartitioning().get();
                 right = node.getRight().accept(this, PreferredProperties.partitioned(rightPartitioning));
-                if (!right.getProperties().isNodePartitionedWith(left.getProperties(), rightToLeft::get)) {
+                if (!right.getProperties().isCompatibleTablePartitioningWith(left.getProperties(), rightToLeft::get, metadata, session)) {
                     right = withDerivedProperties(
                             partitionedExchange(idAllocator.getNextId(), REMOTE, right.getNode(), new PartitioningScheme(rightPartitioning, right.getNode().getOutputSymbols())),
                             right.getProperties());
@@ -691,7 +693,7 @@ public class AddExchanges
                 }
             }
 
-            verify(left.getProperties().isNodePartitionedWith(right.getProperties(), leftToRight::get));
+            verify(left.getProperties().isCompatibleTablePartitioningWith(right.getProperties(), leftToRight::get, metadata, session));
 
             // if colocated joins are disabled, force redistribute when using a custom partitioning
             if (!isColocatedJoinEnabled(session) && hasMultipleSources(left.getNode(), right.getNode())) {
@@ -743,6 +745,41 @@ public class AddExchanges
         }
 
         @Override
+        public PlanWithProperties visitSpatialJoin(SpatialJoinNode node, PreferredProperties preferredProperties)
+        {
+            SpatialJoinNode.DistributionType distributionType = node.getDistributionType();
+
+            PlanWithProperties left = node.getLeft().accept(this, PreferredProperties.any());
+            PlanWithProperties right = node.getRight().accept(this, PreferredProperties.any());
+
+            if (distributionType == SpatialJoinNode.DistributionType.REPLICATED) {
+                if (left.getProperties().isSingleNode()) {
+                    if (!right.getProperties().isSingleNode()) {
+                        right = withDerivedProperties(
+                                gatheringExchange(idAllocator.getNextId(), REMOTE, right.getNode()),
+                                right.getProperties());
+                    }
+                }
+                else {
+                    right = withDerivedProperties(
+                            replicatedExchange(idAllocator.getNextId(), REMOTE, right.getNode()),
+                            right.getProperties());
+                }
+            }
+            else {
+                left = withDerivedProperties(
+                        partitionedExchange(idAllocator.getNextId(), REMOTE, left.getNode(), ImmutableList.of(node.getLeftPartitionSymbol().get()), Optional.empty()),
+                        left.getProperties());
+                right = withDerivedProperties(
+                        partitionedExchange(idAllocator.getNextId(), REMOTE, right.getNode(), ImmutableList.of(node.getRightPartitionSymbol().get()), Optional.empty()),
+                        right.getProperties());
+            }
+
+            PlanNode newJoinNode = node.replaceChildren(ImmutableList.of(left.getNode(), right.getNode()));
+            return new PlanWithProperties(newJoinNode, deriveProperties(newJoinNode, ImmutableList.of(left.getProperties(), right.getProperties())));
+        }
+
+        @Override
         public PlanWithProperties visitUnnest(UnnestNode node, PreferredProperties preferredProperties)
         {
             PreferredProperties translatedPreferred = preferredProperties.translate(symbol -> node.getReplicateSymbols().contains(symbol) ? Optional.of(symbol) : Optional.empty());
@@ -769,7 +806,7 @@ public class AddExchanges
                 if (source.getProperties().isNodePartitionedOn(sourceSymbols) && !source.getProperties().isSingleNode()) {
                     Partitioning filteringPartitioning = source.getProperties().translate(createTranslator(sourceToFiltering)).getNodePartitioning().get();
                     filteringSource = node.getFilteringSource().accept(this, PreferredProperties.partitionedWithNullsAndAnyReplicated(filteringPartitioning));
-                    if (!source.getProperties().withReplicatedNulls(true).isNodePartitionedWith(filteringSource.getProperties(), sourceToFiltering::get)) {
+                    if (!source.getProperties().withReplicatedNulls(true).isCompatibleTablePartitioningWith(filteringSource.getProperties(), sourceToFiltering::get, metadata, session)) {
                         filteringSource = withDerivedProperties(
                                 partitionedExchange(idAllocator.getNextId(), REMOTE, filteringSource.getNode(), new PartitioningScheme(
                                         filteringPartitioning,
@@ -799,7 +836,7 @@ public class AddExchanges
                     }
                 }
 
-                verify(source.getProperties().withReplicatedNulls(true).isNodePartitionedWith(filteringSource.getProperties(), sourceToFiltering::get));
+                verify(source.getProperties().withReplicatedNulls(true).isCompatibleTablePartitioningWith(filteringSource.getProperties(), sourceToFiltering::get, metadata, session));
 
                 // if colocated joins are disabled, force redistribute when using a custom partitioning
                 if (!isColocatedJoinEnabled(session) && hasMultipleSources(source.getNode(), filteringSource.getNode())) {
@@ -963,7 +1000,7 @@ public class AddExchanges
                             .build();
 
                     PlanWithProperties source = node.getSources().get(sourceIndex).accept(this, childPreferred);
-                    if (!source.getProperties().isNodePartitionedOn(childPartitioning, nullsAndAnyReplicated)) {
+                    if (!source.getProperties().isCompatibleTablePartitioningWith(childPartitioning, nullsAndAnyReplicated, metadata, session)) {
                         source = withDerivedProperties(
                                 partitionedExchange(
                                         idAllocator.getNextId(),

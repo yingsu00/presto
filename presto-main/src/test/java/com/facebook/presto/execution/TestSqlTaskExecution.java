@@ -90,7 +90,7 @@ import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.block.BlockAssertions.createStringSequenceBlock;
 import static com.facebook.presto.block.BlockAssertions.createStringsBlock;
 import static com.facebook.presto.execution.TaskTestUtils.TABLE_SCAN_NODE_ID;
-import static com.facebook.presto.execution.TaskTestUtils.createTestQueryMonitor;
+import static com.facebook.presto.execution.TaskTestUtils.createTestSplitMonitor;
 import static com.facebook.presto.execution.buffer.BufferState.OPEN;
 import static com.facebook.presto.execution.buffer.BufferState.TERMINAL_BUFFER_STATES;
 import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
@@ -122,7 +122,7 @@ public class TestSqlTaskExecution
     @DataProvider
     public static Object[][] executionStrategies()
     {
-        return new Object[][]{{UNGROUPED_EXECUTION}, {GROUPED_EXECUTION}};
+        return new Object[][] {{UNGROUPED_EXECUTION}, {GROUPED_EXECUTION}};
     }
 
     @Test(dataProvider = "executionStrategies", timeOut = 20_000)
@@ -178,7 +178,7 @@ public class TestSqlTaskExecution
                     localExecutionPlan,
                     taskExecutor,
                     taskNotificationExecutor,
-                    createTestQueryMonitor());
+                    createTestSplitMonitor());
 
             //
             // test body
@@ -429,7 +429,7 @@ public class TestSqlTaskExecution
                     localExecutionPlan,
                     taskExecutor,
                     taskNotificationExecutor,
-                    createTestQueryMonitor());
+                    createTestSplitMonitor());
 
             //
             // test body
@@ -700,6 +700,8 @@ public class TestSqlTaskExecution
     public static class Pauser
     {
         private volatile SettableFuture<?> future = SettableFuture.create();
+
+        public Pauser()
         {
             future.set(null);
         }

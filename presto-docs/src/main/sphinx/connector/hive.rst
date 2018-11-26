@@ -129,7 +129,7 @@ Property Name                                      Description                  
                                                    absolutely necessary to access HDFS.
                                                    Example: ``/etc/hdfs-site.xml``
 
-``hive.storage-format``                            The default file format used when creating new tables.       ``RCBINARY``
+``hive.storage-format``                            The default file format used when creating new tables.       ``ORC``
 
 ``hive.compression-codec``                         The compression codec to use when writing files.             ``GZIP``
 
@@ -247,6 +247,9 @@ Property Name                                Description
                                              class also implements ``Configurable`` from the Hadoop
                                              API, the Hadoop configuration will be passed in after
                                              the object has been created.
+
+``hive.s3.upload-acl-type``                  Canned ACL to use while uploading files to S3 (defaults
+                                             to ``Private``).
 ============================================ =================================================================
 
 S3 Credentials
@@ -416,8 +419,24 @@ The columns listed in the DDL (``id`` in the above example) will be ignored if `
 The table schema will match the schema in the Avro schema file. Before any read operation, the Avro schema is
 accessed so query result reflects any changes in schema. Thus Presto takes advantage of Avro's backward compatibility abilities.
 
-If the schema of the table changes in the Avro schema file, the user can use still use the new schema to read old
-data. The schema evolution behavior follows the rules :doc:`here </connector/avro-schema-evolution>`.
+If the schema of the table changes in the Avro schema file, the new schema can still be used to read old data.
+Newly added/renamed fields *must* have a default value in the Avro schema file.
+
+The schema evolution behavior is as follows:
+
+* Column added in new schema:
+  Data created with an older schema will produce a *default* value when table is using the new schema.
+
+* Column removed in new schema:
+  Data created with an older schema will no longer output the data from the column that was removed.
+
+* Column is renamed in the new schema:
+  This is equivalent to removing the column and adding a new one, and data created with an older schema
+  will produce a *default* value when table is using the new schema.
+
+* Changing type of column in the new schema:
+  If the type coercion is supported by Avro or the Hive connector, then the conversion happens.
+  An error is thrown for incompatible types.
 
 Limitations
 ^^^^^^^^^^^
@@ -427,6 +446,13 @@ The following operations are not supported when ``avro_schema_url`` is set:
 * ``CREATE TABLE AS`` is not supported.
 * Using partitioning(``partitioned_by``) or bucketing(``bucketed_by``) columns are not supported in ``CREATE TABLE``.
 * ``ALTER TABLE`` commands modifying columns are not supported.
+
+Procedures
+----------
+
+* ``system.create_empty_partition(schema_name, table_name, partition_columns, partition_values)``
+
+    Create an empty partition in the specified table.
 
 Examples
 --------
@@ -465,6 +491,14 @@ Drop a partition from the ``page_views`` table::
     DELETE FROM hive.web.page_views
     WHERE ds = DATE '2016-08-09'
       AND country = 'US'
+
+Add an empty partition to the ``page_views`` table::
+
+    CALL system.create_empty_partition(
+        schema_name => 'web',
+        table_name => 'page_views',
+        partition_columns => ARRAY['ds', 'country'],
+        partition_values => ARRAY['2016-08-09', 'US']);
 
 Query the ``page_views`` table::
 

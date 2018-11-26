@@ -138,12 +138,12 @@ public class TestPredicatePushdown
                 anyTree(
                         semiJoin("LINE_ORDER_KEY", "ORDERS_ORDER_KEY", "SEMI_JOIN_RESULT",
                                 anyTree(
-                                        filter("LINE_ORDER_KEY = BIGINT '2' AND BIGINT '2' = LINE_ORDER_KEY", // TODO this should be simplified
+                                        filter("LINE_ORDER_KEY = BIGINT '2'",
                                                 tableScan("lineitem", ImmutableMap.of(
                                                         "LINE_ORDER_KEY", "orderkey",
                                                         "LINE_QUANTITY", "quantity")))),
                                 anyTree(
-                                        filter("ORDERS_ORDER_KEY = BIGINT '2' AND BIGINT '2' = ORDERS_ORDER_KEY", // TODO this should be simplified
+                                        filter("ORDERS_ORDER_KEY = BIGINT '2'",
                                                 tableScan("orders", ImmutableMap.of("ORDERS_ORDER_KEY", "orderkey")))))));
     }
 
@@ -187,12 +187,12 @@ public class TestPredicatePushdown
                 anyTree(
                         semiJoin("LINE_ORDER_KEY", "ORDERS_ORDER_KEY", "SEMI_JOIN_RESULT",
                                 anyTree(
-                                        filter("LINE_ORDER_KEY = BIGINT '2' AND BIGINT '2' = LINE_ORDER_KEY", // TODO this should be simplified
+                                        filter("LINE_ORDER_KEY = BIGINT '2'",
                                                 tableScan("lineitem", ImmutableMap.of(
                                                         "LINE_ORDER_KEY", "orderkey",
                                                         "LINE_QUANTITY", "quantity")))),
                                 anyTree(
-                                        filter("ORDERS_ORDER_KEY = BIGINT '2' AND BIGINT '2' = ORDERS_ORDER_KEY", // TODO this should be simplified
+                                        filter("ORDERS_ORDER_KEY = BIGINT '2'",
                                                 tableScan("orders", ImmutableMap.of("ORDERS_ORDER_KEY", "orderkey")))))));
     }
 
@@ -329,5 +329,27 @@ public class TestPredicatePushdown
                                 project(ImmutableMap.of("expr", expression("rand() * CAST(orderkey AS double)")),
                                         tableScan("orders", ImmutableMap.of(
                                                 "ORDERKEY", "orderkey"))))));
+    }
+
+    @Test
+    public void testConjunctsOrder()
+    {
+        assertPlan(
+                "select partkey " +
+                        "from (" +
+                        "  select" +
+                        "    partkey," +
+                        "    100/(size-1) x" +
+                        "  from part" +
+                        "  where size <> 1" +
+                        ") " +
+                        "where x = 2",
+                anyTree(
+                        // Order matters: size<>1 should be before 100/(size-1)=2.
+                        // In this particular example, reversing the order leads to div-by-zero error.
+                        filter("size <> 1 AND 100/(size - 1) = 2",
+                                tableScan("part", ImmutableMap.of(
+                                        "partkey", "partkey",
+                                        "size", "size")))));
     }
 }

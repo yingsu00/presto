@@ -17,6 +17,7 @@ import com.facebook.presto.OutputBuffers;
 import com.facebook.presto.OutputBuffers.OutputBufferId;
 import com.facebook.presto.Session;
 import com.facebook.presto.connector.ConnectorId;
+import com.facebook.presto.execution.BasicStageStats;
 import com.facebook.presto.execution.LocationFactory;
 import com.facebook.presto.execution.NodeTaskMap;
 import com.facebook.presto.execution.QueryState;
@@ -59,7 +60,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
@@ -72,6 +72,7 @@ import java.util.function.Supplier;
 import static com.facebook.presto.SystemSessionProperties.getConcurrentLifespansPerNode;
 import static com.facebook.presto.SystemSessionProperties.getWriterMinSize;
 import static com.facebook.presto.connector.ConnectorId.isInternalSystemConnector;
+import static com.facebook.presto.execution.BasicStageStats.aggregateBasicStageStats;
 import static com.facebook.presto.execution.StageState.ABORTED;
 import static com.facebook.presto.execution.StageState.CANCELED;
 import static com.facebook.presto.execution.StageState.FAILED;
@@ -96,7 +97,6 @@ import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.MoreFutures.tryGetFutureValue;
 import static io.airlift.concurrent.MoreFutures.whenAnyComplete;
 import static io.airlift.http.client.HttpUriBuilder.uriBuilderFrom;
-import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -208,6 +208,16 @@ public class SqlQueryScheduler
                 }
             });
         }
+
+        // when query is done or any time a stage completes, attempt to transition query to "final query info ready"
+        queryStateMachine.addStateChangeListener(newState -> {
+            if (newState.isDone()) {
+                queryStateMachine.updateQueryInfo(Optional.ofNullable(getStageInfo()));
+            }
+        });
+        for (SqlStageExecution stage : stages) {
+            stage.addFinalStatusListener(status -> queryStateMachine.updateQueryInfo(Optional.ofNullable(getStageInfo())));
+        }
     }
 
     private static void updateQueryOutputLocations(QueryStateMachine queryStateMachine, OutputBufferId rootBufferId, Set<RemoteTask> tasks, boolean noMoreExchangeLocations)
@@ -278,8 +288,6 @@ public class SqlQueryScheduler
         else {
             // nodes are pre determined by the nodePartitionMap
             NodePartitionMap nodePartitionMap = partitioningCache.apply(plan.getFragment().getPartitioning());
-            long nodeCount = nodePartitionMap.getPartitionToNode().values().stream().distinct().count();
-            OptionalInt concurrentLifespansPerTask = getConcurrentLifespansPerNode(session);
 
             Map<PlanNodeId, SplitSource> splitSources = plan.getSplitSources();
             if (!splitSources.isEmpty()) {
@@ -300,7 +308,7 @@ public class SqlQueryScheduler
                         schedulingOrder,
                         nodePartitionMap,
                         splitBatchSize,
-                        concurrentLifespansPerTask.isPresent() ? OptionalInt.of(toIntExact(concurrentLifespansPerTask.getAsInt() * nodeCount)) : OptionalInt.empty(),
+                        getConcurrentLifespansPerNode(session),
                         nodeScheduler.createNodeSelector(null),
                         connectorPartitionHandles));
                 bucketToPartition = Optional.of(nodePartitionMap.getBucketToPartition());
@@ -371,6 +379,15 @@ public class SqlQueryScheduler
         }
 
         return stages.build();
+    }
+
+    public BasicStageStats getBasicStageStats()
+    {
+        List<BasicStageStats> stageStats = stages.values().stream()
+                .map(SqlStageExecution::getBasicStageStats)
+                .collect(toImmutableList());
+
+        return aggregateBasicStageStats(stageStats);
     }
 
     public StageInfo getStageInfo()

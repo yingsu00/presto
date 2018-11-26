@@ -29,6 +29,8 @@ import com.facebook.presto.spi.PageSourceOptions;
 import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.RecordPageSource;
 import com.facebook.presto.spi.UpdatablePageSource;
+import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.LazyBlock;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.split.EmptySplit;
 import com.facebook.presto.split.EmptySplitPageSource;
@@ -251,7 +253,9 @@ public class ScanFilterAndProjectOperator
 
             long bytesProcessed = cursor.getCompletedBytes() - completedBytes;
             long elapsedNanos = cursor.getReadTimeNanos() - readTimeNanos;
-            operatorContext.recordGeneratedInput(bytesProcessed, output.getProcessedRows(), elapsedNanos);
+            operatorContext.recordRawInputWithTiming(bytesProcessed, elapsedNanos);
+            // TODO: derive better values for cursors
+            operatorContext.recordProcessedInput(bytesProcessed, output.getProcessedRows());
             completedBytes = cursor.getCompletedBytes();
             readTimeNanos = cursor.getReadTimeNanos();
             if (output.isNoMoreRows()) {
@@ -280,10 +284,12 @@ public class ScanFilterAndProjectOperator
             pageSourceMemoryContext.setBytes(pageSource.getSystemMemoryUsage());
 
             if (page != null) {
+                page = recordProcessedInput(page);
+
                 // update operator stats
                 long endCompletedBytes = pageSource.getCompletedBytes();
                 long endReadTimeNanos = pageSource.getReadTimeNanos();
-                operatorContext.recordGeneratedInput(endCompletedBytes - completedBytes, page.getPositionCount(), endReadTimeNanos - readTimeNanos);
+                operatorContext.recordRawInputWithTiming(endCompletedBytes - completedBytes, endReadTimeNanos - readTimeNanos);
                 completedBytes = endCompletedBytes;
                 readTimeNanos = endReadTimeNanos;
                 if (filterAndProjectPushedDown) {
@@ -301,6 +307,29 @@ public class ScanFilterAndProjectOperator
         Page result = mergingOutput.getOutput();
         pageBuilderMemoryContext.setBytes(mergingOutput.getRetainedSizeInBytes());
         return result;
+    }
+
+    private Page recordProcessedInput(Page page)
+    {
+        operatorContext.recordProcessedInput(0, page.getPositionCount());
+        // account processed bytes from lazy blocks only when they are loaded
+        Block[] blocks = new Block[page.getChannelCount()];
+        for (int i = 0; i < page.getChannelCount(); ++i) {
+            Block block = page.getBlock(i);
+            if (block instanceof LazyBlock) {
+                LazyBlock delegateLazyBlock = (LazyBlock) block;
+                blocks[i] = new LazyBlock(page.getPositionCount(), lazyBlock -> {
+                    Block loadedBlock = delegateLazyBlock.getLoadedBlock();
+                    operatorContext.recordProcessedInput(loadedBlock.getSizeInBytes(), 0L);
+                    lazyBlock.setBlock(loadedBlock);
+                });
+            }
+            else {
+                operatorContext.recordProcessedInput(block.getSizeInBytes(), 0L);
+                blocks[i] = block;
+            }
+        }
+        return new Page(page.getPositionCount(), blocks);
     }
 
     public static class ScanFilterAndProjectOperatorFactory

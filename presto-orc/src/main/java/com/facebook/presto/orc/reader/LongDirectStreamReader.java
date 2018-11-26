@@ -29,7 +29,6 @@ import com.facebook.presto.spi.block.LongArrayBlock;
 import com.facebook.presto.spi.type.Type;
 import org.openjdk.jol.info.ClassLayout;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
@@ -37,11 +36,11 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
-import static com.facebook.presto.orc.OrcReader.MAX_BATCH_SIZE;
 import static com.facebook.presto.orc.metadata.Stream.StreamKind.DATA;
 import static com.facebook.presto.orc.metadata.Stream.StreamKind.PRESENT;
 import static com.facebook.presto.orc.stream.MissingInputStreamSource.missingStreamSource;
 import static com.google.common.base.MoreObjects.toStringHelper;
+import static com.google.common.base.Verify.verify;
 import static io.airlift.slice.SizeOf.sizeOf;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
@@ -58,13 +57,11 @@ public class LongDirectStreamReader
     private int readOffset;
     private int nextBatchSize;
 
-    @Nonnull
     private InputStreamSource<BooleanInputStream> presentStreamSource = missingStreamSource(BooleanInputStream.class);
     @Nullable
     private BooleanInputStream presentStream;
     private boolean[] nullVector = new boolean[0];
 
-    @Nonnull
     private InputStreamSource<LongInputStream> dataStreamSource = missingStreamSource(LongInputStream.class);
     @Nullable
     private LongInputStream dataStream;
@@ -119,23 +116,14 @@ public class LongDirectStreamReader
             dataStream.nextLongVector(type, nextBatchSize, builder);
         }
         else {
-            assureVectorSize();
-
-            while (nextBatchSize > 0) {
-                int subBatchSize = min(nextBatchSize, MAX_BATCH_SIZE);
-                int nullValues = presentStream.getUnsetBits(subBatchSize, nullVector);
-                if (nullValues != subBatchSize) {
-                    if (dataStream == null) {
-                        throw new OrcCorruptionException(streamDescriptor.getOrcDataSourceId(), "Value is not null but data stream is not present");
-                    }
-                    dataStream.nextLongVector(type, subBatchSize, builder, nullVector);
+            for (int i = 0; i < nextBatchSize; i++) {
+                if (presentStream.nextBit()) {
+                    verify(dataStream != null);
+                    type.writeLong(builder, dataStream.next());
                 }
                 else {
-                    for (int i = 0; i < subBatchSize; i++) {
-                        builder.appendNull();
-                    }
+                    builder.appendNull();
                 }
-                nextBatchSize -= subBatchSize;
             }
         }
 
@@ -143,15 +131,6 @@ public class LongDirectStreamReader
         nextBatchSize = 0;
 
         return builder.build();
-    }
-
-    private void assureVectorSize()
-    {
-        int requiredVectorLength = min(nextBatchSize, MAX_BATCH_SIZE);
-        if (nullVector.length < requiredVectorLength) {
-            nullVector = new boolean[requiredVectorLength];
-            systemMemoryContext.setBytes(getRetainedSizeInBytes());
-        }
     }
 
     private void openRowGroup()

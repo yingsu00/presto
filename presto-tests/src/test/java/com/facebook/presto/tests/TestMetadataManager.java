@@ -55,7 +55,8 @@ public class TestMetadataManager
             throws Exception
     {
         queryRunner = TpchQueryRunnerBuilder.builder().build();
-        queryRunner.installPlugin(new Plugin() {
+        queryRunner.installPlugin(new Plugin()
+        {
             @Override
             public Iterable<ConnectorFactory> getConnectorFactories()
             {
@@ -122,7 +123,7 @@ public class TestMetadataManager
 
         // wait until query starts running
         while (true) {
-            QueryInfo queryInfo = queryManager.getQueryInfo(queryId);
+            QueryInfo queryInfo = queryManager.getFullQueryInfo(queryId);
             if (queryInfo.getState().isDone()) {
                 assertEquals(queryInfo.getState(), FAILED);
                 throw queryInfo.getFailureInfo().toException();

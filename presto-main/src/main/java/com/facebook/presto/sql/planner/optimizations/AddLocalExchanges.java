@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.ConstantProperty;
 import com.facebook.presto.spi.GroupingProperty;
@@ -44,6 +45,7 @@ import com.facebook.presto.sql.planner.plan.PlanVisitor;
 import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
+import com.facebook.presto.sql.planner.plan.SpatialJoinNode;
 import com.facebook.presto.sql.planner.plan.TableFinishNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
 import com.facebook.presto.sql.planner.plan.TopNNode;
@@ -101,7 +103,7 @@ public class AddLocalExchanges
     }
 
     @Override
-    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    public PlanNode optimize(PlanNode plan, Session session, TypeProvider types, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator, WarningCollector warningCollector)
     {
         PlanWithProperties result = plan.accept(new Rewriter(symbolAllocator, idAllocator, session), any());
         return result.getNode();
@@ -387,21 +389,21 @@ public class AddLocalExchanges
         /**
          * Prune redundant distinct symbols to reduce CPU cost of hashing corresponding values and amount of memory
          * needed to store all the distinct values.
-         *
+         * <p>
          * Consider the following plan,
-         *
+         * <pre>
          *  - MarkDistinctNode (unique, c1, c2)
          *      - Join
          *          - AssignUniqueId (unique)
          *              - probe (c1, c2)
          *          - build
-         *
+         * </pre>
          * In this case MarkDistinctNode (unique, c1, c2) is equivalent to MarkDistinctNode (unique),
          * because if two rows match on `unique`, they must match on `c1` and `c2` as well.
-         *
+         * <p>
          * More generally, any distinct symbol that is functionally dependent on a subset of
          * other distinct symbols can be dropped.
-         *
+         * <p>
          * Ideally, this logic would be encapsulated in a separate rule, but currently no rule other
          * than AddLocalExchanges can reason about local properties.
          */
@@ -605,6 +607,20 @@ public class AddLocalExchanges
             PlanWithProperties filteringSource = planAndEnforce(node.getFilteringSource(), singleStream(), singleStream());
 
             return rebaseAndDeriveProperties(node, ImmutableList.of(source, filteringSource));
+        }
+
+        @Override
+        public PlanWithProperties visitSpatialJoin(SpatialJoinNode node, StreamPreferredProperties parentPreferences)
+        {
+            PlanWithProperties probe = planAndEnforce(
+                    node.getLeft(),
+                    defaultParallelism(session),
+                    parentPreferences.constrainTo(node.getLeft().getOutputSymbols())
+                            .withDefaultParallelism(session));
+
+            PlanWithProperties build = planAndEnforce(node.getRight(), singleStream(), singleStream());
+
+            return rebaseAndDeriveProperties(node, ImmutableList.of(probe, build));
         }
 
         @Override

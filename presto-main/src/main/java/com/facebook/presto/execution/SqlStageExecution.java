@@ -22,7 +22,6 @@ import com.facebook.presto.metadata.RemoteTransactionHandle;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.spi.PrestoException;
-import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.split.RemoteSplit;
 import com.facebook.presto.sql.planner.PlanFragment;
 import com.facebook.presto.sql.planner.plan.PlanFragmentId;
@@ -37,6 +36,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import io.airlift.units.Duration;
 
+import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.net.URI;
@@ -59,6 +59,7 @@ import java.util.function.Consumer;
 
 import static com.facebook.presto.failureDetector.FailureDetector.State.GONE;
 import static com.facebook.presto.operator.ExchangeOperator.REMOTE_CONNECTOR_ID;
+import static com.facebook.presto.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static com.facebook.presto.spi.StandardErrorCode.REMOTE_HOST_GONE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -80,13 +81,23 @@ public final class SqlStageExecution
     private final Map<PlanFragmentId, RemoteSourceNode> exchangeSources;
 
     private final Map<Node, Set<RemoteTask>> tasks = new ConcurrentHashMap<>();
+
+    @GuardedBy("this")
     private final AtomicInteger nextTaskId = new AtomicInteger();
+    @GuardedBy("this")
     private final Set<TaskId> allTasks = newConcurrentHashSet();
+    @GuardedBy("this")
     private final Set<TaskId> finishedTasks = newConcurrentHashSet();
+    @GuardedBy("this")
+    private final Set<TaskId> tasksWithFinalInfo = newConcurrentHashSet();
+    @GuardedBy("this")
     private final AtomicBoolean splitsScheduled = new AtomicBoolean();
 
+    @GuardedBy("this")
     private final Multimap<PlanNodeId, RemoteTask> sourceTasks = HashMultimap.create();
+    @GuardedBy("this")
     private final Set<PlanNodeId> completeSources = newConcurrentHashSet();
+    @GuardedBy("this")
     private final Set<PlanFragmentId> completeSourceFragments = newConcurrentHashSet();
 
     private final AtomicReference<OutputBuffers> outputBuffers = new AtomicReference<>();
@@ -135,6 +146,8 @@ public final class SqlStageExecution
             }
         }
         this.exchangeSources = fragmentToExchangeSource.build();
+
+        stateMachine.addStateChangeListener(newState -> checkAllTaskFinal());
     }
 
     public StageId getStageId()
@@ -150,6 +163,11 @@ public final class SqlStageExecution
     public void addStateChangeListener(StateChangeListener<StageState> stateChangeListener)
     {
         stateMachine.addStateChangeListener(stateChangeListener);
+    }
+
+    public void addFinalStatusListener(StateChangeListener<BasicStageStats> stateChangeListener)
+    {
+        stateMachine.addFinalStatusListener(ignored -> stateChangeListener.stateChanged(getBasicStageStats()));
     }
 
     public void addCompletedDriverGroupsChangedListener(Consumer<Set<Lifespan>> newlyCompletedDriverGroupConsumer)
@@ -231,6 +249,14 @@ public final class SqlStageExecution
                 .mapToLong(task -> task.getTaskInfo().getStats().getTotalCpuTime().toMillis())
                 .sum();
         return new Duration(millis, TimeUnit.MILLISECONDS);
+    }
+
+    public BasicStageStats getBasicStageStats()
+    {
+        return stateMachine.getBasicStageStats(
+                () -> getAllTasks().stream()
+                        .map(RemoteTask::getTaskInfo)
+                        .collect(toImmutableList()));
     }
 
     public StageInfo getStageInfo()
@@ -390,6 +416,7 @@ public final class SqlStageExecution
         nodeTaskMap.addTask(node, task);
 
         task.addStateChangeListener(new StageTaskListener());
+        task.addFinalTaskInfoListener(this::updateFinalTaskInfo);
 
         if (!stateMachine.getState().isDone()) {
             task.start();
@@ -419,6 +446,76 @@ public final class SqlStageExecution
         return new Split(REMOTE_CONNECTOR_ID, new RemoteTransactionHandle(), new RemoteSplit(splitLocation));
     }
 
+    private synchronized void updateTaskStatus(TaskStatus taskStatus)
+    {
+        try {
+            StageState stageState = getState();
+            if (stageState.isDone()) {
+                return;
+            }
+
+            TaskState taskState = taskStatus.getState();
+            if (taskState == TaskState.FAILED) {
+                RuntimeException failure = taskStatus.getFailures().stream()
+                        .findFirst()
+                        .map(this::rewriteTransportFailure)
+                        .map(ExecutionFailureInfo::toException)
+                        .orElse(new PrestoException(GENERIC_INTERNAL_ERROR, "A task failed for an unknown reason"));
+                stateMachine.transitionToFailed(failure);
+            }
+            else if (taskState == TaskState.ABORTED) {
+                // A task should only be in the aborted state if the STAGE is done (ABORTED or FAILED)
+                stateMachine.transitionToFailed(new PrestoException(GENERIC_INTERNAL_ERROR, "A task is in the ABORTED state but stage is " + stageState));
+            }
+            else if (taskState == TaskState.FINISHED) {
+                finishedTasks.add(taskStatus.getTaskId());
+            }
+
+            if (stageState == StageState.SCHEDULED || stageState == StageState.RUNNING) {
+                if (taskState == TaskState.RUNNING) {
+                    stateMachine.transitionToRunning();
+                }
+                if (finishedTasks.containsAll(allTasks)) {
+                    stateMachine.transitionToFinished();
+                }
+            }
+        }
+        finally {
+            // after updating state, check if all tasks have final status information
+            checkAllTaskFinal();
+        }
+    }
+
+    private synchronized void updateFinalTaskInfo(TaskInfo finalTaskInfo)
+    {
+        tasksWithFinalInfo.add(finalTaskInfo.getTaskStatus().getTaskId());
+        checkAllTaskFinal();
+    }
+
+    private synchronized void checkAllTaskFinal()
+    {
+        if (stateMachine.getState().isDone() && tasksWithFinalInfo.containsAll(allTasks)) {
+            stateMachine.setAllTasksFinal();
+        }
+    }
+
+    private ExecutionFailureInfo rewriteTransportFailure(ExecutionFailureInfo executionFailureInfo)
+    {
+        if (executionFailureInfo.getRemoteHost() == null || failureDetector.getState(executionFailureInfo.getRemoteHost()) != GONE) {
+            return executionFailureInfo;
+        }
+
+        return new ExecutionFailureInfo(
+                executionFailureInfo.getType(),
+                executionFailureInfo.getMessage(),
+                executionFailureInfo.getCause(),
+                executionFailureInfo.getSuppressed(),
+                executionFailureInfo.getStack(),
+                executionFailureInfo.getErrorLocation(),
+                REMOTE_HOST_GONE.toErrorCode(),
+                executionFailureInfo.getRemoteHost());
+    }
+
     @Override
     public String toString()
     {
@@ -435,38 +532,12 @@ public final class SqlStageExecution
         @Override
         public void stateChanged(TaskStatus taskStatus)
         {
-            updateMemoryUsage(taskStatus);
-            updateCompletedDriverGroups(taskStatus);
-
-            StageState stageState = getState();
-            if (stageState.isDone()) {
-                return;
+            try {
+                updateMemoryUsage(taskStatus);
+                updateCompletedDriverGroups(taskStatus);
             }
-
-            TaskState taskState = taskStatus.getState();
-            if (taskState == TaskState.FAILED) {
-                RuntimeException failure = taskStatus.getFailures().stream()
-                        .findFirst()
-                        .map(this::rewriteTransportFailure)
-                        .map(ExecutionFailureInfo::toException)
-                        .orElse(new PrestoException(StandardErrorCode.GENERIC_INTERNAL_ERROR, "A task failed for an unknown reason"));
-                stateMachine.transitionToFailed(failure);
-            }
-            else if (taskState == TaskState.ABORTED) {
-                // A task should only be in the aborted state if the STAGE is done (ABORTED or FAILED)
-                stateMachine.transitionToFailed(new PrestoException(StandardErrorCode.GENERIC_INTERNAL_ERROR, "A task is in the ABORTED state but stage is " + stageState));
-            }
-            else if (taskState == TaskState.FINISHED) {
-                finishedTasks.add(taskStatus.getTaskId());
-            }
-
-            if (stageState == StageState.SCHEDULED || stageState == StageState.RUNNING) {
-                if (taskState == TaskState.RUNNING) {
-                    stateMachine.transitionToRunning();
-                }
-                if (finishedTasks.containsAll(allTasks)) {
-                    stateMachine.transitionToFinished();
-                }
+            finally {
+                updateTaskStatus(taskStatus);
             }
         }
 
@@ -496,25 +567,6 @@ public final class SqlStageExecution
             // newlyCompletedDriverGroups is a view.
             // Making changes to completedDriverGroups will change newlyCompletedDriverGroups.
             completedDriverGroups.addAll(newlyCompletedDriverGroups);
-        }
-
-        private ExecutionFailureInfo rewriteTransportFailure(ExecutionFailureInfo executionFailureInfo)
-        {
-            if (executionFailureInfo.getRemoteHost() != null &&
-                    failureDetector.getState(executionFailureInfo.getRemoteHost()) == GONE) {
-                return new ExecutionFailureInfo(
-                        executionFailureInfo.getType(),
-                        executionFailureInfo.getMessage(),
-                        executionFailureInfo.getCause(),
-                        executionFailureInfo.getSuppressed(),
-                        executionFailureInfo.getStack(),
-                        executionFailureInfo.getErrorLocation(),
-                        REMOTE_HOST_GONE.toErrorCode(),
-                        executionFailureInfo.getRemoteHost());
-            }
-            else {
-                return executionFailureInfo;
-            }
         }
     }
 

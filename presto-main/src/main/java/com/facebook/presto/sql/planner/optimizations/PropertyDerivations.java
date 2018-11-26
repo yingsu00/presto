@@ -15,6 +15,7 @@ package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.TableLayout;
 import com.facebook.presto.metadata.TableLayout.TablePartitioning;
@@ -57,6 +58,7 @@ import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SampleNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
+import com.facebook.presto.sql.planner.plan.SpatialJoinNode;
 import com.facebook.presto.sql.planner.plan.TableFinishNode;
 import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
@@ -438,6 +440,32 @@ public class PropertyDerivations
         }
 
         @Override
+        public ActualProperties visitSpatialJoin(SpatialJoinNode node, List<ActualProperties> inputProperties)
+        {
+            ActualProperties probeProperties = inputProperties.get(0);
+            ActualProperties buildProperties = inputProperties.get(1);
+
+            switch (node.getType()) {
+                case INNER:
+                    probeProperties = probeProperties.translate(column -> filterIfMissing(node.getOutputSymbols(), column));
+                    buildProperties = buildProperties.translate(column -> filterIfMissing(node.getOutputSymbols(), column));
+
+                    Map<Symbol, NullableValue> constants = new HashMap<>();
+                    constants.putAll(probeProperties.getConstants());
+                    constants.putAll(buildProperties.getConstants());
+
+                    return ActualProperties.builderFrom(probeProperties)
+                            .constants(constants)
+                            .build();
+                case LEFT:
+                    return ActualProperties.builderFrom(probeProperties.translate(column -> filterIfMissing(node.getOutputSymbols(), column)))
+                            .build();
+                default:
+                    throw new IllegalArgumentException("Unsupported spatial join type: " + node.getType());
+            }
+        }
+
+        @Override
         public ActualProperties visitIndexJoin(IndexJoinNode node, List<ActualProperties> inputProperties)
         {
             // TODO: include all equivalent columns in partitioning properties
@@ -585,7 +613,7 @@ public class PropertyDerivations
             for (Map.Entry<Symbol, Expression> assignment : node.getAssignments().entrySet()) {
                 Expression expression = assignment.getValue();
 
-                Map<NodeRef<Expression>, Type> expressionTypes = getExpressionTypes(session, metadata, parser, types, expression, emptyList() /* parameters already replaced */);
+                Map<NodeRef<Expression>, Type> expressionTypes = getExpressionTypes(session, metadata, parser, types, expression, emptyList(), WarningCollector.NOOP);
                 Type type = requireNonNull(expressionTypes.get(NodeRef.of(expression)));
                 ExpressionInterpreter optimizer = ExpressionInterpreter.expressionOptimizer(expression, metadata, session, expressionTypes);
                 // TODO:

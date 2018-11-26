@@ -45,7 +45,6 @@ import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.airlift.units.DataSize.succinctBytes;
-import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
@@ -170,6 +169,7 @@ public class MockQueryExecution
                 Optional.empty(),
                 null,
                 null,
+                ImmutableList.of(),
                 ImmutableSet.of(),
                 Optional.empty(),
                 state.isDone(),
@@ -224,6 +224,30 @@ public class MockQueryExecution
     }
 
     @Override
+    public DateTime getCreateTime()
+    {
+        return getQueryInfo().getQueryStats().getCreateTime();
+    }
+
+    @Override
+    public Optional<DateTime> getExecutionStartTime()
+    {
+        return Optional.ofNullable(getQueryInfo().getQueryStats().getExecutionStartTime());
+    }
+
+    @Override
+    public DateTime getLastHeartbeat()
+    {
+        return getQueryInfo().getQueryStats().getLastHeartbeat();
+    }
+
+    @Override
+    public Optional<DateTime> getEndTime()
+    {
+        return Optional.ofNullable(getQueryInfo().getQueryStats().getEndTime());
+    }
+
+    @Override
     public Optional<ErrorCode> getErrorCode()
     {
         return Optional.ofNullable(getQueryInfo().getFailureInfo()).map(ExecutionFailureInfo::getErrorCode);
@@ -251,18 +275,6 @@ public class MockQueryExecution
     public Duration getTotalCpuTime()
     {
         return cpuUsage;
-    }
-
-    @Override
-    public Optional<ResourceGroupId> getResourceGroup()
-    {
-        return this.resourceGroupId;
-    }
-
-    @Override
-    public void setResourceGroup(ResourceGroupId resourceGroupId)
-    {
-        this.resourceGroupId = Optional.of(requireNonNull(resourceGroupId, "resourceGroupId is null"));
     }
 
     @Override

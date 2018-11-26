@@ -41,6 +41,7 @@ public class DictionaryBlock
     private final int[] ids;
     private final long retainedSizeInBytes;
     private volatile long sizeInBytes = -1;
+    private volatile long logicalSizeInBytes = -1;
     private volatile int uniqueIds = -1;
     private final DictionaryId dictionarySourceId;
 
@@ -220,6 +221,32 @@ public class DictionaryBlock
     }
 
     @Override
+    public long getLogicalSizeInBytes()
+    {
+        if (logicalSizeInBytes >= 0) {
+            return logicalSizeInBytes;
+        }
+
+        // Calculation of logical size can be performed as part of calculateCompactSize() with minor modifications.
+        // Keeping this calculation separate as this is a little more expensive and may not be called as often.
+        long sizeInBytes = 0;
+        long[] seenSizes = new long[dictionary.getPositionCount()];
+        Arrays.fill(seenSizes, -1L);
+        for (int i = 0; i < getPositionCount(); i++) {
+            int position = getId(i);
+            if (!dictionary.isNull(position)) {
+                if (seenSizes[position] < 0) {
+                    seenSizes[position] = dictionary.getRegionSizeInBytes(position, 1);
+                }
+                sizeInBytes += seenSizes[position];
+            }
+        }
+
+        logicalSizeInBytes = sizeInBytes;
+        return sizeInBytes;
+    }
+
+    @Override
     public long getRegionSizeInBytes(int positionOffset, int length)
     {
         if (positionOffset == 0 && length == getPositionCount()) {
@@ -294,7 +321,7 @@ public class DictionaryBlock
     public Block getRegion(int positionOffset, int length)
     {
         checkValidRegion(positionCount, positionOffset, length);
-        return new DictionaryBlock(idsOffset + positionOffset, length, dictionary, ids, false, randomDictionaryId());
+        return new DictionaryBlock(idsOffset + positionOffset, length, dictionary, ids, false, dictionarySourceId);
     }
 
     @Override

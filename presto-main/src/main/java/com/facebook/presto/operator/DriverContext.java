@@ -79,7 +79,6 @@ public class DriverContext
     private final DriverYieldSignal yieldSignal;
 
     private final List<OperatorContext> operatorContexts = new CopyOnWriteArrayList<>();
-    private final boolean partitioned;
     private final Lifespan lifespan;
 
     public DriverContext(
@@ -87,14 +86,12 @@ public class DriverContext
             Executor notificationExecutor,
             ScheduledExecutorService yieldExecutor,
             MemoryTrackingContext driverMemoryContext,
-            boolean partitioned,
             Lifespan lifespan)
     {
         this.pipelineContext = requireNonNull(pipelineContext, "pipelineContext is null");
         this.notificationExecutor = requireNonNull(notificationExecutor, "notificationExecutor is null");
         this.yieldExecutor = requireNonNull(yieldExecutor, "scheduler is null");
         this.driverMemoryContext = requireNonNull(driverMemoryContext, "driverMemoryContext is null");
-        this.partitioned = partitioned;
         this.lifespan = requireNonNull(lifespan, "lifespan is null");
         this.yieldSignal = new DriverYieldSignal();
     }
@@ -319,12 +316,12 @@ public class DriverContext
         DataSize outputDataSize;
         long outputPositions;
         if (inputOperator != null) {
-            rawInputDataSize = inputOperator.getInputDataSize();
+            rawInputDataSize = inputOperator.getRawInputDataSize();
             rawInputPositions = inputOperator.getInputPositions();
             rawInputReadTime = inputOperator.getAddInputWall();
 
-            processedInputDataSize = inputOperator.getOutputDataSize();
-            processedInputPositions = inputOperator.getOutputPositions();
+            processedInputDataSize = inputOperator.getInputDataSize();
+            processedInputPositions = inputOperator.getInputPositions();
 
             OperatorStats outputOperator = requireNonNull(getLast(operators, null));
             outputDataSize = outputOperator.getOutputDataSize();
@@ -406,11 +403,6 @@ public class DriverContext
         return operatorContexts.stream()
                 .map(operatorContext -> operatorContext.accept(visitor, context))
                 .collect(toList());
-    }
-
-    public boolean isPartitioned()
-    {
-        return partitioned;
     }
 
     public Lifespan getLifespan()

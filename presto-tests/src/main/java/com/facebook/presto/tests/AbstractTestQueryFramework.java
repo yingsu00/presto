@@ -19,14 +19,14 @@ import com.facebook.presto.cost.CostCalculatorUsingExchanges;
 import com.facebook.presto.cost.CostCalculatorWithEstimatedExchanges;
 import com.facebook.presto.cost.CostComparator;
 import com.facebook.presto.execution.QueryManagerConfig;
-import com.facebook.presto.execution.scheduler.NodeSchedulerConfig;
-import com.facebook.presto.metadata.InMemoryNodeManager;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.spi.security.AccessDeniedException;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.analyzer.QueryExplainer;
 import com.facebook.presto.sql.parser.SqlParser;
+import com.facebook.presto.sql.planner.Plan;
 import com.facebook.presto.sql.planner.PlanFragmenter;
 import com.facebook.presto.sql.planner.PlanOptimizers;
 import com.facebook.presto.sql.planner.optimizations.PlanOptimizer;
@@ -47,10 +47,12 @@ import org.weakref.jmx.testing.TestingMBeanServer;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.Consumer;
 
 import static com.facebook.presto.sql.ParsingUtil.createParsingOptions;
 import static com.facebook.presto.sql.SqlFormatter.formatSql;
 import static com.facebook.presto.transaction.TransactionBuilder.transaction;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.nullToEmpty;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -138,6 +140,12 @@ public abstract class AbstractTestQueryFramework
         QueryAssertions.assertQuery(queryRunner, session, actual, h2QueryRunner, expected, false, false);
     }
 
+    protected void assertQuery(Session session, @Language("SQL") String actual, @Language("SQL") String expected, Consumer<Plan> planAssertion)
+    {
+        checkArgument(queryRunner instanceof DistributedQueryRunner, "pattern assertion is only supported for DistributedQueryRunner");
+        QueryAssertions.assertQuery(queryRunner, session, actual, h2QueryRunner, expected, false, false, planAssertion);
+    }
+
     public void assertQueryOrdered(@Language("SQL") String sql)
     {
         assertQueryOrdered(getSession(), sql);
@@ -175,7 +183,7 @@ public abstract class AbstractTestQueryFramework
 
     protected void assertUpdate(Session session, @Language("SQL") String sql)
     {
-        QueryAssertions.assertUpdate(queryRunner, session, sql, OptionalLong.empty());
+        QueryAssertions.assertUpdate(queryRunner, session, sql, OptionalLong.empty(), Optional.empty());
     }
 
     protected void assertUpdate(@Language("SQL") String sql, long count)
@@ -185,7 +193,17 @@ public abstract class AbstractTestQueryFramework
 
     protected void assertUpdate(Session session, @Language("SQL") String sql, long count)
     {
-        QueryAssertions.assertUpdate(queryRunner, session, sql, OptionalLong.of(count));
+        QueryAssertions.assertUpdate(queryRunner, session, sql, OptionalLong.of(count), Optional.empty());
+    }
+
+    protected void assertUpdate(Session session, @Language("SQL") String sql, long count, Consumer<Plan> planAssertion)
+    {
+        QueryAssertions.assertUpdate(queryRunner, session, sql, OptionalLong.of(count), Optional.of(planAssertion));
+    }
+
+    protected void assertQuerySucceeds(Session session, @Language("SQL") String sql)
+    {
+        QueryAssertions.assertQuerySucceeds(queryRunner, session, sql);
     }
 
     protected void assertQueryFailsEventually(@Language("SQL") String sql, @Language("RegExp") String expectedMessageRegExp, Duration timeout)
@@ -290,13 +308,14 @@ public abstract class AbstractTestQueryFramework
         return formatSql(sqlParser.createStatement(sql, createParsingOptions(queryRunner.getDefaultSession())), Optional.empty());
     }
 
+    //TODO: should WarningCollector be added?
     public String getExplainPlan(String query, ExplainType.Type planType)
     {
         QueryExplainer explainer = getQueryExplainer();
         return transaction(queryRunner.getTransactionManager(), queryRunner.getAccessControl())
                 .singleStatement()
                 .execute(queryRunner.getDefaultSession(), session -> {
-                    return explainer.getPlan(session, sqlParser.createStatement(query, createParsingOptions(session)), planType, emptyList());
+                    return explainer.getPlan(session, sqlParser.createStatement(query, createParsingOptions(session)), planType, emptyList(), WarningCollector.NOOP);
                 });
     }
 
@@ -306,7 +325,7 @@ public abstract class AbstractTestQueryFramework
         return transaction(queryRunner.getTransactionManager(), queryRunner.getAccessControl())
                 .singleStatement()
                 .execute(queryRunner.getDefaultSession(), session -> {
-                    return explainer.getGraphvizPlan(session, sqlParser.createStatement(query, createParsingOptions(session)), planType, emptyList());
+                    return explainer.getGraphvizPlan(session, sqlParser.createStatement(query, createParsingOptions(session)), planType, emptyList(), WarningCollector.NOOP);
                 });
     }
 
@@ -322,6 +341,8 @@ public abstract class AbstractTestQueryFramework
                 featuresConfig,
                 forceSingleNode,
                 new MBeanExporter(new TestingMBeanServer()),
+                queryRunner.getSplitManager(),
+                queryRunner.getPageSourceManager(),
                 queryRunner.getStatsCalculator(),
                 costCalculator,
                 new CostCalculatorWithEstimatedExchanges(costCalculator, queryRunner::getNodeCount),
@@ -335,8 +356,6 @@ public abstract class AbstractTestQueryFramework
                 sqlParser,
                 queryRunner.getStatsCalculator(),
                 costCalculator,
-                new InMemoryNodeManager(),
-                new NodeSchedulerConfig().setIncludeCoordinator(true),
                 ImmutableMap.of());
     }
 

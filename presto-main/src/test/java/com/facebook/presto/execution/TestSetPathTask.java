@@ -14,6 +14,7 @@
 package com.facebook.presto.execution;
 
 import com.facebook.presto.block.BlockEncodingManager;
+import com.facebook.presto.execution.warnings.WarningCollector;
 import com.facebook.presto.metadata.CatalogManager;
 import com.facebook.presto.metadata.ColumnPropertyManager;
 import com.facebook.presto.metadata.MetadataManager;
@@ -23,7 +24,7 @@ import com.facebook.presto.metadata.TablePropertyManager;
 import com.facebook.presto.security.AccessControl;
 import com.facebook.presto.security.AllowAllAccessControl;
 import com.facebook.presto.spi.PrestoException;
-import com.facebook.presto.spi.QueryId;
+import com.facebook.presto.spi.resourceGroups.ResourceGroupId;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.tree.Identifier;
 import com.facebook.presto.sql.tree.PathElement;
@@ -81,9 +82,8 @@ public class TestSetPathTask
     @Test
     public void testSetPath()
     {
-        PathSpecification pathSpecification = new PathSpecification(
-                Optional.empty(), ImmutableList.of(
-                        new PathElement(Optional.empty(), new Identifier("foo"))));
+        PathSpecification pathSpecification = new PathSpecification(Optional.empty(), ImmutableList.of(
+                new PathElement(Optional.empty(), new Identifier("foo"))));
 
         QueryStateMachine stateMachine = createQueryStateMachine("SET PATH foo");
         executeSetPathTask(pathSpecification, stateMachine);
@@ -94,9 +94,8 @@ public class TestSetPathTask
     @Test(expectedExceptions = PrestoException.class, expectedExceptionsMessageRegExp = "Catalog does not exist: .*")
     public void testSetPathInvalidCatalog()
     {
-        PathSpecification invalidPathSpecification = new PathSpecification(
-                Optional.empty(), ImmutableList.of(
-                        new PathElement(Optional.of(new Identifier("invalidCatalog")), new Identifier("thisDoesNotMatter"))));
+        PathSpecification invalidPathSpecification = new PathSpecification(Optional.empty(), ImmutableList.of(
+                new PathElement(Optional.of(new Identifier("invalidCatalog")), new Identifier("thisDoesNotMatter"))));
 
         QueryStateMachine stateMachine = createQueryStateMachine("SET PATH invalidCatalog.thisDoesNotMatter");
         executeSetPathTask(invalidPathSpecification, stateMachine);
@@ -105,15 +104,16 @@ public class TestSetPathTask
     private QueryStateMachine createQueryStateMachine(String query)
     {
         return QueryStateMachine.begin(
-                new QueryId("query"),
                 query,
                 TEST_SESSION,
                 URI.create("fake://uri"),
+                new ResourceGroupId("test"),
                 false,
                 transactionManager,
                 accessControl,
                 executor,
-                metadata);
+                metadata,
+                WarningCollector.NOOP);
     }
 
     private void executeSetPathTask(PathSpecification pathSpecification, QueryStateMachine stateMachine)

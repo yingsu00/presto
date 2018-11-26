@@ -16,6 +16,7 @@ package com.facebook.presto.execution;
 import com.facebook.presto.OutputBuffers;
 import com.facebook.presto.Session;
 import com.facebook.presto.connector.ConnectorId;
+import com.facebook.presto.cost.StatsAndCosts;
 import com.facebook.presto.execution.NodeTaskMap.PartitionedSplitCountTracker;
 import com.facebook.presto.execution.buffer.LazyOutputBuffer;
 import com.facebook.presto.execution.buffer.OutputBuffer;
@@ -67,6 +68,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
@@ -114,7 +116,8 @@ public class MockRemoteTaskFactory
                 SOURCE_DISTRIBUTION,
                 ImmutableList.of(sourceId),
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), ImmutableList.of(symbol)),
-                StageExecutionStrategy.ungroupedExecution());
+                StageExecutionStrategy.ungroupedExecution(),
+                StatsAndCosts.empty());
 
         ImmutableMultimap.Builder<PlanNodeId, Split> initialSplits = ImmutableMultimap.builder();
         for (Split sourceSplit : splits) {
@@ -249,8 +252,7 @@ public class MockRemoteTaskFactory
                     outputBuffer.getInfo(),
                     ImmutableSet.of(),
                     taskContext.getTaskStats(),
-                    true,
-                    false);
+                    true);
         }
 
         @Override
@@ -368,6 +370,19 @@ public class MockRemoteTaskFactory
         public void addStateChangeListener(StateChangeListener<TaskStatus> stateChangeListener)
         {
             taskStateMachine.addStateChangeListener(newValue -> stateChangeListener.stateChanged(getTaskStatus()));
+        }
+
+        @Override
+        public void addFinalTaskInfoListener(StateChangeListener<TaskInfo> stateChangeListener)
+        {
+            AtomicBoolean done = new AtomicBoolean();
+            StateChangeListener<TaskState> fireOnceStateChangeListener = state -> {
+                if (state.isDone() && done.compareAndSet(false, true)) {
+                    stateChangeListener.stateChanged(getTaskInfo());
+                }
+            };
+            taskStateMachine.addStateChangeListener(fireOnceStateChangeListener);
+            fireOnceStateChangeListener.stateChanged(taskStateMachine.getState());
         }
 
         @Override

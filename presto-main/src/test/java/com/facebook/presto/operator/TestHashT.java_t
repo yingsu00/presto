@@ -1018,7 +1018,7 @@ DECLGET(k);
         protected List<Page> probePages;
         protected List<Integer> outputChannels;
 
-        protected JoinBridgeDataManager<LookupSourceFactory> lookupSourceFactory;
+        protected JoinBridgeManager<LookupSourceFactory> lookupSourceFactory;
 
         @Override
         public void setup(int buildSize)
@@ -1042,7 +1042,7 @@ DECLGET(k);
             lookupSourceFactory = new TestHash().benchmarkBuildHash(this, outputChannels, buildSize);
         }
 
-        public JoinBridgeDataManager<LookupSourceFactory> getLookupSourceFactory()
+        public JoinBridgeManager<LookupSourceFactory> getLookupSourceFactory()
         {
             return lookupSourceFactory;
         }
@@ -1054,16 +1054,16 @@ DECLGET(k);
 
     }
 
-    public JoinBridgeDataManager<LookupSourceFactory> benchmarkBuildHash(BuildContext buildContext, int buildSize)
+    public JoinBridgeManager<LookupSourceFactory> benchmarkBuildHash(BuildContext buildContext, int buildSize)
     {
         return benchmarkBuildHash(buildContext, ImmutableList.of(0, 1, 2), buildSize);
     }
 
-    private JoinBridgeDataManager<LookupSourceFactory> benchmarkBuildHash(BuildContext buildContext, List<Integer> outputChannels, int buildSize)
+    private JoinBridgeManager<LookupSourceFactory> benchmarkBuildHash(BuildContext buildContext, List<Integer> outputChannels, int buildSize)
     {
-        DriverContext driverContext = buildContext.createTaskContext().addPipelineContext(0, true, true).addDriverContext();
+        DriverContext driverContext = buildContext.createTaskContext().addPipelineContext(0, true, true, false).addDriverContext();
 
-        JoinBridgeDataManager<LookupSourceFactory> lookupSourceFactoryManager = JoinBridgeDataManager.lookupAllAtOnce(new PartitionedLookupSourceFactory(
+        JoinBridgeManager<LookupSourceFactory> lookupSourceFactoryManager = JoinBridgeDataManager.lookupAllAtOnce(new PartitionedLookupSourceFactory(
                 buildContext.getTypes(),
                 outputChannels.stream()
                         .map(buildContext.getTypes()::get)
@@ -1122,7 +1122,7 @@ DECLGET(k);
                 OptionalInt.empty(),
                 unsupportedPartitioningSpillerFactory());
 
-        DriverContext driverContext = joinContext.createTaskContext().addPipelineContext(0, true, true).addDriverContext();
+        DriverContext driverContext = joinContext.createTaskContext().addPipelineContext(0, true, true, false).addDriverContext();
         Operator joinOperator = joinOperatorFactory.createOperator(driverContext);
 
 

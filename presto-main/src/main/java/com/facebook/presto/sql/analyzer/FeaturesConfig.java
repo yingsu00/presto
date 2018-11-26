@@ -15,6 +15,7 @@ package com.facebook.presto.sql.analyzer;
 
 import com.facebook.presto.operator.aggregation.arrayagg.ArrayAggGroupImplementation;
 import com.facebook.presto.operator.aggregation.histogram.HistogramGroupImplementation;
+import com.facebook.presto.operator.aggregation.multimapagg.MultimapAggGroupImplementation;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -40,7 +41,6 @@ import static com.facebook.presto.sql.analyzer.FeaturesConfig.JoinReorderingStra
 import static com.facebook.presto.sql.analyzer.RegexLibrary.JONI;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
-import static io.airlift.units.DataSize.succinctBytes;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MINUTES;
 
@@ -64,6 +64,7 @@ public class FeaturesConfig
     private double networkCostWeight = 15;
     private boolean distributedIndexJoinsEnabled;
     private JoinDistributionType joinDistributionType = PARTITIONED;
+    private DataSize joinMaxBroadcastTableSize;
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionForAggregationEnabled;
     private int concurrentLifespansPerTask;
@@ -84,7 +85,6 @@ public class FeaturesConfig
     private boolean groupByUsesEqualTo;
     private boolean legacyTimestamp = true;
     private boolean legacyMapSubscript;
-    private boolean legacyRoundNBigint;
     private boolean legacyRowFieldOrdinalAccess;
     private boolean legacyCharToVarcharCoercion;
     private boolean optimizeMixedDistinctAggregations;
@@ -99,6 +99,7 @@ public class FeaturesConfig
     private RegexLibrary regexLibrary = JONI;
     private HistogramGroupImplementation histogramGroupImplementation = HistogramGroupImplementation.NEW;
     private ArrayAggGroupImplementation arrayAggGroupImplementation = ArrayAggGroupImplementation.NEW;
+    private MultimapAggGroupImplementation multimapAggGroupImplementation = MultimapAggGroupImplementation.NEW;
     private boolean spillEnabled;
     private DataSize aggregationOperatorUnspillMemoryLimit = new DataSize(4, DataSize.Unit.MEGABYTE);
     private List<Path> spillerSpillPaths = ImmutableList.of();
@@ -106,13 +107,14 @@ public class FeaturesConfig
     private double spillMaxUsedSpaceThreshold = 0.9;
     private boolean iterativeOptimizerEnabled = true;
     private boolean enableStatsCalculator = true;
+    private boolean ignoreStatsCalculatorFailures = true;
     private boolean pushAggregationThroughJoin = true;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
     private boolean parseDecimalLiteralsAsDouble;
     private boolean useMarkDistinct = true;
     private boolean preferPartialAggregation = true;
-    private DataSize preAllocateMemoryThreshold = succinctBytes(0);
+    private boolean optimizeTopNRowNumber = true;
 
     private Duration iterativeOptimizerTimeout = new Duration(3, MINUTES); // by default let optimizer wait a long time in case it retrieves some data from ConnectorMetadata
 
@@ -191,18 +193,6 @@ public class FeaturesConfig
     {
         this.distributedIndexJoinsEnabled = distributedIndexJoinsEnabled;
         return this;
-    }
-
-    @Config("deprecated.legacy-round-n-bigint")
-    public FeaturesConfig setLegacyRoundNBigint(boolean legacyRoundNBigint)
-    {
-        this.legacyRoundNBigint = legacyRoundNBigint;
-        return this;
-    }
-
-    public boolean isLegacyRoundNBigint()
-    {
-        return legacyRoundNBigint;
     }
 
     @Config("deprecated.legacy-row-field-ordinal-access")
@@ -298,6 +288,18 @@ public class FeaturesConfig
     public FeaturesConfig setJoinDistributionType(JoinDistributionType joinDistributionType)
     {
         this.joinDistributionType = requireNonNull(joinDistributionType, "joinDistributionType is null");
+        return this;
+    }
+
+    public DataSize getJoinMaxBroadcastTableSize()
+    {
+        return joinMaxBroadcastTableSize;
+    }
+
+    @Config("join-max-broadcast-table-size")
+    public FeaturesConfig setJoinMaxBroadcastTableSize(DataSize joinMaxBroadcastTableSize)
+    {
+        this.joinMaxBroadcastTableSize = joinMaxBroadcastTableSize;
         return this;
     }
 
@@ -469,6 +471,18 @@ public class FeaturesConfig
         return this;
     }
 
+    public boolean isOptimizeTopNRowNumber()
+    {
+        return optimizeTopNRowNumber;
+    }
+
+    @Config("optimizer.optimize-top-n-row-number")
+    public FeaturesConfig setOptimizeTopNRowNumber(boolean optimizeTopNRowNumber)
+    {
+        this.optimizeTopNRowNumber = optimizeTopNRowNumber;
+        return this;
+    }
+
     public boolean isOptimizeHashGeneration()
     {
         return optimizeHashGeneration;
@@ -588,6 +602,19 @@ public class FeaturesConfig
     public FeaturesConfig setEnableStatsCalculator(boolean enableStatsCalculator)
     {
         this.enableStatsCalculator = enableStatsCalculator;
+        return this;
+    }
+
+    public boolean isIgnoreStatsCalculatorFailures()
+    {
+        return ignoreStatsCalculatorFailures;
+    }
+
+    @Config("optimizer.ignore-stats-calculator-failures")
+    @ConfigDescription("Ignore statistics calculator failures")
+    public FeaturesConfig setIgnoreStatsCalculatorFailures(boolean ignoreStatsCalculatorFailures)
+    {
+        this.ignoreStatsCalculatorFailures = ignoreStatsCalculatorFailures;
         return this;
     }
 
@@ -811,16 +838,15 @@ public class FeaturesConfig
         return this;
     }
 
-    @NotNull
-    public DataSize getPreAllocateMemoryThreshold()
+    public MultimapAggGroupImplementation getMultimapAggGroupImplementation()
     {
-        return preAllocateMemoryThreshold;
+        return multimapAggGroupImplementation;
     }
 
-    @Config("experimental.preallocate-memory-threshold")
-    public FeaturesConfig setPreAllocateMemoryThreshold(DataSize preAllocateMemoryThreshold)
+    @Config("multimapagg.implementation")
+    public FeaturesConfig setMultimapAggGroupImplementation(MultimapAggGroupImplementation groupByMode)
     {
-        this.preAllocateMemoryThreshold = preAllocateMemoryThreshold;
+        this.multimapAggGroupImplementation = groupByMode;
         return this;
     }
 
