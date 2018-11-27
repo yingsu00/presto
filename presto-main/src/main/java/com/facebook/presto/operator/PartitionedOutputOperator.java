@@ -330,6 +330,11 @@ public class PartitionedOutputOperator
             this.rowsAdded = rowsAdded;
             this.serde = serde;
         }
+
+        public long getRetainedSizeInBytes()
+        {
+            return topLevelSlice != null ? topLevelSlice.length() : 0;
+        }
         
         void prepareBatch()
         {
@@ -348,7 +353,7 @@ public class PartitionedOutputOperator
                 for  (int i = 0; i < contents.length; i++) {
                     encodings[i].addValues(contents[i], rows, rowsWritten, numRowsFit, encodingStates[i]);
                 }
-                if (numRowsFit - rowsWritten < numNewRows) {
+                if (numRowsFit + rowsWritten < numNewRows) {
                     flush(outputBuffer);
                     prepareBuffer(contents, serde);
                 }
@@ -383,7 +388,10 @@ public class PartitionedOutputOperator
 
         void flush(OutputBuffer outputBuffer)
         {
-            int finalSize = 0;
+            if (bufferedRows == 0) {
+                return;
+            }
+            int finalSize = 4;
             boolean allFits = true;
             for (int i = 0; i < encodings.length; i++) {
                 EncodingState state = encodingStates[i];
@@ -513,9 +521,6 @@ public class PartitionedOutputOperator
                     }
                     variableWidthChannels.add(i);
                 }
-                if (type != BIGINT) {
-                    useAria = false;
-                }
             }
             if (useAria) {
                 partitionData = new PartitionData[partitionCount];
@@ -556,6 +561,9 @@ public class PartitionedOutputOperator
             // We use a foreach loop instead of streams
             // as it has much better performance.
             long sizeInBytes = 0;
+            if (pageBuilders == null) {
+                return getRetainedSizeInBytes();
+            }
             for (PageBuilder pageBuilder : pageBuilders) {
                 sizeInBytes += pageBuilder.getSizeInBytes();
             }
@@ -568,10 +576,17 @@ public class PartitionedOutputOperator
         public long getRetainedSizeInBytes()
         {
             long sizeInBytes = 0;
-            for (PageBuilder pageBuilder : pageBuilders) {
-                sizeInBytes += pageBuilder.getRetainedSizeInBytes();
+            if (pageBuilders != null) {
+                for (PageBuilder pageBuilder : pageBuilders) {
+                    sizeInBytes += pageBuilder.getRetainedSizeInBytes();
+                }
             }
-            return sizeInBytes;
+            else {
+                for (PartitionData data : partitionData) {
+                    sizeInBytes += data.getRetainedSizeInBytes();
+                }
+            }
+                return sizeInBytes;
         }
 
         public PartitionedOutputInfo getInfo()
@@ -689,7 +704,7 @@ public class PartitionedOutputOperator
             }
             for (int i = 0; i < positionCount; i++) {
                 PartitionData target = partitionData[partitionOfRow[i]];
-                if (target.rows.length < target.numNewRows) {
+                if (target.rows.length <= target.numNewRows) {
                     target.rows = Arrays.copyOf(target.rows, 2 * target.rows.length);
                 }
                 target.rows[target.numNewRows++] = i;

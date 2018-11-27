@@ -74,115 +74,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 
-#define MHASH_M  0xc6a4a7935bd1e995L
-#define MHASH_R 47
-
-    #define MHASH_STEP_1(h, data) \
-{ \
-  long __k = data; \
-      __k *= MHASH_M;  \
-      __k ^= __k >> MHASH_R;  \
-      h = __k * MHASH_M; \
-    }
-
-    #define MHASH_STEP(h, data) \
-{ \
-  long __k = data; \
-      __k *= MHASH_M;  \
-      __k ^= __k >> MHASH_R;  \
-      __k *= MHASH_M;  \
-      h ^= __k; \
-      h *= MHASH_M; \
-    }
-
-#define BF_BIT_1(h) (63 & ((h) >> 32))
-#define BF_BIT_2(h) (63 & ((h) >> 38))
-#define BF_BIT_3(h) (63 & ((h) >> 44))
-#define BF_BIT_4(h) (63 & ((h) >> 50))
-    #define BF_WORD(h, size) (int)((h & 0x7fffffff) % size)
-#define BF_MASK(h) ((1L << BF_BIT_1 (h)) | (1L << BF_BIT_2 (h)) | (1L << BF_BIT_3 (h)) | (1L << BF_BIT_4 (h)))
-
-
-
-    #define SLABSIZE (128 * 1024)
-#define SLABSHIFT 17
-    #define SLABMASK 0x1ffff
-
-
-    
-#ifndef SLICES
-#ifdef SLICES
-    Not supported;
-#else
-    #define ALLOC_LONG_ARRAY(size) unsafe.allocateMemory(size * 8) 
-        #define FREE_LONG_ARRAY(a) unsafe.freeMemory(a)
-            #define DECL_ARRAY(prefix)
-        #define LONG_ARRAY long
-    #define ARRAY_PREGET(prefix, array, index)
-        #define ARRAY_GET(prefix, array, index) unsafe.getLong((array) + 8 * (index))
-        #define ARRAY_SET(prefix, array, index, value) unsafe.putLong((array) + 8 * (index), value)
-
-
-#endif
-    #else
-        #define ALLOC_LONG_ARRAY(size) new long[size]
-            #define FREE_LONG_ARRAY(a)
-            #define DECL_ARRAY(prefix)
-        #define LONG_ARRAY long[]
-    #define ARRAY_PREGET(prefix, array, index)
-    #define ARRAY_GET(prefix, array, index) array[index]
-            #define ARRAY_SET(prefix, array, index, value) array[index] = value
-        #endif
-    
-    #ifdef SLICES
-#define LABEL "With Slices"
-        
-	#define DECLTABLE(table) \
-  int statusMask = table.statusMask; \
-Slice[] slices = table.slices;
-  
-	
-#define DECLGET(prefix) Slice prefix##slice; int prefix##offset 
-
-    #define  PREGET(prefix, l)					\
-{ prefix##slice = slices[(int)((l) >> SLABSHIFT)]; prefix##offset = (int)(l) & SLABMASK; }
-
-#define GETL(prefix, field)			\
-    prefix##slice.getLong(prefix##offset + field)
-
-    #define SETL(prefix, field, v)			\
-    prefix##slice.setLong(prefix##offset + field, v)
-
-    #define SLICEPARAM(prefix) \
-    Slice prefix##slice, int prefix##offset
-    
-#define SLICEARG(prefix) prefix##slice, prefix##offset
-
-#define SLICEREF(s, o) \
-						 (((s) << SLABSHIFT) + (o))
-    #else
-
-                                                 #define LABEL "With unmanaged"
-
-                                                 #define DECLTABLE(table) \
-  int statusMask = table.statusMask; \
-long[] slabs = table.slabs;
-                                                 
-                                                 #define DECLGET(prefix) long prefix##ptr
-	    #define PREGET(prefix, l)		\
-	  prefix##ptr = l
-						 #define GETL(prefix, field) \
-    unsafe.getLong(prefix##ptr + field)
-
-						 #define SETL(prefix, field, v) \
-    unsafe.putLong(prefix##ptr + field, v)
-
-                                                 #define SLICEREF(s, o) \
-                                                 ((slabs[s]) + (o))
-                                                 
-    
-#endif
-
+#include "hash.h"
 
 public class TestHash {
 
@@ -1063,7 +955,7 @@ DECLGET(k);
     {
         DriverContext driverContext = buildContext.createTaskContext().addPipelineContext(0, true, true, false).addDriverContext();
 
-        JoinBridgeManager<LookupSourceFactory> lookupSourceFactoryManager = JoinBridgeDataManager.lookupAllAtOnce(new PartitionedLookupSourceFactory(
+        JoinBridgeManager<LookupSourceFactory> lookupSourceFactoryManager = JoinBridgeManager.lookupAllAtOnce(new PartitionedLookupSourceFactory(
                 buildContext.getTypes(),
                 outputChannels.stream()
                         .map(buildContext.getTypes()::get)
@@ -1096,7 +988,7 @@ DECLGET(k);
         }
         operator.finish();
 
-        LookupSourceFactory lookupSourceFactory = lookupSourceFactoryManager.forLifespan(Lifespan.taskWide());
+        LookupSourceFactory lookupSourceFactory = lookupSourceFactoryManager.getJoinBridge(Lifespan.taskWide());
         ListenableFuture<LookupSourceProvider> lookupSourceProvider = lookupSourceFactory.createLookupSourceProvider();
         if (!lookupSourceProvider.isDone()) {
             throw new AssertionError("Expected lookup source provider to be ready");

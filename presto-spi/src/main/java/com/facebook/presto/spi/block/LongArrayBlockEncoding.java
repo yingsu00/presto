@@ -72,6 +72,7 @@ public class LongArrayBlockEncoding
         int size = 8 * numValues + 5 + 4 + NAME.length();
         state.startInBuffer = startInBuffer;
         state.bytesInBuffer = size;
+        state.maxValues = numValues;
         state.encodingName = NAME;
         return startInBuffer + size;
     }
@@ -81,9 +82,9 @@ public class LongArrayBlockEncoding
     {
                 long[] longs = contents.longs;
                 int[] map = contents.rowNumberMap;
-                int longsOffset = state.valueOffset + 5;
-                        for (int i = firstRow; i < firstRow + numRows; i++) {
-                            state.topLevelBuffer.setLong(longsOffset + i *8, longs[map[rows[i]]]);
+                int longsOffset = state.valueOffset + 5 + state.numValues * 8;
+                        for (int i = 0; i < numRows; i++) {
+                            state.topLevelBuffer.setLong(longsOffset + i *8, longs[map[rows[i + firstRow]]]);
                         }
                         state.numValues += numRows;
     }
@@ -103,9 +104,9 @@ public class LongArrayBlockEncoding
     @Override
     public void finish(EncodingState state, Slice buffer)
     {
-        state.topLevelBuffer.setInt(state.valueOffset - 5, state.numValues);
-        state.topLevelBuffer.setByte(state.valueOffset - 1, 0);
-        if (buffer == state.topLevelBuffer && !state.anyNulls && state.startInBuffer == state.newStartInBuffer) {
+        state.topLevelBuffer.setInt(state.valueOffset, state.numValues);
+        state.topLevelBuffer.setByte(state.valueOffset + 4, 0);
+        if (buffer.getBase() == state.topLevelBuffer.getBase() && !state.anyNulls && state.startInBuffer == state.newStartInBuffer) {
             return;
         }
         int size = finalSize(state);

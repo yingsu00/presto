@@ -283,6 +283,12 @@ public final class SystemPartitioningHandle
             }
 
             @Override
+            public void getBuckets(int partitionCount, Page page, int[] partitionsOut)
+            {
+                generator.getPartitions(partitionCount, page, partitionsOut);
+            }
+            
+            @Override
             public String toString()
             {
                 return toStringHelper(this)
