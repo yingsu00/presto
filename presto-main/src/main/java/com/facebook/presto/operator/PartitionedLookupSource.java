@@ -348,11 +348,11 @@ public class PartitionedLookupSource
     @Override
     public boolean isJoinPushedDown()
     {
-        return lookupSources[0].get() instanceof AriaHash.AriaLookupSource;
+        return lookupSources[0] instanceof AriaHash.AriaLookupSource;
     }
 
     @Override
-    void addInput(Page page)
+    public void addInput(Page page)
     {
     }
 

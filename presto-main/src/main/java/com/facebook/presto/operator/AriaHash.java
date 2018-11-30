@@ -421,7 +421,7 @@ public class AriaHash {
     }
 
     @Override
-    boolean isJoinPushedDown() {
+    public boolean isJoinPushedDown() {
       return true;
     }
 
@@ -985,7 +985,7 @@ public class AriaHash {
     }
 
     @Override
-    long getNextJoinPosition(
+    public long getNextJoinPosition(
         long currentJoinPosition, int probePosition, Page allProbeChannelsPage) {
       throw new UnsupportedOperationException();
     }
