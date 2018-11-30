@@ -348,7 +348,7 @@ public class PartitionedLookupSource
     @Override
     public boolean isJoinPushedDown()
     {
-        return partitions[0].get(). instanceof AriaHash.AriaLookupSource;
+        return lookupSources[0].get() instanceof AriaHash.AriaLookupSource;
     }
 
     @Override

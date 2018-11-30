@@ -3,11 +3,14 @@ package com.facebook.presto.operator;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 
+import com.facebook.presto.Session;
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.block.BlockContents;
 import com.facebook.presto.spi.block.ExprContext;
 import com.facebook.presto.spi.block.LongArrayBlock;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.sql.gen.JoinFilterFunctionCompiler.JoinFilterFunctionFactory;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import java.lang.reflect.Field;
@@ -66,7 +69,7 @@ public class AriaHash {
     }
   }
 
-  boolean supportsLayout(List<Type> types, List<Integer> hashChannels) {
+  static boolean supportsLayout(List<Type> types, List<Integer> hashChannels) {
     return hashChannels.size() == 2
         && types.size() == 3
         && types.get(0) == BIGINT
@@ -149,6 +152,14 @@ public class AriaHash {
       for (int i = 0; i <= statusMask; ++i) {;
         status[i] = 0x8080808080808080L;
       }
+    }
+
+    long getJoinPositionCount() {
+      return statusMask + 1;
+    }
+
+    long getSizeInBytes() {
+      return 8 * (statusMask + 1) + (128 * 1024) * (currentSlab + 1);
     }
   }
 
@@ -237,24 +248,24 @@ public class AriaHash {
     public static class AriaLookupSourceSupplier implements LookupSourceSupplier {
       AriaLookupSource lookupSource;
 
-      AriaLookupSourceSupplier(AriaLookupSource lookupSource) {
+      public AriaLookupSourceSupplier(AriaLookupSource lookupSource) {
         this.lookupSource = lookupSource;
       }
 
       @Override
-      LookupSource get() {
+      public LookupSource get() {
         return lookupSource;
       }
 
-      long getHashCollisions() {
+      public long getHashCollisions() {
         return 0;
       }
 
-      double getExpectedHashCollisions() {
+      public double getExpectedHashCollisions() {
         return 0;
       }
 
-      long checksum() {
+      public long checksum() {
         return 1234;
       }
     }
@@ -268,7 +279,7 @@ public class AriaHash {
         List<JoinFilterFunctionFactory> searchFunctionFactories,
         Optional<List<Integer>> outputChannels) {
       build();
-      return new AriaLookupSource(table, false);
+      return new AriaLookupSourceSupplier(new AriaLookupSource(table, false));
     }
 
     public void build() {
@@ -550,7 +561,7 @@ public class AriaHash {
     }
 
     @Override
-    boolean needsInput() {
+    public boolean needsInput() {
       return currentResult == -1 && currentProbe == candidateFill;
     }
 
@@ -940,6 +951,64 @@ public class AriaHash {
       }
       finishResult();
       return returnPage;
+    }
+
+    @Override
+    public int getChannelCount() {
+      return 1;
+    }
+
+    @Override
+    public long getInMemorySizeInBytes() {
+      return table.getSizeInBytes();
+    }
+
+    @Override
+    public long getJoinPositionCount() {
+      return table.getJoinPositionCount();
+    }
+
+    @Override
+    public long joinPositionWithinPartition(long joinPosition) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long getJoinPosition(
+        int position, Page hashChannelsPage, Page allChannelsPage, long rawHash) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    long getNextJoinPosition(
+        long currentJoinPosition, int probePosition, Page allProbeChannelsPage) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void appendTo(long position, PageBuilder pageBuilder, int outputChannelOffset) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isJoinPositionEligible(
+        long currentJoinPosition, int probePosition, Page allProbeChannelsPage) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isEmpty() {
+      return table.statusMask == 0;
+    }
+
+    @Override
+    public void close() {
+      table = null;
     }
   }
 }

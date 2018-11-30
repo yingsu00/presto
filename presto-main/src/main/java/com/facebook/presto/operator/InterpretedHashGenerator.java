@@ -17,7 +17,9 @@ import com.facebook.presto.operator.scalar.CombineHashFunction;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockContents;
+import com.facebook.presto.spi.block.LongArrayBlock;
 import com.facebook.presto.spi.block.MapHolder;
+import com.facebook.presto.spi.type.AbstractLongType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.planner.optimizations.HashGenerationOptimizer;
 import com.facebook.presto.type.TypeUtils;
@@ -37,7 +39,7 @@ public class InterpretedHashGenerator
     private final int[] hashChannels;
     private long[] hashes;
     private BlockContents contents;
-    private mapHolder mapHolder;
+    private MapHolder mapHolder;
     
     public InterpretedHashGenerator(List<Type> hashChannelTypes, List<Integer> hashChannels)
     {
@@ -68,10 +70,10 @@ public class InterpretedHashGenerator
     }
 
     @Override
-    void getPartitions(int partitionCount, Page page, int[] partitionsOut)
+    public void getPartitions(int partitionCount, Page page, int[] partitionsOut)
     {
         int positionCount = page.getPositionCount();
-        if (hashes == null || hashes.size < positionCount) {
+        if (hashes == null || hashes.length < positionCount) {
             hashes = new long[positionCount];
         }
         long result ;
@@ -81,22 +83,25 @@ public class InterpretedHashGenerator
         for (int i = 0; i < hashChannels.length; i++) {
 
             Type type = hashChannelTypes.get(i);
-            Block block = blockProvider.apply(hashChannels[i]);
             Block block = page.getBlock(i);
-            contents.decodeBlock(block);
+            contents.decodeBlock(block, mapHolder);
             Block leafBlock = contents.leafBlock;
             if (leafBlock instanceof LongArrayBlock) {
-                long[] longs = content.longs;
+                long[] longs = contents.longs;
                 int[] longsMap = contents.rowNumberMap;
-                for (position = 0; position < positionCount; position++) {
-                    hashes[i] = 
-                        CombineHashFunction.getHash(hashes[i], longs[longsMap[i]]);
+                boolean[] nulls = contents.valueIsNull;
+                for (int position = 0; position < positionCount; position++) {
+                    int valueIdx = longsMap[position];
+                    hashes[position] = 
+                        CombineHashFunction.getHash(hashes[position],
+                                                    (nulls == null || !nulls[valueIdx])
+                                                    ?  AbstractLongType.hash(longs[valueIdx])
+                                                    : TypeUtils.NULL_HASH_CODE);
                 }
-                
             }
             else {
                 for (int position = 0; position < positionCount; position++) {
-                    result = CombineHashFunction.getHash(result, TypeUtils.hashPosition(type, block, position));
+                    hashes[position] = CombineHashFunction.getHash(hashes[position], TypeUtils.hashPosition(type, block, position));
                 }
             }
         }   
