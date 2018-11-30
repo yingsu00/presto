@@ -15,8 +15,8 @@ package com.facebook.presto.operator;
 
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.spi.block.BlockContents;
-import com.facebook.presto.spi.block.MapHolder;
+import com.facebook.presto.spi.block.BlockDecoder;
+import com.facebook.presto.spi.block.IntArrayAllocator;
 import com.facebook.presto.spi.type.BigintType;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
@@ -25,8 +25,8 @@ public class PrecomputedHashGenerator
         implements HashGenerator
 {
     private final int hashChannel;
-    private BlockContents contents;
-    private MapHolder mapHolder;
+    private BlockDecoder contents;
+    private IntArrayAllocator intArrayAllocator;
     
     public PrecomputedHashGenerator(int hashChannel)
     {
@@ -43,11 +43,11 @@ public class PrecomputedHashGenerator
     public void getPartitions(int partitionCount, Page page, int[] partitionsOut)
     {
         if (contents == null) {
-            contents = new BlockContents();
-            mapHolder = new MapHolder();
+            contents = new BlockDecoder();
+            intArrayAllocator = new IntArrayAllocator();
         }
         Block block = page.getBlock(hashChannel);
-        contents.decodeBlock(block, mapHolder);
+        contents.decodeBlock(block, intArrayAllocator);
         int positionCount = block.getPositionCount();
         long[] longs = contents.longs;
         if (contents.isIdentityMap) {
@@ -61,7 +61,7 @@ public class PrecomputedHashGenerator
                 partitionsOut[i] = (int)((longs[map[i]] & 0x7fffffffffffL) % partitionCount);
             }
         }
-        contents.release(mapHolder);
+        contents.release(intArrayAllocator);
     }
     
     @Override

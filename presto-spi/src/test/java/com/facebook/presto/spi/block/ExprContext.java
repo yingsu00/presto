@@ -1,7 +1,7 @@
 package com.facebook.presto.spi.block;
 
-import com.facebook.presto.spi.block.BlockContents;
-import com.facebook.presto.spi.block.MapHolder;
+import com.facebook.presto.spi.block.BlockDecoder;
+import com.facebook.presto.spi.block.IntArrayAllocator;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 
@@ -10,7 +10,7 @@ import io.airlift.slice.Slices;
 public class ExprContext
 {
     
-    MapHolder mapHolder = new MapHolder();
+    IntArrayAllocator intArrayAllocator = new IntArrayAllocator();
     boolean[] nullsInReserve;
     boolean[] nullsInBatch;
 

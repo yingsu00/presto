@@ -28,18 +28,18 @@ import java.lang.reflect.Field;
 import sun.misc.Unsafe;
 
 
-public class TestRawArray
+public class BenchmarkBlockDecoder
 {
 
     
   // Evaluator class that would be generated from
   // extendedprice * (1 - discount) - quantity * supplycost
   public static class ProfitExpr {
-    BlockContents extendedPrice = new BlockContents();
-    BlockContents discount = new BlockContents();
-    BlockContents quantity = new BlockContents();
-    BlockContents supplyCost = new BlockContents();
-    MapHolder mapHolder = new MapHolder();
+    BlockDecoder extendedPrice = new BlockDecoder();
+    BlockDecoder discount = new BlockDecoder();
+    BlockDecoder quantity = new BlockDecoder();
+    BlockDecoder supplyCost = new BlockDecoder();
+    IntArrayAllocator intArrayAllocator = new IntArrayAllocator();
     boolean[] nullsInReserve;
     boolean[] nullsInBatch;
     long[][] tempLongs = new long[1][];
@@ -121,10 +121,10 @@ public class TestRawArray
     Page Evaluate(Page page)
     {
       int positionCount = page.getPositionCount();
-      extendedPrice.decodeBlock(page.getBlock(0), mapHolder);
-      discount.decodeBlock(page.getBlock(1), mapHolder);
-      quantity.decodeBlock(page.getBlock(2), mapHolder);
-      supplyCost.decodeBlock(page.getBlock(3), mapHolder);
+      extendedPrice.decodeBlock(page.getBlock(0), intArrayAllocator);
+      discount.decodeBlock(page.getBlock(1), intArrayAllocator);
+      quantity.decodeBlock(page.getBlock(2), intArrayAllocator);
+      supplyCost.decodeBlock(page.getBlock(3), intArrayAllocator);
       long[] ep = extendedPrice.longs;
       long[] di = discount.longs;
       long[] qt = quantity.longs;
@@ -151,20 +151,20 @@ public class TestRawArray
           }
         }
       }
-      extendedPrice.release(mapHolder);
-      discount.release(mapHolder);
-      quantity.release(mapHolder);
-      supplyCost.release(mapHolder);
+      extendedPrice.release(intArrayAllocator);
+      discount.release(intArrayAllocator);
+      quantity.release(intArrayAllocator);
+      supplyCost.release(intArrayAllocator);
       return new Page(positionCount, new LongArrayBlock(0, positionCount, (nullsInBatch != null ? nullsInBatch.clone() : null), result));
     }
 
       Page EvaluateDouble(Page page)
     {
       int positionCount = page.getPositionCount();
-      extendedPrice.decodeBlock(page.getBlock(0), mapHolder);
-      discount.decodeBlock(page.getBlock(1), mapHolder);
-      quantity.decodeBlock(page.getBlock(2), mapHolder);
-      supplyCost.decodeBlock(page.getBlock(3), mapHolder);
+      extendedPrice.decodeBlock(page.getBlock(0), intArrayAllocator);
+      discount.decodeBlock(page.getBlock(1), intArrayAllocator);
+      quantity.decodeBlock(page.getBlock(2), intArrayAllocator);
+      supplyCost.decodeBlock(page.getBlock(3), intArrayAllocator);
       double[] ep = extendedPrice.doubles;
       double[] di = discount.doubles;
       long[] qt = quantity.longs;
@@ -191,10 +191,10 @@ public class TestRawArray
           }
         }
       }
-      extendedPrice.release(mapHolder);
-      discount.release(mapHolder);
-      quantity.release(mapHolder);
-      supplyCost.release(mapHolder);
+      extendedPrice.release(intArrayAllocator);
+      discount.release(intArrayAllocator);
+      quantity.release(intArrayAllocator);
+      supplyCost.release(intArrayAllocator);
       return new Page(positionCount, new DoubleArrayBlock(0, positionCount, (nullsInBatch != null ? nullsInBatch.clone() : null), result));
     }
 

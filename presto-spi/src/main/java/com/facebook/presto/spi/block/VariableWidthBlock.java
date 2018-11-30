@@ -206,7 +206,7 @@ public class VariableWidthBlock
     }
 
         @Override
-    public void getContents(BlockContents contents) {
+    public void getContents(BlockDecoder contents) {
 	contents.slice = slice;
         contents.offsets = offsets;
 	contents.valueIsNull = valueIsNull;

@@ -22,10 +22,10 @@ import com.facebook.presto.memory.context.LocalMemoryContext;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.spi.block.BlockContents;
+import com.facebook.presto.spi.block.BlockDecoder;
 import com.facebook.presto.spi.block.BlockEncoding;
 import com.facebook.presto.spi.block.EncodingState;
-import com.facebook.presto.spi.block.MapHolder;
+import com.facebook.presto.spi.block.IntArrayAllocator;
 import com.facebook.presto.spi.block.RunLengthEncodedBlock;
 import com.facebook.presto.spi.predicate.NullableValue;
 import com.facebook.presto.spi.type.Type;
@@ -341,7 +341,7 @@ public class PartitionedOutputOperator
             numNewRows = 0;
         }
 
-        void appendRows(BlockContents[] contents, int partition, int fixedRowSize, int[] rowSizes, OutputBuffer outputBuffer)
+        void appendRows(BlockDecoder[] contents, int partition, int fixedRowSize, int[] rowSizes, OutputBuffer outputBuffer)
         {
             if (bufferedRows == 0) {
                 prepareBuffer(contents, serde);
@@ -431,7 +431,7 @@ public class PartitionedOutputOperator
             return 8;
         }
 
-        void prepareBuffer(BlockContents[] contents, PagesSerde serde)
+        void prepareBuffer(BlockDecoder[] contents, PagesSerde serde)
         {
             int targetBytes = DEFAULT_MAX_PAGE_SIZE_IN_BYTES;
             int size = 0;
@@ -440,7 +440,7 @@ public class PartitionedOutputOperator
                 encodingStates = new EncodingState[contents.length];
                 int rowBytes = 0;
                 for (int i = 0; i < contents.length; i++) {
-                    BlockContents content = contents[i];
+                    BlockDecoder content = contents[i];
                     rowBytes += elementSize(content.leafBlock); 
                     encodings[i] = serde.getBlockEncodingSerde().getEncoding(content.leafBlock);
                     encodingStates[i] = new EncodingState();
@@ -481,9 +481,9 @@ public class PartitionedOutputOperator
         private int fixedRowSize = 0;
         private int[] rowSizes;
         private ArrayList<Integer> variableWidthChannels;
-        private BlockContents[] blockContents;
+        private BlockDecoder[] blockContents;
         private BlockEncoding[] encodings;
-        private MapHolder mapHolder;
+        private IntArrayAllocator intArrayAllocator;
         private boolean useAria;
         
         public PagePartitioner(
@@ -527,11 +527,11 @@ public class PartitionedOutputOperator
                 for (int i = 0; i < partitionCount; i++) {
                     partitionData[i] = new PartitionData(i, pagesAdded, rowsAdded, serde);
                 }
-                blockContents = new BlockContents[sourceTypes.size()];
+                blockContents = new BlockDecoder[sourceTypes.size()];
                 for (int i = 0; i < blockContents.length; i++) {
-                    blockContents[i] = new BlockContents();
+                    blockContents[i] = new BlockDecoder();
                 }
-                mapHolder = new MapHolder();
+                intArrayAllocator = new IntArrayAllocator();
                 this.pageBuilders = null;
                 return;
             }
@@ -687,7 +687,7 @@ public class PartitionedOutputOperator
         void ariaPartitionPage(Page page, int positionCount)
         {
             for (int i = 0; i < sourceTypes.size(); i++) {
-                blockContents[i].decodeBlock(page.getBlock(i), mapHolder);
+                blockContents[i].decodeBlock(page.getBlock(i), intArrayAllocator);
             }
             
             if (variableWidthChannels != null) {
@@ -696,7 +696,7 @@ public class PartitionedOutputOperator
                 }
                 Arrays.fill(rowSizes, 0);
                 for (int i = 0; i < variableWidthChannels.size(); i++) {
-                    page.getBlock(variableWidthChannels.get(i).intValue()).addElementSizes(null, rowSizes, mapHolder);
+                    page.getBlock(variableWidthChannels.get(i).intValue()).addElementSizes(null, rowSizes, intArrayAllocator);
                 }
             }
             for (PartitionData target : partitionData) {

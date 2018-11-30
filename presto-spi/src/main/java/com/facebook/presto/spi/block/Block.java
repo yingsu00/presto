@@ -299,7 +299,7 @@ public interface Block
      * This is defined only for blocks that directly hold data, e.g. are not 
      * Dictionaries or RunLengthEncodedBlocks. This is used when flattening 
      * dictionaries and run length encodings. */
-    default void getContents(BlockContents contents)
+    default void getContents(BlockDecoder contents)
     {
         throw new UnsupportedOperationException(getClass().getName());
     }
@@ -321,7 +321,7 @@ public interface Block
      * works as if offsets were {0, 1, ... positionCount}. This adds
      * the pairwise corresponding element's size to each element in
      * sizes[].*/
-    default void addElementSizes(int offsets[], int[] sizes, MapHolder mapHolder)
+    default void addElementSizes(int offsets[], int[] sizes, IntArrayAllocator intArrayAllocator)
     {
         throw new UnsupportedOperationException(getClass().getName());
     }

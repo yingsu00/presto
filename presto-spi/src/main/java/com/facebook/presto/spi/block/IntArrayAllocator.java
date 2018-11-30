@@ -15,7 +15,7 @@ package com.facebook.presto.spi.block;
 
 import java.util.ArrayList;
 
-public class MapHolder {
+public class IntArrayAllocator {
     ArrayList arrays = new ArrayList();
 
 

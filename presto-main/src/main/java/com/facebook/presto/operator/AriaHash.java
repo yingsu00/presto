@@ -6,7 +6,7 @@ import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import com.facebook.presto.Session;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
-import com.facebook.presto.spi.block.BlockContents;
+import com.facebook.presto.spi.block.BlockDecoder;
 import com.facebook.presto.spi.block.ExprContext;
 import com.facebook.presto.spi.block.LongArrayBlock;
 import com.facebook.presto.spi.type.Type;
@@ -165,9 +165,9 @@ public class AriaHash {
 
   public static class HashBuild extends ExprContext {
     HashTable table = new HashTable();
-    BlockContents k1 = new BlockContents();
-    BlockContents k2 = new BlockContents();
-    BlockContents d1 = new BlockContents();
+    BlockDecoder k1 = new BlockDecoder();
+    BlockDecoder k2 = new BlockDecoder();
+    BlockDecoder d1 = new BlockDecoder();
     int entryCount = 0;
     boolean makeBloomFilter = false;
 
@@ -205,9 +205,9 @@ public class AriaHash {
     }
 
     public void addInput(Page page) {
-      k1.decodeBlock(page.getBlock(0), mapHolder);
-      k2.decodeBlock(page.getBlock(1), mapHolder);
-      d1.decodeBlock(page.getBlock(2), mapHolder);
+      k1.decodeBlock(page.getBlock(0), intArrayAllocator);
+      k2.decodeBlock(page.getBlock(1), intArrayAllocator);
+      d1.decodeBlock(page.getBlock(2), intArrayAllocator);
       int positionCount = page.getPositionCount();
       nullsInBatch = null;
       int[] k1Map = k1.rowNumberMap;
@@ -240,9 +240,9 @@ public class AriaHash {
           kslice.setLong(koffset + 24, -1);
         }
       }
-      k1.release(mapHolder);
-      k2.release(mapHolder);
-      d1.release(mapHolder);
+      k1.release(intArrayAllocator);
+      k2.release(intArrayAllocator);
+      d1.release(intArrayAllocator);
     }
 
     public static class AriaLookupSourceSupplier implements LookupSourceSupplier {
@@ -391,8 +391,8 @@ public class AriaHash {
   }
 
   public static class AriaLookupSource extends ExprContext implements LookupSource {
-    BlockContents k1 = new BlockContents();
-    BlockContents k2 = new BlockContents();
+    BlockDecoder k1 = new BlockDecoder();
+    BlockDecoder k2 = new BlockDecoder();
     long hashes[];
     HashTable table;
     int currentInput;
@@ -427,8 +427,8 @@ public class AriaHash {
 
     @Override
     public void addInput(Page page) {
-      k1.decodeBlock(page.getBlock(0), mapHolder);
-      k2.decodeBlock(page.getBlock(1), mapHolder);
+      k1.decodeBlock(page.getBlock(0), intArrayAllocator);
+      k2.decodeBlock(page.getBlock(1), intArrayAllocator);
       positionCount = page.getPositionCount();
       if (hashes == null || hashes.length < positionCount) {
         hashes = new long[positionCount + 10];
@@ -444,7 +444,7 @@ public class AriaHash {
       Slice[] slices = table.slices;
       ;
       if (candidates == null || candidates.length < positionCount) {
-        candidates = mapHolder.getIntArray(positionCount);
+        candidates = intArrayAllocator.getIntArray(positionCount);
       }
       if (nullsInBatch != null) {
         for (int i = 0; i < positionCount; ++i) {
@@ -540,8 +540,8 @@ public class AriaHash {
         ++currentProbe;
       }
       if (currentProbe == candidateFill) {
-        k1.release(mapHolder);
-        k2.release(mapHolder);
+        k1.release(intArrayAllocator);
+        k2.release(intArrayAllocator);
       }
       if (resultFill == 0) {
         returnPage = null;

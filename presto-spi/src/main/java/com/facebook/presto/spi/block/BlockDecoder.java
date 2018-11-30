@@ -16,7 +16,7 @@ package com.facebook.presto.spi.block;
 import io.airlift.slice.Slice;
 import static java.lang.System.arraycopy;
 
-public class BlockContents
+public class BlockDecoder
 {
     public Block leafBlock;
     public long[] longs;
@@ -31,7 +31,7 @@ public class BlockContents
 
     static int[] identityMap;
 
-    static int[] getIdentityMap(int size, int start, MapHolder mapHolder)
+    static int[] getIdentityMap(int size, int start, IntArrayAllocator intArrayAllocator)
     {
         if (start == 0) {
             int[] map = identityMap;
@@ -45,14 +45,14 @@ public class BlockContents
             identityMap = map;
             return map;
         }
-        int[] map = mapHolder.getIntArray(size);
+        int[] map = intArrayAllocator.getIntArray(size);
         for (int i = 0; i < size; ++i) {
             map[i] = i + start;
         }
         return map;
     }
 
-    public void decodeBlock(Block block, MapHolder mapHolder) {
+    public void decodeBlock(Block block, IntArrayAllocator intArrayAllocator) {
         int positionCount = block.getPositionCount();
         isMapOwned = false;
         isIdentityMap = true;
@@ -69,7 +69,7 @@ public class BlockContents
                 if (map == null) {
                     map = ids;
                     if (offset != 0) {
-                        int[] newMap = mapHolder.getIntArray(positionCount);
+                        int[] newMap = intArrayAllocator.getIntArray(positionCount);
                         System.arraycopy(map, offset, newMap, 0, positionCount);
                         isMapOwned = true;
                         map = newMap;
@@ -77,7 +77,7 @@ public class BlockContents
                 }
                 else {
                     if (!isMapOwned) {
-                        int[] newMap = mapHolder.getIntArray(positionCount);
+                        int[] newMap = intArrayAllocator.getIntArray(positionCount);
                         for (int i = 0; i < positionCount; ++i) {
                             newMap[i] = ids[map[i] + offset];
                         }
@@ -94,7 +94,7 @@ public class BlockContents
             else if (block instanceof RunLengthEncodedBlock)
                 {
                     if (map == null || !isMapOwned) {
-                        map = mapHolder.getIntArray(positionCount);
+                        map = intArrayAllocator.getIntArray(positionCount);
                         isMapOwned = true;
                         isIdentityMap = false;
                     }
@@ -113,13 +113,13 @@ public class BlockContents
                         }
                     }
                     else if (map == null) {
-                        map = mapHolder.getIntArray(positionCount);
+                        map = intArrayAllocator.getIntArray(positionCount);
                         for (int i = 0; i < positionCount; i++) {
                             map[i] = i + arrayOffset;
                         }
                     }
                     else {
-                        int[] newMap = mapHolder.getIntArray(positionCount);
+                        int[] newMap = intArrayAllocator.getIntArray(positionCount);
                         System.arraycopy(map, 0, newMap, 0, positionCount);
                         for (int i = 0; i  < positionCount; i++) {
                             newMap[i] += arrayOffset;
@@ -131,7 +131,7 @@ public class BlockContents
                 else {
                     if (map == null) {
                         isIdentityMap = arrayOffset == 0;
-                        rowNumberMap = getIdentityMap(positionCount, arrayOffset, mapHolder);
+                        rowNumberMap = getIdentityMap(positionCount, arrayOffset, intArrayAllocator);
                     }
                     else {
                         rowNumberMap = map;
@@ -142,9 +142,9 @@ public class BlockContents
         }
     }
 
-    public void release(MapHolder mapHolder) {
+    public void release(IntArrayAllocator intArrayAllocator) {
         if (isMapOwned) {
-            mapHolder.store(rowNumberMap);
+            intArrayAllocator.store(rowNumberMap);
             isMapOwned = false;
             rowNumberMap = null;
         }

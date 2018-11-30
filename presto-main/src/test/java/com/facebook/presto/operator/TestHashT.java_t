@@ -32,7 +32,7 @@ import io.airlift.units.DataSize;
 
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.ExprContext;
-import com.facebook.presto.spi.block.BlockContents;
+import com.facebook.presto.spi.block.BlockDecoder;
 import com.facebook.presto.spi.block.LongArrayBlockBuilder;
 import com.facebook.presto.spi.block.LongArrayBlock;
 
@@ -288,9 +288,9 @@ public class TestHash {
     public static class HashBuild extends ExprContext
     {
 	HashTable table = new HashTable();
-	BlockContents k1 = new BlockContents();
-	BlockContents k2 = new BlockContents();
-	BlockContents d1 = new BlockContents();
+	BlockDecoder k1 = new BlockDecoder();
+	BlockDecoder k2 = new BlockDecoder();
+	BlockDecoder d1 = new BlockDecoder();
 		int entryCount = 0;
 	        boolean makeBloomFilter = false;
         
@@ -307,9 +307,9 @@ public class TestHash {
 	
 	public void addInput(Page page)
 	{
-	    k1.decodeBlock(page.getBlock(0), mapHolder);
-	    k2.decodeBlock(page.getBlock(1), mapHolder);
-	    d1.decodeBlock(page.getBlock(2), mapHolder);
+	    k1.decodeBlock(page.getBlock(0), intArrayAllocator);
+	    k2.decodeBlock(page.getBlock(1), intArrayAllocator);
+	    d1.decodeBlock(page.getBlock(2), intArrayAllocator);
 	    int positionCount = page.getPositionCount();
 	    nullsInBatch = null;
 	    int[] k1Map = k1.rowNumberMap;
@@ -336,9 +336,9 @@ DECLGET(k);
 		    SETL(k, 24, -1);
 		}
 	    }
-	    k1.release(mapHolder);
-	    k2.release(mapHolder);
-	    d1.release(mapHolder);
+	    k1.release(intArrayAllocator);
+	    k2.release(intArrayAllocator);
+	    d1.release(intArrayAllocator);
 	}
 	public void build()
 	{
@@ -435,8 +435,8 @@ DECLGET(k);
     }
 	
     public static class HashProbe extends ExprContext {
-	BlockContents k1 = new BlockContents();
-	BlockContents k2 = new BlockContents();
+	BlockDecoder k1 = new BlockDecoder();
+	BlockDecoder k2 = new BlockDecoder();
 	long hashes[];
 	HashTable table;
 	int currentInput;
@@ -466,8 +466,8 @@ DECLGET(k);
 	
 	public void addInput(Page page)
         {
-	    k1.decodeBlock(page.getBlock(0), mapHolder);
-	    k2.decodeBlock(page.getBlock(1), mapHolder);
+	    k1.decodeBlock(page.getBlock(0), intArrayAllocator);
+	    k2.decodeBlock(page.getBlock(1), intArrayAllocator);
 	    positionCount = page.getPositionCount();
             if (hashes == null || hashes.length < positionCount) {
                 hashes = new long[positionCount + 10];
@@ -481,7 +481,7 @@ DECLGET(k);
 	    addNullFlags(k2.valueIsNull, k2.isIdentityMap ? null : k2Map, positionCount);
 	    DECLTABLE(table);
 	    if (candidates == null || candidates.length < positionCount) {
-		candidates = mapHolder.getIntArray(positionCount);
+		candidates = intArrayAllocator.getIntArray(positionCount);
 	    }
 	    if (nullsInBatch != null) {
 		for (int i = 0; i < positionCount; ++i) {
@@ -555,8 +555,8 @@ DECLGET(k);
                 ++currentProbe;
             }
             if (currentProbe == candidateFill) {
-                k1.release(mapHolder);
-                k2.release(mapHolder);
+                k1.release(intArrayAllocator);
+                k2.release(intArrayAllocator);
             }
             if (resultFill == 0) {
 		returnPage = null;
@@ -701,7 +701,7 @@ DECLGET(k);
 	return ((row * 12349) & 0x7fffffffffffffffL) % 1000000;
     }
 
-    public Page nextBuild(int numberOfRows, int start, int step, Page usePage, BlockContents tempContents) {
+    public Page nextBuild(int numberOfRows, int start, int step, Page usePage, BlockDecoder tempContents) {
 	if (usePage != null) {
 	    tempContents.decodeBlock(usePage.getBlock(0), null);
 	    long[] k1 = tempContents.longs;
@@ -750,7 +750,7 @@ DECLGET(k);
     }
     
     
-    public Page nextProbe(int numberOfRows, int scale, int start, Page usePage, BlockContents tempContents, ProbeState state)
+    public Page nextProbe(int numberOfRows, int scale, int start, Page usePage, BlockDecoder tempContents, ProbeState state)
     {
 	if (usePage != null) {
 	    tempContents.decodeBlock(usePage.getBlock(0), null);
@@ -788,7 +788,7 @@ DECLGET(k);
 	int rows = 0;
 	Page buildPage = null;
 	Page probePage = null;
-	BlockContents contents = new BlockContents();
+	BlockDecoder contents = new BlockDecoder();
 	HashBuild build = new HashBuild();
         if (useBloomFilter && buildSize < probeSize) {
             build.makeBloomFilter = true;

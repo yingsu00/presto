@@ -64,7 +64,7 @@ public class LongArrayBlockEncoding
     }
 
     @Override
-    public int reserveBytesInBuffer(BlockContents contents, int numValues, int startInBuffer, EncodingState state)
+    public int reserveBytesInBuffer(BlockDecoder contents, int numValues, int startInBuffer, EncodingState state)
     {
         //  Reserves space for serialized 'rows' non-null longs
         // including headers. 5 for vallue count and null indicator, 4
@@ -78,7 +78,7 @@ public class LongArrayBlockEncoding
     }
 
     @Override
-    public void addValues(BlockContents contents, int[] rows, int firstRow, int numRows, EncodingState state)
+    public void addValues(BlockDecoder contents, int[] rows, int firstRow, int numRows, EncodingState state)
     {
                 long[] longs = contents.longs;
                 int[] map = contents.rowNumberMap;

@@ -16,9 +16,9 @@ package com.facebook.presto.operator;
 import com.facebook.presto.operator.scalar.CombineHashFunction;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.spi.block.BlockContents;
+import com.facebook.presto.spi.block.BlockDecoder;
 import com.facebook.presto.spi.block.LongArrayBlock;
-import com.facebook.presto.spi.block.MapHolder;
+import com.facebook.presto.spi.block.IntArrayAllocator;
 import com.facebook.presto.spi.type.AbstractLongType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.planner.optimizations.HashGenerationOptimizer;
@@ -38,8 +38,8 @@ public class InterpretedHashGenerator
     private final List<Type> hashChannelTypes;
     private final int[] hashChannels;
     private long[] hashes;
-    private BlockContents contents;
-    private MapHolder mapHolder;
+    private BlockDecoder contents;
+    private IntArrayAllocator intArrayAllocator;
     
     public InterpretedHashGenerator(List<Type> hashChannelTypes, List<Integer> hashChannels)
     {
@@ -84,7 +84,7 @@ public class InterpretedHashGenerator
 
             Type type = hashChannelTypes.get(i);
             Block block = page.getBlock(i);
-            contents.decodeBlock(block, mapHolder);
+            contents.decodeBlock(block, intArrayAllocator);
             Block leafBlock = contents.leafBlock;
             if (leafBlock instanceof LongArrayBlock) {
                 long[] longs = contents.longs;

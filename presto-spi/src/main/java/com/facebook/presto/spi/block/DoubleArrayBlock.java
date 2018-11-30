@@ -299,7 +299,7 @@ public class DoubleArrayBlock
     }
 
     @Override
-    public void getContents(BlockContents contents) {
+    public void getContents(BlockDecoder contents) {
 	contents.doubles = values;
 	contents.valueIsNull = valueIsNull;
     }
