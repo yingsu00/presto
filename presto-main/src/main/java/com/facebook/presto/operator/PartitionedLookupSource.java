@@ -86,6 +86,9 @@ public class PartitionedLookupSource
 
     private boolean closed;
 
+    // The index in partitions for the AriaLookupSource whose output is being consumed. 
+    private int currentSource = 0;
+    
     private PartitionedLookupSource(List<? extends LookupSource> lookupSources, List<Type> hashChannelTypes, Optional<OuterPositionTracker> outerPositionTracker)
     {
         this.lookupSources = lookupSources.toArray(new LookupSource[lookupSources.size()]);
@@ -341,4 +344,16 @@ public class PartitionedLookupSource
             }
         }
     }
+
+    @Override
+    public boolean isJoinPushedDown()
+    {
+        return partitions[0].get(). instanceof AriaHash.AriaLookupSource;
+    }
+
+    @Override
+    void addInput(Page page)
+    {
+    }
+
 }

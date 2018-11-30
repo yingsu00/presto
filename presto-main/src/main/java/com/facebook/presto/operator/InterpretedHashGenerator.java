@@ -16,6 +16,8 @@ package com.facebook.presto.operator;
 import com.facebook.presto.operator.scalar.CombineHashFunction;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.BlockContents;
+import com.facebook.presto.spi.block.MapHolder;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.planner.optimizations.HashGenerationOptimizer;
 import com.facebook.presto.type.TypeUtils;
@@ -33,12 +35,15 @@ public class InterpretedHashGenerator
 {
     private final List<Type> hashChannelTypes;
     private final int[] hashChannels;
-
+    private long[] hashes;
+    private BlockContents contents;
+    private mapHolder mapHolder;
+    
     public InterpretedHashGenerator(List<Type> hashChannelTypes, List<Integer> hashChannels)
     {
         this(hashChannelTypes, requireNonNull(hashChannels).stream().mapToInt(i -> i).toArray());
     }
-
+    
     public InterpretedHashGenerator(List<Type> hashChannelTypes, int[] hashChannels)
     {
         this.hashChannels = requireNonNull(hashChannels, "hashChannels is null");
@@ -62,6 +67,41 @@ public class InterpretedHashGenerator
         return result;
     }
 
+    @Override
+    void getPartitions(int partitionCount, Page page, int[] partitionsOut)
+    {
+        int positionCount = page.getPositionCount();
+        if (hashes == null || hashes.size < positionCount) {
+            hashes = new long[positionCount];
+        }
+        long result ;
+        for (int position = 0; position < positionCount; position++) {
+            hashes[position] =         HashGenerationOptimizer.INITIAL_HASH_VALUE;
+        }
+        for (int i = 0; i < hashChannels.length; i++) {
+
+            Type type = hashChannelTypes.get(i);
+            Block block = blockProvider.apply(hashChannels[i]);
+            Block block = page.getBlock(i);
+            contents.decodeBlock(block);
+            Block leafBlock = contents.leafBlock;
+            if (leafBlock instanceof LongArrayBlock) {
+                long[] longs = content.longs;
+                int[] longsMap = contents.rowNumberMap;
+                for (position = 0; position < positionCount; position++) {
+                    hashes[i] = 
+                        CombineHashFunction.getHash(hashes[i], longs[longsMap[i]]);
+                }
+                
+            }
+            else {
+                for (int position = 0; position < positionCount; position++) {
+                    result = CombineHashFunction.getHash(result, TypeUtils.hashPosition(type, block, position));
+                }
+            }
+        }   
+    }
+    
     @Override
     public String toString()
     {

@@ -225,6 +225,8 @@ public class HashBuilderOperator
 
     private Optional<Runnable> finishMemoryRevoke = Optional.empty();
 
+    private AriaHash.HashBuild ariaBuild;
+
     public HashBuilderOperator(
             OperatorContext operatorContext,
             LookupSourceFactory lookupSourceFactory,
@@ -263,6 +265,12 @@ public class HashBuilderOperator
 
         this.spillEnabled = spillEnabled;
         this.singleStreamSpillerFactory = requireNonNull(singleStreamSpillerFactory, "singleStreamSpillerFactory is null");
+
+        if ((SystemSessionProperties.ariaFlags(operatorContext.getSession()) & 2) != 0) {
+            if (AriaHash.supportsLayout(index.getTypes(), hashChannels)) {
+                ariaBuild = new AriaHash.HashBuild(hashChannels, outputChannels);
+            }
+        }
     }
 
     @Override
@@ -330,6 +338,10 @@ public class HashBuilderOperator
         }
 
         checkState(state == State.CONSUMING_INPUT);
+        if (ariaBuild != null) {
+            ariaBuild.addInput(page);
+            return;
+        }
         updateIndex(page);
     }
 
@@ -586,11 +598,18 @@ public class HashBuilderOperator
 
     private LookupSourceSupplier buildLookupSource()
     {
-        LookupSourceSupplier partition = index.createLookupSourceSupplier(operatorContext.getSession(), hashChannels, preComputedHashChannel, filterFunctionFactory, sortChannel, searchFunctionFactories, Optional.of(outputChannels));
-        hashCollisionsCounter.recordHashCollision(partition.getHashCollisions(), partition.getExpectedHashCollisions());
-        checkState(lookupSourceSupplier == null, "lookupSourceSupplier is already set");
-        this.lookupSourceSupplier = partition;
-        return partition;
+
+        LookupSourceSupplier partition;
+        if (ariaBuild != null) {
+            partition = ariaBuild.createLookupSourceSupplier(operatorContext.getSession(), hashChannels, preComputedHashChannel, filterFunctionFactory, sortChannel, searchFunctionFactories, Optional.of(outputChannels));
+        }
+        else {
+            partition = index.createLookupSourceSupplier(operatorContext.getSession(), hashChannels, preComputedHashChannel, filterFunctionFactory, sortChannel, searchFunctionFactories, Optional.of(outputChannels));
+            hashCollisionsCounter.recordHashCollision(partition.getHashCollisions(), partition.getExpectedHashCollisions());
+            checkState(lookupSourceSupplier == null, "lookupSourceSupplier is already set");
+            this.lookupSourceSupplier = partition;
+        }
+            return partition;
     }
 
     @Override

@@ -46,4 +46,26 @@ public interface LookupSource
 
     @Override
     void close();
+
+    // If true, the LookupJoinOperator should forward addInput and getOutput to this.
+    boolean isJoinPushedDown()
+    {
+        return false;
+    }
+
+    default boolean needsInput()
+    {
+        return false;
+    }
+    
+    default void addInput(Page page)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default Page getOutput()
+    {
+        throw new UnsupportedOperationException();
+    }
+
 }
