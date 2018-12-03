@@ -53,6 +53,8 @@ import static java.util.Objects.requireNonNull;
 public class LookupJoinOperator
         implements Operator
 {
+
+    enum JoinPushdown {NO_PUSHDOWN, PUSHDOWN_JOIN, UNKNOWN};
     private final OperatorContext operatorContext;
     private final List<Type> probeTypes;
     private final JoinProbeFactory joinProbeFactory;
@@ -95,6 +97,7 @@ public class LookupJoinOperator
     private Optional<Partition<Supplier<LookupSource>>> currentPartition = Optional.empty();
     private Optional<ListenableFuture<Supplier<LookupSource>>> unspilledLookupSource = Optional.empty();
     private Iterator<Page> unspilledInputPages = emptyIterator();
+    private JoinPushdown joinPushdown = JoinPushdown.UNKNOWN;
 
     public LookupJoinOperator(
             OperatorContext operatorContext,
@@ -141,7 +144,13 @@ public class LookupJoinOperator
         if (finishing) {
             return;
         }
-
+        if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
+            lookupSourceProvider.withLease(lookupSourceLease -> {
+                    LookupSource lookupSource = lookupSourceLease.getLookupSource();
+                    lookupSource.finish();
+                    return true;
+                });
+        }
         if (!spillInProgress.isDone()) {
             return;
         }
@@ -151,10 +160,17 @@ public class LookupJoinOperator
     }
 
     @Override
-    public boolean isFinished()
+        public boolean isFinished()
     {
-        boolean finished = this.finished && probe == null && pageBuilder.isEmpty() && outputPage == null;
-
+        boolean finished;
+        if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
+            finished = lookupSourceProvider.withLease(lookupSourceLease -> {
+                    return lookupSourceLease.getLookupSource().isFinished();
+                });
+        }
+        else {
+            finished = this.finished && probe == null && pageBuilder.isEmpty() && outputPage == null;
+        }
         // if finished drop references so memory is freed early
         if (finished) {
             close();
@@ -184,6 +200,12 @@ public class LookupJoinOperator
     @Override
     public boolean needsInput()
     {
+        if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
+            return !finishing
+                && lookupSourceProvider.withLease(lookupSourceLease -> {
+                        return lookupSourceLease.getLookupSource().needsInput();
+                    });
+        }
         return !finishing
                 && lookupSourceProviderFuture.isDone()
                 && spillInProgress.isDone()
@@ -205,6 +227,7 @@ public class LookupJoinOperator
 
     private void addInput(Page page, SpillInfoSnapshot spillInfoSnapshot)
     {
+        
         requireNonNull(spillInfoSnapshot, "spillInfoSnapshot is null");
 
         if (spillInfoSnapshot.hasSpilled()) {
@@ -393,6 +416,29 @@ public class LookupJoinOperator
     {
         verify(probe != null);
 
+        if (joinPushdown != JoinPushdown.NO_PUSHDOWN) {
+            lookupSourceProvider.withLease(lookupSourceLease -> {
+                    LookupSource lookupSource = lookupSourceLease.getLookupSource();
+                    if (joinPushdown == JoinPushdown.UNKNOWN) {
+                        joinPushdown = lookupSource.isJoinPushedDown() ? JoinPushdown.PUSHDOWN_JOIN : JoinPushdown.NO_PUSHDOWN;
+                    }
+                    if (joinPushdown == JoinPushdown.NO_PUSHDOWN) {
+                        return null;
+                    }
+                    if (probe.getPosition() == -1) {
+                        lookupSource.addInput(probe, null, 0);
+                        probe.advanceNextPosition(); 
+                    }
+                    outputPage = lookupSource.getOutput();
+                    if (outputPage == null) {
+                        probe = null;
+                    }
+                    return Optional.empty();
+});
+            if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
+                return;
+            }
+        }
         Optional<SpillInfoSnapshot> spillInfoSnapshotIfSpillChanged = lookupSourceProvider.withLease(lookupSourceLease -> {
             if (lookupSourceLease.spillEpoch() == inputPageSpillEpoch) {
                 // Spill state didn't change, so process as usual.
@@ -462,6 +508,9 @@ public class LookupJoinOperator
         verify(probe != null);
 
         DriverYieldSignal yieldSignal = operatorContext.getDriverContext().getYieldSignal();
+        if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
+            outputPage = lookupSource.getOutput();
+        }
         while (!yieldSignal.isSet()) {
             if (probe.getPosition() >= 0) {
                 if (!joinCurrentPosition(lookupSource, yieldSignal)) {

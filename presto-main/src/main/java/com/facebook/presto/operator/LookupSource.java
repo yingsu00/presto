@@ -57,8 +57,19 @@ public interface LookupSource
     {
         return false;
     }
+
+    default void finish()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default boolean isFinished()
+    {
+        return false;
+    }
+
     
-    default void addInput(Page page)
+    default void addInput(JoinProbe probe, int[] candidateRows, int numCandidates)
     {
         throw new UnsupportedOperationException();
     }

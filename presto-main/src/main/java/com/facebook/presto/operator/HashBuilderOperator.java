@@ -268,7 +268,7 @@ public class HashBuilderOperator
         this.singleStreamSpillerFactory = requireNonNull(singleStreamSpillerFactory, "singleStreamSpillerFactory is null");
 
         if ((SystemSessionProperties.ariaFlags(operatorContext.getSession()) & 2) != 0) {
-            if (AriaHash.supportsLayout(index.getTypes(), hashChannels)) {
+            if (AriaHash.supportsLayout(index.getTypes(), hashChannels, outputChannels)) {
                 ariaBuild = new AriaHash.HashBuild(hashChannels, outputChannels);
             }
         }

@@ -2,11 +2,16 @@ package com.facebook.presto.operator;
 
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
+import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
+import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockDecoder;
+import com.facebook.presto.spi.block.DictionaryBlock;
+import com.facebook.presto.spi.block.DictionaryId;
 import com.facebook.presto.spi.block.ExprContext;
 import com.facebook.presto.spi.block.LongArrayBlock;
 import com.facebook.presto.spi.type.Type;
@@ -69,12 +74,13 @@ public class AriaHash {
     }
   }
 
-  static boolean supportsLayout(List<Type> types, List<Integer> hashChannels) {
+  static boolean supportsLayout(
+      List<Type> types, List<Integer> hashChannels, List<Integer> outputChannels) {
     return hashChannels.size() == 2
-        && types.size() == 3
-        && types.get(0) == BIGINT
-        && types.get(1) == BIGINT
-        && types.get(2) == BIGINT;
+        && outputChannels.size() == 1
+        && types.get(hashChannels.get(0).intValue()) == BIGINT
+        && types.get(hashChannels.get(1).intValue()) == BIGINT
+        && types.get(outputChannels.get(0).intValue()) == DOUBLE;
   }
 
   public static class HashTable {
@@ -168,10 +174,15 @@ public class AriaHash {
     BlockDecoder k1 = new BlockDecoder();
     BlockDecoder k2 = new BlockDecoder();
     BlockDecoder d1 = new BlockDecoder();
+    int[] hashChannels;
+    int[] outputChannels;
     int entryCount = 0;
     boolean makeBloomFilter = false;
 
-    public HashBuild(List<Integer> hashChannels, List<Integer> dataChannels) {}
+    public HashBuild(List<Integer> hashChannels, List<Integer> outputChannels) {
+      this.hashChannels = hashChannels.stream().mapToInt(Integer::intValue).toArray();
+      this.outputChannels = outputChannels.stream().mapToInt(Integer::intValue).toArray();
+    }
 
     long hashRow(long row) {
       int statusMask = table.statusMask;
@@ -205,9 +216,9 @@ public class AriaHash {
     }
 
     public void addInput(Page page) {
-      k1.decodeBlock(page.getBlock(0), intArrayAllocator);
-      k2.decodeBlock(page.getBlock(1), intArrayAllocator);
-      d1.decodeBlock(page.getBlock(2), intArrayAllocator);
+      k1.decodeBlock(page.getBlock(hashChannels[0]), intArrayAllocator);
+      k2.decodeBlock(page.getBlock(hashChannels[1]), intArrayAllocator);
+      d1.decodeBlock(page.getBlock(outputChannels[0]), intArrayAllocator);
       int positionCount = page.getPositionCount();
       nullsInBatch = null;
       int[] k1Map = k1.rowNumberMap;
@@ -279,7 +290,8 @@ public class AriaHash {
         List<JoinFilterFunctionFactory> searchFunctionFactories,
         Optional<List<Integer>> outputChannels) {
       build();
-      return new AriaLookupSourceSupplier(new AriaLookupSource(table, false));
+      boolean reuse = SystemSessionProperties.enableAriaReusePages(session);
+      return new AriaLookupSourceSupplier(new AriaLookupSource(table, reuse));
     }
 
     public void build() {
@@ -410,14 +422,18 @@ public class AriaHash {
     long[] result1;
     long currentResult;
     int currentProbe;
+    JoinProbe probe;
     Page resultPage;
     Page returnPage;
     boolean reuseResult;
     boolean unroll = true;
+    boolean finishing = false;
+    DictionaryId dictionaryId;
 
     AriaLookupSource(HashTable table, boolean reuseResult) {
       this.table = table;
       this.reuseResult = reuseResult;
+      dictionaryId = DictionaryId.randomDictionaryId();
     }
 
     @Override
@@ -426,12 +442,18 @@ public class AriaHash {
     }
 
     @Override
-    public void addInput(Page page) {
-      k1.decodeBlock(page.getBlock(0), intArrayAllocator);
-      k2.decodeBlock(page.getBlock(1), intArrayAllocator);
-      positionCount = page.getPositionCount();
-      if (hashes == null || hashes.length < positionCount) {
-        hashes = new long[positionCount + 10];
+    public void addInput(JoinProbe probe, int[] candidateRows, int numCandidates) {
+      this.probe = probe;
+      Block[] probes = probe.getProbeBlocks();
+      k1.decodeBlock(probes[0], intArrayAllocator);
+      k2.decodeBlock(probes[1], intArrayAllocator);
+      positionCount = probe.getPage().getPositionCount();
+      boolean hashPrecomputed = false;
+
+      {
+        if (hashes == null || hashes.length < positionCount) {
+          hashes = new long[positionCount + 10];
+        }
       }
       nullsInBatch = null;
       k1d = k1.longs;
@@ -443,41 +465,58 @@ public class AriaHash {
       int statusMask = table.statusMask;
       Slice[] slices = table.slices;
       ;
-      if (candidates == null || candidates.length < positionCount) {
-        candidates = intArrayAllocator.getIntArray(positionCount);
-      }
-      if (nullsInBatch != null) {
-        for (int i = 0; i < positionCount; ++i) {
-          if (nullsInBatch[i]) {
-            candidates[candidateFill++] = i;
+      candidateFill = 0;
+      if (candidateRows != null) {
+        candidates = candidateRows;
+        positionCount = numCandidates;
+        if (nullsInBatch != null) {
+          for (int i = 0; i < positionCount; ++i) {
+            if (nullsInBatch[candidates[i]]) {
+              candidates[candidateFill++] = candidates[i];
+            }
           }
+        } else {
+          candidateFill = positionCount;
         }
       } else {
-        for (int i = 0; i < positionCount; ++i) {
-          candidates[i] = i;
+        if (candidates == null || candidates.length < positionCount) {
+          candidates = intArrayAllocator.getIntArray(positionCount);
         }
-        candidateFill = positionCount;
+        if (nullsInBatch != null) {
+          for (int i = 0; i < positionCount; ++i) {
+            if (nullsInBatch[i]) {
+              candidates[candidateFill++] = i;
+            }
+          }
+        } else {
+          for (int i = 0; i < positionCount; ++i) {
+            candidates[i] = i;
+          }
+          candidateFill = positionCount;
+        }
       }
-      for (int i = 0; i < candidateFill; ++i) {
-        int row = candidates[i];
-        long h;
-        {
-          long __k = k1d[k1Map[row]];
-          __k *= 0xc6a4a7935bd1e995L;
-          __k ^= __k >> 47;
-          h = __k * 0xc6a4a7935bd1e995L;
+      if (!hashPrecomputed) {
+        for (int i = 0; i < candidateFill; ++i) {
+          int row = candidates[i];
+          long h;
+          {
+            long __k = k1d[k1Map[row]];
+            __k *= 0xc6a4a7935bd1e995L;
+            __k ^= __k >> 47;
+            h = __k * 0xc6a4a7935bd1e995L;
+          }
+          ;
+          {
+            long __k = k2d[k2Map[row]];
+            __k *= 0xc6a4a7935bd1e995L;
+            __k ^= __k >> 47;
+            __k *= 0xc6a4a7935bd1e995L;
+            h ^= __k;
+            h *= 0xc6a4a7935bd1e995L;
+          }
+          ;
+          hashes[row] = h;
         }
-        ;
-        {
-          long __k = k2d[k2Map[row]];
-          __k *= 0xc6a4a7935bd1e995L;
-          __k ^= __k >> 47;
-          __k *= 0xc6a4a7935bd1e995L;
-          h ^= __k;
-          h *= 0xc6a4a7935bd1e995L;
-        }
-        ;
-        hashes[row] = h;
       }
       if (result1 == null) {
         result1 = new long[maxResults];
@@ -547,14 +586,25 @@ public class AriaHash {
         returnPage = null;
         return;
       }
-      if (!reuseResult || resultPage == null) {
-        resultPage = new Page(new LongArrayBlock(resultFill, Optional.empty(), result1));
-        if (!reuseResult) {
-          result1 = new long[maxResults];
-          resultMap = new int[maxResults];
-        }
-      } else {
-        resultPage.setPositionCount(resultFill);
+      Page page = probe.getPage();
+      int[] probeOutputChannels = probe.getOutputChannels();
+      Block[] blocks = new Block[probeOutputChannels.length + 1];
+      for (int i = 0; i < probeOutputChannels.length; i++) {
+        blocks[i] =
+            new DictionaryBlock(
+                0,
+                resultFill,
+                page.getBlock(probeOutputChannels[i]),
+                resultMap,
+                false,
+                dictionaryId);
+      }
+      blocks[probeOutputChannels.length] =
+          new LongArrayBlock(resultFill, Optional.empty(), result1);
+      resultPage = new Page(resultFill, blocks);
+      if (!reuseResult) {
+        result1 = new long[maxResults];
+        resultMap = new int[maxResults];
       }
       resultFill = 0;
       returnPage = resultPage;
@@ -563,6 +613,16 @@ public class AriaHash {
     @Override
     public boolean needsInput() {
       return currentResult == -1 && currentProbe == candidateFill;
+    }
+
+    @Override
+    public void finish() {
+      finishing = true;
+    }
+
+    @Override
+    public boolean isFinished() {
+      return finishing && currentResult == -1 && currentProbe == candidateFill;
     }
 
     @Override
