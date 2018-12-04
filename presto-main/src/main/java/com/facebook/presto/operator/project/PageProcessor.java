@@ -53,19 +53,26 @@ public class PageProcessor
 
     private final DictionarySourceIdFunction dictionarySourceIdFunction = new DictionarySourceIdFunction();
     private final Optional<PageFilter> filter;
+    private final Optional<PageFilter> filterWithoutTupleDomain;
     private final List<PageProjection> projections;
     private final int[] inputToOutputChannel;
     private int projectBatchSize = MAX_BATCH_SIZE;
 
     public PageProcessor(Optional<PageFilter> filter, List<? extends PageProjection> projections)
     {
+        this(filter, Optional.empty(), projections);
+    }
+    
+    public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections)
+    {
         this.filter = requireNonNull(filter, "filter is null")
-                .map(pageFilter -> {
+        .map(pageFilter -> {
                     if (pageFilter.getInputChannels().size() == 1 && pageFilter.isDeterministic()) {
                         return new DictionaryAwarePageFilter(pageFilter);
                     }
                     return pageFilter;
                 });
+        this.filterWithoutTupleDomain = requireNonNull(filterWithoutTupleDomain, "filterWithoutTupleDomain is null");
         this.projections = requireNonNull(projections, "projections is null").stream()
                 .map(projection -> {
                     if (projection.getInputChannels().size() == 1 && projection.isDeterministic()) {

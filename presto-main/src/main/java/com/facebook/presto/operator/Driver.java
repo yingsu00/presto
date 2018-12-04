@@ -276,7 +276,7 @@ public class Driver
         Optional<ListenableFuture<?>> result = tryWithLock(100, TimeUnit.MILLISECONDS, () -> {
             OperationTimer operationTimer = createTimer();
             driverContext.startProcessTimer();
-            driverContext.getYieldSignal().setWithDelay(maxRuntime, driverContext.getYieldExecutor());
+            driverContext.getYieldSignal().setWithDelay(maxRuntime * 1000, driverContext.getYieldExecutor());
             try {
                 long start = System.nanoTime();
                 do {

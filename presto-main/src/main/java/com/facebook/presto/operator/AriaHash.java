@@ -1020,12 +1020,12 @@ public class AriaHash {
 
     @Override
     public long getInMemorySizeInBytes() {
-      return table.getSizeInBytes();
+      return table != null ? table.getSizeInBytes() : 0;
     }
 
     @Override
     public long getJoinPositionCount() {
-      return table.getJoinPositionCount();
+      return table != null ? table.getJoinPositionCount() : 0;
     }
 
     @Override
@@ -1063,7 +1063,7 @@ public class AriaHash {
 
     @Override
     public boolean isEmpty() {
-      return table.statusMask == 0;
+      return table == null || table.statusMask == 0;
     }
 
     @Override
