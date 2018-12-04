@@ -18,11 +18,14 @@ import com.facebook.presto.metadata.Split;
 import com.facebook.presto.operator.project.CursorProcessor;
 import com.facebook.presto.operator.project.CursorProcessorOutput;
 import com.facebook.presto.operator.project.MergingPageOutput;
+import com.facebook.presto.operator.project.PageFilter;
 import com.facebook.presto.operator.project.PageProcessor;
 import com.facebook.presto.operator.project.PageProcessorOutput;
+import com.facebook.presto.operator.project.SelectedPositions;
 import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPageSource;
+import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.PageSourceOptions;
@@ -44,6 +47,7 @@ import io.airlift.units.DataSize;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -211,6 +215,43 @@ public class ScanFilterAndProjectOperator
         throw new UnsupportedOperationException();
     }
 
+    private static class FilterExpression
+        extends PageSourceOptions.FilterFunction
+
+    {
+        final ConnectorSession session;
+        final PageFilter filter;
+        
+        FilterExpression(ConnectorSession session, PageFilter filter)
+        {
+            super(filter.getInputChannels().getInputChannels().stream().mapToInt(Integer::intValue).toArray(), 1);
+            this.session = session;
+            this.filter = filter;
+        }
+
+        @Override
+        public int filter(Page page, int[] outputRows)
+        {
+            SelectedPositions positions = filter.filter(session, page);
+                        
+            int offset = positions.getOffset();
+            int size = positions.size();
+            if (!positions.isList()) {
+                for (int i = 0; i  < size; i++) {
+                    outputRows[i] = i + offset;
+                }
+            }
+            else {
+                int[] positionsArray = positions.getPositions();
+                for (int i = 0; i < size; i++) {
+                    outputRows[i] = positionsArray[i] + offset;
+                }
+            }
+            return size;
+                        
+        }
+    }
+    
     @Override
     public Page getOutput()
     {
@@ -228,10 +269,34 @@ public class ScanFilterAndProjectOperator
                 boolean enableAria = SystemSessionProperties.enableAria(operatorContext.getSession()); 
                 if (enableAria) {
                     int[] channels = pageProcessor.getIdentityInputToOutputChannel();
+                    boolean projectionPushedDown = channels != null;
+                    if (channels == null) {
+                        int[] projectedChannels = pageProcessor.getOutputChannels();
+                        int maxChannel = -1;
+                        for (int channel : projectedChannels) {
+                            maxChannel = Math.max(maxChannel, channel);
+                        }
+                        channels = new int[maxChannel + 1];
+                        Arrays.fill(channels, -1);
+                        for (int channel : projectedChannels) {
+                            channels[channel] = channel;
+                        }
+                    }
+                    FilterExpression[] filters = null;
+                    Optional<PageFilter> filter = pageProcessor.getFilterWithoutTupleDomain();
+                    if (filter.isPresent()) {
+                        filters = new FilterExpression[1];
+                        filters[0] = new FilterExpression(operatorContext.getSession().toConnectorSession(), filter.get());
+                    }
                     boolean reusePages = SystemSessionProperties.enableAriaReusePages(operatorContext.getSession());
                     boolean reorderFilters = SystemSessionProperties.ariaReorderFilters(operatorContext.getSession());
-                    if (channels != null) {
-                        filterAndProjectPushedDown = pageSource.pushdownFilterAndProjection(new PageSourceOptions(channels, reusePages, null, reorderFilters, mergingOutput.getMinPageSizeInBytes()));
+                    
+                    boolean filterPushedDown = pageSource.pushdownFilterAndProjection(new PageSourceOptions(channels, reusePages, filters, reorderFilters, mergingOutput.getMinPageSizeInBytes()));
+                    if (filterPushedDown && projectionPushedDown) {
+                        filterAndProjectPushedDown = true;
+                    }
+                    else if (filterPushedDown && !projectionPushedDown) {
+                        pageProcessor.setFilterIsPushedDown();
                     }
                 }
             }

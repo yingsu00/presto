@@ -33,7 +33,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;import java.util.HashMap;
+import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.function.Function;
 
 import static com.facebook.presto.operator.project.PageProcessorOutput.EMPTY_PAGE_PROCESSOR_OUTPUT;
@@ -57,7 +59,8 @@ public class PageProcessor
     private final List<PageProjection> projections;
     private final int[] inputToOutputChannel;
     private int projectBatchSize = MAX_BATCH_SIZE;
-
+    boolean filterPushedDown = false;
+    
     public PageProcessor(Optional<PageFilter> filter, List<? extends PageProjection> projections)
     {
         this(filter, Optional.empty(), projections);
@@ -115,6 +118,16 @@ public class PageProcessor
         }
     }
 
+    public Optional<PageFilter> getFilterWithoutTupleDomain()
+    {
+        return filterWithoutTupleDomain;
+    }
+
+    public void setFilterIsPushedDown()
+    {
+        filterPushedDown = true;
+    }
+    
     public PageProcessorOutput process(ConnectorSession session, DriverYieldSignal yieldSignal, Page page)
     {
         // limit the scope of the dictionary ids to just one page
@@ -124,7 +137,7 @@ public class PageProcessor
             return EMPTY_PAGE_PROCESSOR_OUTPUT;
         }
 
-        if (filter.isPresent()) {
+        if (!filterPushedDown && filter.isPresent()) {
             SelectedPositions selectedPositions = filter.get().filter(session, filter.get().getInputChannels().getInputChannels(page));
             if (selectedPositions.isEmpty()) {
                 return EMPTY_PAGE_PROCESSOR_OUTPUT;
@@ -144,9 +157,26 @@ public class PageProcessor
         return new PageProcessorOutput(pages::getRetainedSizeInBytes, pages);
     }
 
+    // Returns the channel numbers of the PageSource in the order they
+    // are in the result Page. If this is non-null the projection is
+    // pushed down into the PageSource.
     public int[] getIdentityInputToOutputChannel()
     {
         return inputToOutputChannel;
+    }
+
+    // Returns the channels of the PageSource that need to have a
+    // Block for use in projection. Channels that only serve for
+    // pushed down filters are not included.
+    public int[] getOutputChannels()
+    {
+        HashSet<Integer> channels = new HashSet();
+        for (PageProjection projection : projections) {
+            for (Integer channel : projection.getInputChannels().getInputChannels()) {
+                channels.add(channel);
+            }
+        }
+        return channels.stream().mapToInt(Integer::intValue).toArray();
     }
 
     @VisibleForTesting

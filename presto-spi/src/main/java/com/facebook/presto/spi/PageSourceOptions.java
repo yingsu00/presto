@@ -21,13 +21,22 @@ public class PageSourceOptions
     private final boolean reorderFilters;
     private final int targetBytes;
     
-    public class FilterFunction
+    public static class FilterFunction
     {
-        private int[] inputChannels;
-        private int initialCost = 1;
-        public FilterFunction(int[] inputChannels, int initialCost) {
+        protected int[] inputChannels;
+        protected int initialCost = 1;
+
+        public FilterFunction(int[] inputChannels, int initialCost)
+        {
+            this.inputChannels = inputChannels;
+            this.initialCost = initialCost;
         }
-        public int filter(Page page,int[] inputRows, int[] outputRows) {
+
+        /* Sets outputRows to be the list of positions on page for
+         * which the filter is true. Returns the number of positions
+         * written to outputRows. outputRows is expected to have at
+         * least page.getPositionCount() elements */
+        public int filter(Page page, int[] outputRows) {
             return 0;
         }
     }
