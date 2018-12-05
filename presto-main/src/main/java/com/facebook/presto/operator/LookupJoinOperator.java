@@ -162,6 +162,9 @@ public class LookupJoinOperator
     @Override
         public boolean isFinished()
     {
+        if (finished) {
+            return true;
+        }
         boolean finished;
         if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
             finished = lookupSourceProvider.withLease(lookupSourceLease -> {

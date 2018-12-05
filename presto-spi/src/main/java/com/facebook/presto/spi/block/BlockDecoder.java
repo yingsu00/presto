@@ -124,9 +124,11 @@ public class BlockDecoder
                         for (int i = 0; i  < positionCount; i++) {
                             newMap[i] += arrayOffset;
                         }
+                        map = newMap;
                     }
                     isMapOwned = true;
                     isIdentityMap = false;
+                    rowNumberMap = map;
                 }
                 else {
                     if (map == null) {
