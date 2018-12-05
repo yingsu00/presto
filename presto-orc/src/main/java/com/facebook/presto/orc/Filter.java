@@ -27,6 +27,11 @@ public class Filter
         return false;
     }
 
+    public boolean testDouble(double value)
+    {
+        return false;
+    }
+
     public boolean testBytes(byte[] buffer, int offset, int length)
     {
         return false;

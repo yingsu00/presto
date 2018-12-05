@@ -330,6 +330,9 @@ public class TupleDomainOrcPredicate<C>
                 else if (type == BIGINT) {
                     filter = BigintRangesToFilter(ranges);
                 }
+                else if (type == DOUBLE) {
+                    filter = doubleRangesToFilter(ranges);
+                }
                 if (filter == null) {
                     // The domain cannot be converted to a filter. Pushdown fails.
                     return null;
@@ -365,6 +368,26 @@ public class TupleDomainOrcPredicate<C>
         return new Filters.BigintRange(lowerLong, upperLong);
     }
 
+    static private Filter doubleRangesToFilter(List<Range> ranges)
+    {
+        if (ranges.size() != 1) {
+            return null;
+        }
+        Range range = ranges.get(0);
+        Marker low = range.getLow();
+        Marker high = range.getHigh();
+        double lowerDouble = low.isLowerUnbounded() ? Double.MIN_VALUE
+            : ((Double)low.getValue()).doubleValue();
+        double upperDouble = high.isUpperUnbounded() ? Double.MAX_VALUE
+            : ((Double)high.getValue()).doubleValue();
+        return new Filters.DoubleRange(lowerDouble,
+                                       low.isLowerUnbounded(),
+                                       low.getBound() == Marker.Bound.ABOVE,
+                                       upperDouble,
+                                       high.isUpperUnbounded(),
+                                       high.getBound() == Marker.Bound.BELOW);
+    }
+    
     static private Filter VarcharRangesToFilter(List<Range> ranges)
     {
         if (ranges.size() != 1) {

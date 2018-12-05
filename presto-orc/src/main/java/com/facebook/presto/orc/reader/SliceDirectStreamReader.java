@@ -331,7 +331,7 @@ public class SliceDirectStreamReader
                 present = new boolean[end];
             }
             presentStream.getSetBits(rowsInRange, present);
-            for (int i = 0; i < end; i++) {
+            for (int i = 0; i < rowsInRange; i++) {
                 if (present[i]) {
                     numLengths++;
                     if (filter != null) {
@@ -456,6 +456,9 @@ public class SliceDirectStreamReader
         int endOffset = resultOffsets[numValues + numResults + 1];
         System.arraycopy(buffer, pos, bytes, endOffset, length);
         resultOffsets[numValues + numResults + 2] = endOffset + length;
+        if (valueIsNull != null) {
+            valueIsNull[numValues + numResults] = false;
+        }
     }
     
     void addResultFromStream(int length)
@@ -466,6 +469,9 @@ public class SliceDirectStreamReader
         int endOffset = resultOffsets[numValues + numResults + 1];
         dataStream.next(bytes, endOffset, length);
         resultOffsets[numValues + numResults + 2] = endOffset + length;
+                if (valueIsNull != null) {
+            valueIsNull[numValues + numResults] = false;
+        }
     }
 
     void ensureResultBytes(int length)

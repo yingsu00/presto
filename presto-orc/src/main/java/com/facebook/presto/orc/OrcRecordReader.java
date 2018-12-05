@@ -749,6 +749,7 @@ public class OrcRecordReader
     {
         Map<Integer, Filter> filters = predicate.getFilters(includedColumns);
         if (filters == null) {
+            // Null means filters are not supported for pushdown, empty map means no filters.
             return false;
         }
         int[] targetChannels = options.getOutputChannels();

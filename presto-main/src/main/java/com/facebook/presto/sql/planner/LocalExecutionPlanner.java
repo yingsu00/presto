@@ -1116,7 +1116,7 @@ public class LocalExecutionPlanner
             Expression filterExpressionWithoutTupleDomain = node.getPredicateWithoutTupleDomain();
             List<Symbol> outputSymbols = node.getOutputSymbols();
 
-            return visitScanFilterAndProject(context, node.getId(), sourceNode, Optional.of(filterExpression), filterExpressionWithoutTupleDomain == TRUE_LITERAL ? Optional.empty() : Optional.of(filterExpressionWithoutTupleDomain), Assignments.identity(outputSymbols), outputSymbols);
+            return visitScanFilterAndProject(context, node.getId(), sourceNode, Optional.of(filterExpression), filterExpressionWithoutTupleDomain.equals(TRUE_LITERAL) ? Optional.empty() : Optional.of(filterExpressionWithoutTupleDomain), Assignments.identity(outputSymbols), outputSymbols);
         }
 
         @Override
@@ -1130,7 +1130,7 @@ public class LocalExecutionPlanner
                 sourceNode = filterNode.getSource();
                 filterExpression = Optional.of(filterNode.getPredicate());
                 Expression temp = filterNode.getPredicateWithoutTupleDomain();
-                if (temp != TRUE_LITERAL) {
+                if (!temp.equals(TRUE_LITERAL)) {
                     filterExpressionWithoutTupleDomain = Optional.of(temp);
                 }
             }
