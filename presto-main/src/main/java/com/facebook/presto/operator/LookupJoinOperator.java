@@ -162,7 +162,7 @@ public class LookupJoinOperator
     @Override
         public boolean isFinished()
     {
-        if (finished) {
+        if (finished || closed) {
             return true;
         }
         boolean finished;

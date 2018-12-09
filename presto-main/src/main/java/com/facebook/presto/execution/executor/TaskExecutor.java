@@ -158,19 +158,6 @@ public class TaskExecutor
     @Inject
     public TaskExecutor(TaskManagerConfig config, EmbedVersion embedVersion, MultilevelSplitQueue splitQueue)
     {
-        // config.maxWorkerThreads = 1;
-        // config.minDriversPerTask = 1;
-        // config.maxDriversPerTask = 1;
-        // config.taskConcurrency = 1;
-        // Single threaded 
-        this(1 /*requireNonNull(config, "config is null").getMaxWorkerThreads() */,
-                            1 /*config.getMinDrivers() */,
-                            1 /*config.getMinDriversPerTask() */,
-                            1 /*config.getMaxDriversPerTask() */,
-                splitQueue,
-                Ticker.systemTicker());
-
-        /* Multithreaded
         this(requireNonNull(config, "config is null").getMaxWorkerThreads(),
                 config.getMinDrivers(),
                 config.getMinDriversPerTask(),
@@ -178,7 +165,7 @@ public class TaskExecutor
                 embedVersion,
                 splitQueue,
                 Ticker.systemTicker());
-        */
+
     }
 
     @VisibleForTesting
@@ -203,7 +190,13 @@ public class TaskExecutor
             MultilevelSplitQueue splitQueue,
             Ticker ticker)
     {
+        if (System.getenv("SINGLE_THREAD") == "y") {
+            runnerThreads = 1;
+                maximumNumberOfDriversPerTask = 1;
+                guaranteedNumberOfDriversPerTask = 1;
+        }
         checkArgument(runnerThreads > 0, "runnerThreads must be at least 1");
+
         checkArgument(guaranteedNumberOfDriversPerTask > 0, "guaranteedNumberOfDriversPerTask must be at least 1");
         checkArgument(maximumNumberOfDriversPerTask > 0, "maximumNumberOfDriversPerTask must be at least 1");
         checkArgument(guaranteedNumberOfDriversPerTask <= maximumNumberOfDriversPerTask, "guaranteedNumberOfDriversPerTask cannot be greater than maximumNumberOfDriversPerTask");
