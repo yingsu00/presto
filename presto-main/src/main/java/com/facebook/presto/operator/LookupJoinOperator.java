@@ -73,7 +73,8 @@ public class LookupJoinOperator
     private final ListenableFuture<LookupSourceProvider> lookupSourceProviderFuture;
     private LookupSourceProvider lookupSourceProvider;
     private JoinProbe probe;
-
+    AriaHash.AriaProbe ariaProbe;
+    
     private Page outputPage;
 
     private Optional<PartitioningSpiller> spiller = Optional.empty();
@@ -147,7 +148,7 @@ public class LookupJoinOperator
         if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
             lookupSourceProvider.withLease(lookupSourceLease -> {
                     LookupSource lookupSource = lookupSourceLease.getLookupSource();
-                    lookupSource.finish();
+                    lookupSource.close();
                     return true;
                 });
         }
@@ -167,9 +168,7 @@ public class LookupJoinOperator
         }
         boolean finished;
         if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
-            finished = lookupSourceProvider.withLease(lookupSourceLease -> {
-                    return lookupSourceLease.getLookupSource().isFinished();
-                });
+            finished = ariaProbe.isFinished();
         }
         else {
             finished = this.finished && probe == null && pageBuilder.isEmpty() && outputPage == null;
@@ -205,12 +204,10 @@ public class LookupJoinOperator
     {
         if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
             return !finishing
-                && lookupSourceProvider.withLease(lookupSourceLease -> {
-                        return lookupSourceLease.getLookupSource().needsInput();
-                    });
+                && ariaProbe.needsInput();
         }
         return !finishing
-                && lookupSourceProviderFuture.isDone()
+            && lookupSourceProviderFuture.isDone()
                 && spillInProgress.isDone()
                 && probe == null
                 && outputPage == null;
@@ -428,11 +425,18 @@ public class LookupJoinOperator
                     if (joinPushdown == JoinPushdown.NO_PUSHDOWN) {
                         return null;
                     }
+                    if (ariaProbe == null) {
+                        if (!(lookupSource instanceof PartitionedLookupSource)) {
+                            joinPushdown = JoinPushdown.NO_PUSHDOWN;
+                            return null;
+                        }
+                        ariaProbe = ((PartitionedLookupSource)lookupSource).createAriaProbe(operatorContext.getSession());
+                    }
                     if (probe.getPosition() == -1) {
-                        lookupSource.addInput(probe, null, 0);
+                        ariaProbe.addInput(probe);
                         probe.advanceNextPosition(); 
                     }
-                    outputPage = lookupSource.getOutput();
+                    outputPage = ariaProbe.getOutput();
                     if (outputPage == null) {
                         probe = null;
                     }
@@ -512,7 +516,7 @@ public class LookupJoinOperator
 
         DriverYieldSignal yieldSignal = operatorContext.getDriverContext().getYieldSignal();
         if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
-            outputPage = lookupSource.getOutput();
+            outputPage = ariaProbe.getOutput();
         }
         while (!yieldSignal.isSet()) {
             if (probe.getPosition() >= 0) {

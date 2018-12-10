@@ -190,7 +190,8 @@ public class TaskExecutor
             MultilevelSplitQueue splitQueue,
             Ticker ticker)
     {
-        if (System.getenv("SINGLE_THREAD") == "y") {
+        String singleThreadEnv = System.getenv("SINGLE_THREAD");
+        if (singleThreadEnv != null && singleThreadEnv.equals("y")) {
             runnerThreads = 1;
                 maximumNumberOfDriversPerTask = 1;
                 guaranteedNumberOfDriversPerTask = 1;

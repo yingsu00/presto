@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.Session;
+import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.operator.exchange.LocalPartitionGenerator;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
@@ -89,17 +91,6 @@ public class PartitionedLookupSource
 
     private boolean closed;
 
-    // The index in partitions for the AriaLookupSource whose output is being consumed. 
-    private int currentSource = 0;
-    private int currentPartition;
-    private JoinProbe probe;
-    private int positionCount;
-    private boolean openNew = false;
-    private int[] partitionOfRow;
-    private int[] rowsInPartition;
-    private BlockDecoder rawHash;
-    private IntArrayAllocator intArrayAllocator;
-    
     private PartitionedLookupSource(List<? extends LookupSource> lookupSources, List<Type> hashChannelTypes, Optional<OuterPositionTracker> outerPositionTracker)
     {
         this.lookupSources = lookupSources.toArray(new LookupSource[lookupSources.size()]);
@@ -362,89 +353,14 @@ public class PartitionedLookupSource
         return lookupSources[0] instanceof AriaHash.AriaLookupSource;
     }
 
-    @Override
-    public boolean needsInput()
+    public AriaHash.AriaProbe createAriaProbe(Session session)
     {
-        return probe == null;
+        boolean reuse = SystemSessionProperties.enableAriaReusePages(session);
+        AriaHash.AriaLookupSource[] castLookupSources = new AriaHash.AriaLookupSource[lookupSources.length];
+        for (int i = 0; i < lookupSources.length; i++) {
+            castLookupSources[i] = (AriaHash.AriaLookupSource)lookupSources[i];
+        }
+        return new AriaHash.AriaProbe(castLookupSources, partitionGenerator, reuse);
     }
 
-    @Override
-    public boolean isFinished()
-    {
-        for (LookupSource lookupSource : lookupSources) {
-            if (!lookupSource.isFinished()) {
-                return false;
-            }
-        }
-        return true;
-    }
-    
-    @Override
-    public void finish()
-    {
-        for (LookupSource lookupSource : lookupSources) {
-            lookupSource.finish();
-        }
-    }
-    
-    @Override
-    public void addInput(JoinProbe probe, int[] candidates, int numCandidates)
-    {
-        this.probe = probe;
-        if (rawHash == null) {
-            intArrayAllocator = new IntArrayAllocator();
-            rawHash = new BlockDecoder();
-        }
-        if (candidates != null) {
-            throw new UnsupportedOperationException();
-        }
-        Page page = probe.getPage();
-        positionCount = page.getPositionCount();
-        if (partitionOfRow == null || partitionOfRow.length < positionCount) {
-            partitionOfRow = new int[positionCount];
-        }
-        Block hashBlock = probe.getProbeHashBlock();
-        if (hashBlock == null) {
-            throw new UnsupportedOperationException("Expecting precomputed hash numbers");
-        }
-        rawHash.decodeBlock(hashBlock, intArrayAllocator);
-        long[] hashes = rawHash.longs;
-        int[] hashesMap = rawHash.rowNumberMap;
-        for (int i = 0; i < positionCount; i++) {
-            partitionOfRow[i] = partitionGenerator.getPartition(hashes[hashesMap[i]]);
-        }
-        currentPartition = -1;
-        openNew = true;
-    }
-
-    @Override
-    public Page getOutput()
-    {
-        for (;;) {
-            if (openNew) {
-                if (currentPartition + 1 >= lookupSources.length) {
-                    probe = null;
-                    return null;
-                }
-                currentPartition++;
-                                
-                openNew = false;
-                int fill = 0;
-                if (rowsInPartition == null || rowsInPartition.length < positionCount) {
-                    rowsInPartition = new int[positionCount];
-                }
-                for (int i = 0; i < positionCount; i++) {
-                    if (partitionOfRow[i] == currentPartition) {
-                        rowsInPartition[fill++] = i;
-                    }
-                }
-                lookupSources[currentPartition].addInput(probe, rowsInPartition, fill);
-            }
-            Page page = lookupSources[currentPartition].getOutput();
-            if (page != null) {
-                return page;
-            }
-            openNew = true;
-        }
-    }
         }

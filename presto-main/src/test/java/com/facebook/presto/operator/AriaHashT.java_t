@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.operator.exchange.LocalPartitionGenerator;
 import com.facebook.presto.RowPagesBuilder;
 import static com.facebook.presto.RowPagesBuilder.rowPagesBuilder;
 import java.util.Random;
@@ -180,8 +181,9 @@ public class AriaHash {
     }
 
     // Generic hash table 
-        public static class HashTable
-    {
+        public static class AriaLookupSource
+        implements LookupSource
+{
 	int statusMask;
 	LONG_ARRAY status;
 	LONG_ARRAY table;
@@ -191,7 +193,8 @@ public class AriaHash {
         int currentSlab = -1;
         LONG_ARRAY bloomFilter;
         int bloomFilterSize = 0;
-        
+        boolean closed = false;
+
 	long nextResult(long entry, int offset)
 	{
 	    DECLGET(a);
@@ -262,16 +265,12 @@ public class AriaHash {
                     
 	void setSize(int count)
         {
-            if (count == 0) {
-                statusMask = 0;
-                return;
-}
-	    count *= 1.3;
-	    int size = 1024;
-	    while (size < count) {
-		size *= 2;
-	    }
-	    table = ALLOC_LONG_ARRAY(size);
+            int size = 8;
+            count *= 1.3;
+            while (size < count) {
+                size *= 2;
+            }
+            table = ALLOC_LONG_ARRAY(size);
 	    status = ALLOC_LONG_ARRAY(size / 8);
 	    statusMask = (size >> 3) - 1;
 	    for (int i = 0; i <= statusMask; ++i) {
@@ -280,21 +279,78 @@ public class AriaHash {
 	    }
 	}
 
-        long getJoinPositionCount()
-        {
+    @Override
+    public long getJoinPositionCount()
+{
             return statusMask + 1;
         }
 
-        long getSizeInBytes()
+        @Override
+        public long getInMemorySizeInBytes()
         {
             return 8 * (statusMask + 1) + SLABSIZE * (currentSlab + 1);
         }
-    }
+
+@Override
+        public int getChannelCount()
+        {
+            return 1;
+        }
+
+    @Override
+        public long joinPositionWithinPartition(long joinPosition)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage, long rawHash)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage)
+                {
+                    throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public long getNextJoinPosition(long currentJoinPosition, int probePosition, Page allProbeChannelsPage)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void appendTo(long position, PageBuilder pageBuilder, int outputChannelOffset)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean isJoinPositionEligible(long currentJoinPosition, int probePosition, Page allProbeChannelsPage)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public boolean isEmpty()
+                {
+                    return statusMask == 0;
+                }
+
+        @Override
+        public void close()
+        {
+        release();
+closed = true;
+        }
+}
 	
     // Generated class for a key/dependent layout 
     public static class HashBuild extends ExprContext
     {
-	HashTable table = new HashTable();
+	AriaLookupSource table = new AriaLookupSource();
 	BlockDecoder k1 = new BlockDecoder();
 	BlockDecoder k2 = new BlockDecoder();
 	BlockDecoder d1 = new BlockDecoder();
@@ -311,7 +367,7 @@ public class AriaHash {
 
 	long hashRow(long row)
 	{
-	    DECLTABLE(table);
+	    DECLTABLE(this.table);
 	    DECLGET(k);
 	    PREGET(k, row);
 	    long h;
@@ -334,7 +390,7 @@ public class AriaHash {
 	    addNullFlags(k2.valueIsNull, k2.isIdentityMap ? null : k2Map, positionCount);
 
 
-	    DECLTABLE(table);
+	    DECLTABLE(this.table);
 
 	    for (int i = 0; i < positionCount; ++i) {
 		if (nullsInBatch == null ||  !nullsInBatch[i]) {
@@ -400,12 +456,12 @@ DECLGET(k);
         {
             build();
             boolean reuse = SystemSessionProperties.enableAriaReusePages(session);
-            return new AriaLookupSourceSupplier(new AriaLookupSource(table, reuse));
+            return new AriaLookupSourceSupplier(table);
         }
 
         public void build()
 	{
-	    DECLTABLE(table);
+	    DECLTABLE(this.table);
 	    table.setSize(entryCount);
 	    int batch = 1024;
 	    long[] hashes = new long[batch];
@@ -428,7 +484,7 @@ DECLGET(k);
 
 	void insertHashes(long[] hashes, long[] entries, int fill)
 	{
-	    DECLTABLE(table);
+	    DECLTABLE(this.table);
             DECL_ARRAY(st);
             DECL_ARRAY(ent);
 	    for (int i = 0; i < fill; ++i) {
@@ -498,13 +554,13 @@ DECLGET(k);
 
     }
 	
-    public static class AriaLookupSource extends ExprContext
-                                                 implements LookupSource
+    public static class AriaProbe extends ExprContext
     {
 	BlockDecoder k1 = new BlockDecoder();
 	BlockDecoder k2 = new BlockDecoder();
+        BlockDecoder hashDecoder;
 	long hashes[];
-	HashTable table;
+        AriaLookupSource[] tables;
 	int currentInput;
 	long nextRow;
 	long[] k1d;
@@ -513,7 +569,8 @@ DECLGET(k);
 	int[] k2Map;
 	int maxResults = 1024;
 	int[] candidates;
-	int candidateFill;
+        int[] partitions;
+int candidateFill;
 	int positionCount;
 	int[] resultMap;
 	int resultFill;
@@ -527,82 +584,72 @@ DECLGET(k);
         boolean unroll = true;
         boolean finishing = false;
         DictionaryId dictionaryId;
+        LocalPartitionGenerator partitionGenerator;
         
-	AriaLookupSource(HashTable table, boolean reuseResult) {
-	    this.table = table;
+	AriaProbe(AriaLookupSource[] tables, LocalPartitionGenerator partitionGenerator, boolean reuseResult) {
+	    this.tables = tables;
+            this.partitionGenerator = partitionGenerator;
 	    this.reuseResult = reuseResult;
             dictionaryId = DictionaryId.randomDictionaryId();
 	}
-
-        @Override
-        public boolean isJoinPushedDown()
-        {
-            return true;
-        }
         
-        @Override
-	public void addInput(JoinProbe probe, int[] candidateRows, int numCandidates)
+	public void addInput(JoinProbe probe)
         {
             this.probe = probe;
             Block[] probes = probe.getProbeBlocks();
 	    k1.decodeBlock(probes[0], intArrayAllocator);
 	    k2.decodeBlock(probes[1], intArrayAllocator);
 	    positionCount = probe.getPage().getPositionCount();
-            boolean hashPrecomputed = false;
-#if 0
+            if (partitions == null || partitions.length < positionCount) {
+                partitions = new int[(int)(positionCount * 1.2)];
+            }
+            
             Block hashBlock = probe.getProbeHashBlock();
-            if (hashBlock != null) {
-                hashPrecomputed = true;
-                hashDecoder.decodeBlock(hashBlock);
-            }
-            else
-#endif
-            {
-                if (hashes == null || hashes.length < positionCount) {
-                    hashes = new long[positionCount + 10];
+            if (hashBlock != null && tables.length > 1) {
+                if (hashDecoder == null) {
+                    hashDecoder = new BlockDecoder(intArrayAllocator);
                 }
+                hashDecoder.decodeBlock(hashBlock);
+                long[] longs = hashDecoder.longs;
+                int[] map = hashDecoder.rowNumberMap;
+                int numPartitions = tables.length;
+                for (int i = 0; i < positionCount; i++) {
+                    partitions[i] = partitionGenerator.getPartition(longs[map[i]]);
+                }
+                hashDecoder.release();
             }
-                nullsInBatch = null;
+            else {
+                Arrays.fill(partitions, 0);
+            }
+
+            if (hashes == null || hashes.length < positionCount) {
+                hashes = new long[positionCount + 10];
+            }
+            nullsInBatch = null;
             k1d = k1.longs;
             k2d = k2.longs;
 	    k1Map = k1.rowNumberMap;
 	    k2Map = k2.rowNumberMap;
 	    addNullFlags(k1.valueIsNull, k1.isIdentityMap ? null : k1Map, positionCount);
 	    addNullFlags(k2.valueIsNull, k2.isIdentityMap ? null : k2Map, positionCount);
-	    DECLTABLE(table);
             candidateFill = 0;
-            if (candidateRows != null) {
-                candidates = candidateRows;
-                positionCount = numCandidates;
-                if (nullsInBatch != null) {
-                    for (int i = 0; i < positionCount; ++i) {
-                        if (nullsInBatch[candidates[i]]) {
-                            candidates[candidateFill++] = candidates[i];
-                        }
+            if (candidates == null || candidates.length < positionCount) {
+                candidates = intArrayAllocator.getIntArray(positionCount);
+            }
+            if (nullsInBatch != null) {
+                for (int i = 0; i < positionCount; ++i) {
+                    if (nullsInBatch[i]) {
+                        candidates[candidateFill++] = i;
                     }
                 }
-                else {
-                    candidateFill = positionCount;
                 }
-            }
             else {
-                if (candidates == null || candidates.length < positionCount) {
-                    candidates = intArrayAllocator.getIntArray(positionCount);
+                for (int i = 0; i < positionCount; ++i) {
+                    candidates[i] = i;
                 }
-                if (nullsInBatch != null) {
-                    for (int i = 0; i < positionCount; ++i) {
-                        if (nullsInBatch[i]) {
-                            candidates[candidateFill++] = i;
-                        }
-                    }
-                }
-                else {
-                    for (int i = 0; i < positionCount; ++i) {
-                        candidates[i] = i;
-                    }
-                    candidateFill = positionCount;
-                }
+                candidateFill = positionCount;
             }
+            boolean hashPrecomputed = false;
             if (!hashPrecomputed) {
                 for (int i = 0; i <candidateFill; ++i) {
                     int row = candidates[i];
@@ -612,16 +659,18 @@ DECLGET(k);
                     hashes[row] = h;
                 }
             }
-                if (result1 == null) {
+            if (result1 == null) {
 		result1 = new long[maxResults];
 		resultMap = new int[maxResults];
 	    }
-            if (table.bloomFilterSize != 0) {
+            boolean useBloomFilter = false;
+            if (useBloomFilter) {
                 int newFill = 0;
-                int size = table.bloomFilterSize;
-                LONG_ARRAY bloomArray = table.bloomFilter;
                 for (int i = 0; i < candidateFill; ++i) {
                     int candidate = candidates[i];
+                    AriaLookupSource table = tables[partitions[candidate]];
+                    LONG_ARRAY bloomArray = table.bloomFilter;
+                    int size = table.bloomFilterSize;
                     long h = hashes[candidate];
                     int w = BF_WORD(h, size);
                     long mask = BF_MASK(h);
@@ -640,7 +689,7 @@ DECLGET(k);
 	public boolean addResult(long entry, int candidate)
 	{
 	    int probeRow = candidates[candidate];
-	    DECLTABLE(table);
+	    DECLTABLE(tables[partitions[candidate]]);
 	    do {
 		resultMap[resultFill] = probeRow;
 		DECLGET(a);
@@ -688,31 +737,23 @@ DECLGET(k);
 	    returnPage = resultPage;
 	}
 
-        @Override
         public boolean needsInput()
         {
             return currentResult == -1 && currentProbe == candidateFill;
         }
 
-        @Override
         public void finish()
         {
             finishing = true;
         }
 
-        @Override
         public boolean isFinished()
         {
             return finishing && currentResult == -1 && currentProbe == candidateFill;
         }
 
-        @Override
 	public Page getOutput()
 	{
-            if (table.statusMask == 0) {
-                return null;
-}
-	    DECLTABLE(table);
 	    if (currentResult != -1) {
 		if (addResult(currentResult, currentProbe)) {
 		    return returnPage;
@@ -748,71 +789,7 @@ DECLGET(k);
 	    return returnPage;
 	}
 
-        @Override
-        public int getChannelCount()
-        {
-            return 1;
-        }
 
-        @Override
-        public long getInMemorySizeInBytes()
-        {
-            return table != null ? table.getSizeInBytes() : 0;
-        }
-
-        @Override
-        public long getJoinPositionCount()
-        {
-            return table != null ? table.getJoinPositionCount() : 0;
-        }
-
-        @Override
-        public long joinPositionWithinPartition(long joinPosition)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage, long rawHash)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage)
-                {
-                    throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public long getNextJoinPosition(long currentJoinPosition, int probePosition, Page allProbeChannelsPage)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void appendTo(long position, PageBuilder pageBuilder, int outputChannelOffset)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean isJoinPositionEligible(long currentJoinPosition, int probePosition, Page allProbeChannelsPage)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean isEmpty()
-                {
-                    return table == null || table.statusMask == 0;
-                }
-
-        @Override
-        public void close()
-        {
-            table = null;
-        }
     }
 }
 

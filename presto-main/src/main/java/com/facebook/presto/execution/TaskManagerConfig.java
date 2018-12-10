@@ -48,7 +48,7 @@ public class TaskManagerConfig
     private DataSize maxLocalExchangeBufferSize = new DataSize(32, Unit.MEGABYTE);
     private DataSize maxIndexMemoryUsage = new DataSize(64, Unit.MEGABYTE);
     private boolean shareIndexLoading;
-    private int maxWorkerThreads = 1 /*Runtime.getRuntime().availableProcessors() * 2*/;
+    private int maxWorkerThreads = Runtime.getRuntime().availableProcessors() * 2;
     private Integer minDrivers;
     private Integer initialSplitsPerNode;
     private int minDriversPerTask = 3;
@@ -218,7 +218,7 @@ public class TaskManagerConfig
     @Config("task.max-worker-threads")
     public TaskManagerConfig setMaxWorkerThreads(int maxWorkerThreads)
     {
-        this.maxWorkerThreads = 1 /*maxWorkerThreads*/;
+        this.maxWorkerThreads = maxWorkerThreads;
         return this;
     }
 

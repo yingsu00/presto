@@ -37,9 +37,7 @@ public class InterpretedHashGenerator
 {
     private final List<Type> hashChannelTypes;
     private final int[] hashChannels;
-    private long[] hashes;
-    private BlockDecoder contents;
-    private IntArrayAllocator intArrayAllocator;
+    private volatile long[] hashesInReserve;
     
     public InterpretedHashGenerator(List<Type> hashChannelTypes, List<Integer> hashChannels)
     {
@@ -70,10 +68,19 @@ public class InterpretedHashGenerator
     }
 
     @Override
-    public void getPartitions(int partitionCount, Page page, int[] partitionsOut)
+    public void getPartitions(int partitionCount, Page page, BlockDecoder decoder, int[] partitionsOut)
     {
         int positionCount = page.getPositionCount();
-        if (hashes == null || hashes.length < positionCount) {
+        long[] hashes = null;
+        synchronized(this) {
+            // Access only once. Another thread may set hashesInReserve wihout synchronization.
+            long[] candidate = hashesInReserve;
+            if (candidate != null && candidate.length >= positionCount) {
+                hashes = candidate;
+                hashesInReserve = null;
+        }
+        }
+        if (hashes == null) {
             hashes = new long[positionCount];
         }
         long result ;
@@ -81,15 +88,14 @@ public class InterpretedHashGenerator
             hashes[position] =         HashGenerationOptimizer.INITIAL_HASH_VALUE;
         }
         for (int i = 0; i < hashChannels.length; i++) {
-
             Type type = hashChannelTypes.get(i);
             Block block = page.getBlock(i);
-            contents.decodeBlock(block, intArrayAllocator);
-            Block leafBlock = contents.leafBlock;
+            decoder.decodeBlock(block);
+            Block leafBlock = decoder.leafBlock;
             if (leafBlock instanceof LongArrayBlock) {
-                long[] longs = contents.longs;
-                int[] longsMap = contents.rowNumberMap;
-                boolean[] nulls = contents.valueIsNull;
+                long[] longs = decoder.longs;
+                int[] longsMap = decoder.rowNumberMap;
+                boolean[] nulls = decoder.valueIsNull;
                 for (int position = 0; position < positionCount; position++) {
                     int valueIdx = longsMap[position];
                     hashes[position] = 
@@ -104,7 +110,9 @@ public class InterpretedHashGenerator
                     hashes[position] = CombineHashFunction.getHash(hashes[position], TypeUtils.hashPosition(type, block, position));
                 }
             }
+            decoder.release();
         }   
+        hashesInReserve = hashes;
     }
     
     @Override

@@ -1,11 +1,11 @@
 package com.facebook.presto.operator;
 
-
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
+import com.facebook.presto.operator.exchange.LocalPartitionGenerator;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.block.Block;
@@ -83,7 +83,7 @@ public class AriaHash {
         && types.get(outputChannels.get(0).intValue()) == DOUBLE;
   }
 
-  public static class HashTable {
+  public static class AriaLookupSource implements LookupSource {
     int statusMask;
     long[] status;
     long[] table;
@@ -93,6 +93,7 @@ public class AriaHash {
     int currentSlab = -1;
     long[] bloomFilter;
     int bloomFilterSize = 0;
+    boolean closed = false;
 
     long nextResult(long entry, int offset) {
       Slice aslice;
@@ -143,12 +144,8 @@ public class AriaHash {
     }
 
     void setSize(int count) {
-      if (count == 0) {
-        statusMask = 0;
-        return;
-      }
+      int size = 8;
       count *= 1.3;
-      int size = 1024;
       while (size < count) {
         size *= 2;
       }
@@ -160,17 +157,68 @@ public class AriaHash {
       }
     }
 
-    long getJoinPositionCount() {
+    @Override
+    public long getJoinPositionCount() {
       return statusMask + 1;
     }
 
-    long getSizeInBytes() {
+    @Override
+    public long getInMemorySizeInBytes() {
       return 8 * (statusMask + 1) + (128 * 1024) * (currentSlab + 1);
+    }
+
+    @Override
+    public int getChannelCount() {
+      return 1;
+    }
+
+    @Override
+    public long joinPositionWithinPartition(long joinPosition) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long getJoinPosition(
+        int position, Page hashChannelsPage, Page allChannelsPage, long rawHash) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long getNextJoinPosition(
+        long currentJoinPosition, int probePosition, Page allProbeChannelsPage) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void appendTo(long position, PageBuilder pageBuilder, int outputChannelOffset) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isJoinPositionEligible(
+        long currentJoinPosition, int probePosition, Page allProbeChannelsPage) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isEmpty() {
+      return statusMask == 0;
+    }
+
+    @Override
+    public void close() {
+      release();
+      closed = true;
     }
   }
 
   public static class HashBuild extends ExprContext {
-    HashTable table = new HashTable();
+    AriaLookupSource table = new AriaLookupSource();
     BlockDecoder k1 = new BlockDecoder();
     BlockDecoder k2 = new BlockDecoder();
     BlockDecoder d1 = new BlockDecoder();
@@ -185,6 +233,7 @@ public class AriaHash {
     }
 
     long hashRow(long row) {
+      AriaLookupSource table = this.table;
       int statusMask = table.statusMask;
       Slice[] slices = table.slices;
       ;
@@ -227,6 +276,7 @@ public class AriaHash {
       addNullFlags(k1.valueIsNull, k1.isIdentityMap ? null : k1Map, positionCount);
       addNullFlags(k2.valueIsNull, k2.isIdentityMap ? null : k2Map, positionCount);
 
+      AriaLookupSource table = this.table;
       int statusMask = table.statusMask;
       Slice[] slices = table.slices;
       ;
@@ -291,10 +341,11 @@ public class AriaHash {
         Optional<List<Integer>> outputChannels) {
       build();
       boolean reuse = SystemSessionProperties.enableAriaReusePages(session);
-      return new AriaLookupSourceSupplier(new AriaLookupSource(table, reuse));
+      return new AriaLookupSourceSupplier(table);
     }
 
     public void build() {
+      AriaLookupSource table = this.table;
       int statusMask = table.statusMask;
       Slice[] slices = table.slices;
       ;
@@ -319,6 +370,7 @@ public class AriaHash {
     }
 
     void insertHashes(long[] hashes, long[] entries, int fill) {
+      AriaLookupSource table = this.table;
       int statusMask = table.statusMask;
       Slice[] slices = table.slices;
       ;;;
@@ -402,11 +454,12 @@ public class AriaHash {
     }
   }
 
-  public static class AriaLookupSource extends ExprContext implements LookupSource {
+  public static class AriaProbe extends ExprContext {
     BlockDecoder k1 = new BlockDecoder();
     BlockDecoder k2 = new BlockDecoder();
+    BlockDecoder hashDecoder;
     long hashes[];
-    HashTable table;
+    AriaLookupSource[] tables;
     int currentInput;
     long nextRow;
     long[] k1d;
@@ -415,6 +468,7 @@ public class AriaHash {
     int[] k2Map;
     int maxResults = 1024;
     int[] candidates;
+    int[] partitions;
     int candidateFill;
     int positionCount;
     int[] resultMap;
@@ -429,31 +483,47 @@ public class AriaHash {
     boolean unroll = true;
     boolean finishing = false;
     DictionaryId dictionaryId;
+    LocalPartitionGenerator partitionGenerator;
 
-    AriaLookupSource(HashTable table, boolean reuseResult) {
-      this.table = table;
+    AriaProbe(
+        AriaLookupSource[] tables,
+        LocalPartitionGenerator partitionGenerator,
+        boolean reuseResult) {
+      this.tables = tables;
+      this.partitionGenerator = partitionGenerator;
       this.reuseResult = reuseResult;
       dictionaryId = DictionaryId.randomDictionaryId();
     }
 
-    @Override
-    public boolean isJoinPushedDown() {
-      return true;
-    }
-
-    @Override
-    public void addInput(JoinProbe probe, int[] candidateRows, int numCandidates) {
+    public void addInput(JoinProbe probe) {
       this.probe = probe;
       Block[] probes = probe.getProbeBlocks();
       k1.decodeBlock(probes[0], intArrayAllocator);
       k2.decodeBlock(probes[1], intArrayAllocator);
       positionCount = probe.getPage().getPositionCount();
-      boolean hashPrecomputed = false;
+      if (partitions == null || partitions.length < positionCount) {
+        partitions = new int[(int) (positionCount * 1.2)];
+      }
 
-      {
-        if (hashes == null || hashes.length < positionCount) {
-          hashes = new long[positionCount + 10];
+      Block hashBlock = probe.getProbeHashBlock();
+      if (hashBlock != null && tables.length > 1) {
+        if (hashDecoder == null) {
+          hashDecoder = new BlockDecoder(intArrayAllocator);
         }
+        hashDecoder.decodeBlock(hashBlock);
+        long[] longs = hashDecoder.longs;
+        int[] map = hashDecoder.rowNumberMap;
+        int numPartitions = tables.length;
+        for (int i = 0; i < positionCount; i++) {
+          partitions[i] = partitionGenerator.getPartition(longs[map[i]]);
+        }
+        hashDecoder.release();
+      } else {
+        Arrays.fill(partitions, 0);
+      }
+
+      if (hashes == null || hashes.length < positionCount) {
+        hashes = new long[positionCount + 10];
       }
       nullsInBatch = null;
       k1d = k1.longs;
@@ -462,39 +532,23 @@ public class AriaHash {
       k2Map = k2.rowNumberMap;
       addNullFlags(k1.valueIsNull, k1.isIdentityMap ? null : k1Map, positionCount);
       addNullFlags(k2.valueIsNull, k2.isIdentityMap ? null : k2Map, positionCount);
-      int statusMask = table.statusMask;
-      Slice[] slices = table.slices;
-      ;
       candidateFill = 0;
-      if (candidateRows != null) {
-        candidates = candidateRows;
-        positionCount = numCandidates;
-        if (nullsInBatch != null) {
-          for (int i = 0; i < positionCount; ++i) {
-            if (nullsInBatch[candidates[i]]) {
-              candidates[candidateFill++] = candidates[i];
-            }
+      if (candidates == null || candidates.length < positionCount) {
+        candidates = intArrayAllocator.getIntArray(positionCount);
+      }
+      if (nullsInBatch != null) {
+        for (int i = 0; i < positionCount; ++i) {
+          if (nullsInBatch[i]) {
+            candidates[candidateFill++] = i;
           }
-        } else {
-          candidateFill = positionCount;
         }
       } else {
-        if (candidates == null || candidates.length < positionCount) {
-          candidates = intArrayAllocator.getIntArray(positionCount);
+        for (int i = 0; i < positionCount; ++i) {
+          candidates[i] = i;
         }
-        if (nullsInBatch != null) {
-          for (int i = 0; i < positionCount; ++i) {
-            if (nullsInBatch[i]) {
-              candidates[candidateFill++] = i;
-            }
-          }
-        } else {
-          for (int i = 0; i < positionCount; ++i) {
-            candidates[i] = i;
-          }
-          candidateFill = positionCount;
-        }
+        candidateFill = positionCount;
       }
+      boolean hashPrecomputed = false;
       if (!hashPrecomputed) {
         for (int i = 0; i < candidateFill; ++i) {
           int row = candidates[i];
@@ -522,12 +576,14 @@ public class AriaHash {
         result1 = new long[maxResults];
         resultMap = new int[maxResults];
       }
-      if (table.bloomFilterSize != 0) {
+      boolean useBloomFilter = false;
+      if (useBloomFilter) {
         int newFill = 0;
-        int size = table.bloomFilterSize;
-        long[] bloomArray = table.bloomFilter;
         for (int i = 0; i < candidateFill; ++i) {
           int candidate = candidates[i];
+          AriaLookupSource table = tables[partitions[candidate]];
+          long[] bloomArray = table.bloomFilter;
+          int size = table.bloomFilterSize;
           long h = hashes[candidate];
           int w = (int) ((h & 0x7fffffff) % size);
           long mask =
@@ -548,6 +604,7 @@ public class AriaHash {
 
     public boolean addResult(long entry, int candidate) {
       int probeRow = candidates[candidate];
+      AriaLookupSource table = tables[partitions[candidate]];
       int statusMask = table.statusMask;
       Slice[] slices = table.slices;
       ;
@@ -610,29 +667,19 @@ public class AriaHash {
       returnPage = resultPage;
     }
 
-    @Override
     public boolean needsInput() {
       return currentResult == -1 && currentProbe == candidateFill;
     }
 
-    @Override
     public void finish() {
       finishing = true;
     }
 
-    @Override
     public boolean isFinished() {
       return finishing && currentResult == -1 && currentProbe == candidateFill;
     }
 
-    @Override
     public Page getOutput() {
-      if (table.statusMask == 0) {
-        return null;
-      }
-      int statusMask = table.statusMask;
-      Slice[] slices = table.slices;
-      ;
       if (currentResult != -1) {
         if (addResult(currentResult, currentProbe)) {
           return returnPage;
@@ -681,42 +728,58 @@ public class AriaHash {
         Slice g3slice;
         int g3offset;
         ;;;
+        AriaLookupSource table0 = tables[partitions[candidates[currentProbe + 0]]];
+        int statusMask0 = table0.statusMask;
+        Slice[] slices0 = table0.slices;
+        ;
         row0 = candidates[currentProbe + 0];
         tempHash = hashes[row0];
-        hash0 = (int) tempHash & statusMask;
+        hash0 = (int) tempHash & statusMask0;
         field0 = (tempHash >> 56) & 0x7f;
         ;
-        hits0 = table.status[hash0];
+        hits0 = table0.status[hash0];
         field0 |= field0 << 8;
         field0 |= field0 << 16;
         field0 |= field0 << 32;
         ;
+        AriaLookupSource table1 = tables[partitions[candidates[currentProbe + 1]]];
+        int statusMask1 = table1.statusMask;
+        Slice[] slices1 = table1.slices;
+        ;
         row1 = candidates[currentProbe + 1];
         tempHash = hashes[row1];
-        hash1 = (int) tempHash & statusMask;
+        hash1 = (int) tempHash & statusMask1;
         field1 = (tempHash >> 56) & 0x7f;
         ;
-        hits1 = table.status[hash1];
+        hits1 = table1.status[hash1];
         field1 |= field1 << 8;
         field1 |= field1 << 16;
         field1 |= field1 << 32;
         ;
+        AriaLookupSource table2 = tables[partitions[candidates[currentProbe + 2]]];
+        int statusMask2 = table2.statusMask;
+        Slice[] slices2 = table2.slices;
+        ;
         row2 = candidates[currentProbe + 2];
         tempHash = hashes[row2];
-        hash2 = (int) tempHash & statusMask;
+        hash2 = (int) tempHash & statusMask2;
         field2 = (tempHash >> 56) & 0x7f;
         ;
-        hits2 = table.status[hash2];
+        hits2 = table2.status[hash2];
         field2 |= field2 << 8;
         field2 |= field2 << 16;
         field2 |= field2 << 32;
         ;
+        AriaLookupSource table3 = tables[partitions[candidates[currentProbe + 3]]];
+        int statusMask3 = table3.statusMask;
+        Slice[] slices3 = table3.slices;
+        ;
         row3 = candidates[currentProbe + 3];
         tempHash = hashes[row3];
-        hash3 = (int) tempHash & statusMask;
+        hash3 = (int) tempHash & statusMask3;
         field3 = (tempHash >> 56) & 0x7f;
         ;
-        hits3 = table.status[hash3];
+        hits3 = table3.status[hash3];
         field3 |= field3 << 8;
         field3 |= field3 << 16;
         field3 |= field3 << 32;
@@ -729,9 +792,9 @@ public class AriaHash {
           int pos = Long.numberOfTrailingZeros(hits0) >> 3;
           hits0 &= hits0 - 1;
           ;
-          entry0 = table.table[hash0 * 8 + pos];
+          entry0 = table0.table[hash0 * 8 + pos];
           {
-            g0slice = slices[(int) ((entry0) >> 17)];
+            g0slice = slices0[(int) ((entry0) >> 17)];
             g0offset = (int) (entry0) & 0x1ffff;
           }
           ;
@@ -748,9 +811,9 @@ public class AriaHash {
           int pos = Long.numberOfTrailingZeros(hits1) >> 3;
           hits1 &= hits1 - 1;
           ;
-          entry1 = table.table[hash1 * 8 + pos];
+          entry1 = table1.table[hash1 * 8 + pos];
           {
-            g1slice = slices[(int) ((entry1) >> 17)];
+            g1slice = slices1[(int) ((entry1) >> 17)];
             g1offset = (int) (entry1) & 0x1ffff;
           }
           ;
@@ -767,9 +830,9 @@ public class AriaHash {
           int pos = Long.numberOfTrailingZeros(hits2) >> 3;
           hits2 &= hits2 - 1;
           ;
-          entry2 = table.table[hash2 * 8 + pos];
+          entry2 = table2.table[hash2 * 8 + pos];
           {
-            g2slice = slices[(int) ((entry2) >> 17)];
+            g2slice = slices2[(int) ((entry2) >> 17)];
             g2offset = (int) (entry2) & 0x1ffff;
           }
           ;
@@ -786,9 +849,9 @@ public class AriaHash {
           int pos = Long.numberOfTrailingZeros(hits3) >> 3;
           hits3 &= hits3 - 1;
           ;
-          entry3 = table.table[hash3 * 8 + pos];
+          entry3 = table3.table[hash3 * 8 + pos];
           {
-            g3slice = slices[(int) ((entry3) >> 17)];
+            g3slice = slices3[(int) ((entry3) >> 17)];
             g3offset = (int) (entry3) & 0x1ffff;
           }
           ;
@@ -805,9 +868,9 @@ public class AriaHash {
             while (hits0 != 0) {
               int pos = Long.numberOfTrailingZeros(hits0) >> 3;
               ;
-              entry0 = table.table[hash0 * 8 + pos];
+              entry0 = table0.table[hash0 * 8 + pos];
               {
-                g0slice = slices[(int) ((entry0) >> 17)];
+                g0slice = slices0[(int) ((entry0) >> 17)];
                 g0offset = (int) (entry0) & 0x1ffff;
               }
               ;
@@ -821,9 +884,9 @@ public class AriaHash {
               hits0 &= hits0 - 1;
             }
             if (empty0 != 0) break;
-            hash0 = (hash0 + 1) & statusMask;
+            hash0 = (hash0 + 1) & statusMask0;
             ;
-            hits0 = table.status[hash0];
+            hits0 = table0.status[hash0];
             empty0 = hits0 & 0x8080808080808080L;
             hits0 ^= field0;
             hits0 -= 0x0101010101010101L;
@@ -839,9 +902,9 @@ public class AriaHash {
             while (hits1 != 0) {
               int pos = Long.numberOfTrailingZeros(hits1) >> 3;
               ;
-              entry1 = table.table[hash1 * 8 + pos];
+              entry1 = table1.table[hash1 * 8 + pos];
               {
-                g1slice = slices[(int) ((entry1) >> 17)];
+                g1slice = slices1[(int) ((entry1) >> 17)];
                 g1offset = (int) (entry1) & 0x1ffff;
               }
               ;
@@ -855,9 +918,9 @@ public class AriaHash {
               hits1 &= hits1 - 1;
             }
             if (empty1 != 0) break;
-            hash1 = (hash1 + 1) & statusMask;
+            hash1 = (hash1 + 1) & statusMask1;
             ;
-            hits1 = table.status[hash1];
+            hits1 = table1.status[hash1];
             empty1 = hits1 & 0x8080808080808080L;
             hits1 ^= field1;
             hits1 -= 0x0101010101010101L;
@@ -873,9 +936,9 @@ public class AriaHash {
             while (hits2 != 0) {
               int pos = Long.numberOfTrailingZeros(hits2) >> 3;
               ;
-              entry2 = table.table[hash2 * 8 + pos];
+              entry2 = table2.table[hash2 * 8 + pos];
               {
-                g2slice = slices[(int) ((entry2) >> 17)];
+                g2slice = slices2[(int) ((entry2) >> 17)];
                 g2offset = (int) (entry2) & 0x1ffff;
               }
               ;
@@ -889,9 +952,9 @@ public class AriaHash {
               hits2 &= hits2 - 1;
             }
             if (empty2 != 0) break;
-            hash2 = (hash2 + 1) & statusMask;
+            hash2 = (hash2 + 1) & statusMask2;
             ;
-            hits2 = table.status[hash2];
+            hits2 = table2.status[hash2];
             empty2 = hits2 & 0x8080808080808080L;
             hits2 ^= field2;
             hits2 -= 0x0101010101010101L;
@@ -907,9 +970,9 @@ public class AriaHash {
             while (hits3 != 0) {
               int pos = Long.numberOfTrailingZeros(hits3) >> 3;
               ;
-              entry3 = table.table[hash3 * 8 + pos];
+              entry3 = table3.table[hash3 * 8 + pos];
               {
-                g3slice = slices[(int) ((entry3) >> 17)];
+                g3slice = slices3[(int) ((entry3) >> 17)];
                 g3offset = (int) (entry3) & 0x1ffff;
               }
               ;
@@ -923,9 +986,9 @@ public class AriaHash {
               hits3 &= hits3 - 1;
             }
             if (empty3 != 0) break;
-            hash3 = (hash3 + 1) & statusMask;
+            hash3 = (hash3 + 1) & statusMask3;
             ;
-            hits3 = table.status[hash3];
+            hits3 = table3.status[hash3];
             empty3 = hits3 & 0x8080808080808080L;
             hits3 ^= field3;
             hits3 -= 0x0101010101010101L;
@@ -945,12 +1008,16 @@ public class AriaHash {
         Slice g0slice;
         int g0offset;
         ;;;
+        AriaLookupSource table0 = tables[partitions[candidates[currentProbe + 0]]];
+        int statusMask0 = table0.statusMask;
+        Slice[] slices0 = table0.slices;
+        ;
         row0 = candidates[currentProbe + 0];
         tempHash = hashes[row0];
-        hash0 = (int) tempHash & statusMask;
+        hash0 = (int) tempHash & statusMask0;
         field0 = (tempHash >> 56) & 0x7f;
         ;
-        hits0 = table.status[hash0];
+        hits0 = table0.status[hash0];
         field0 |= field0 << 8;
         field0 |= field0 << 16;
         field0 |= field0 << 32;
@@ -963,9 +1030,9 @@ public class AriaHash {
           int pos = Long.numberOfTrailingZeros(hits0) >> 3;
           hits0 &= hits0 - 1;
           ;
-          entry0 = table.table[hash0 * 8 + pos];
+          entry0 = table0.table[hash0 * 8 + pos];
           {
-            g0slice = slices[(int) ((entry0) >> 17)];
+            g0slice = slices0[(int) ((entry0) >> 17)];
             g0offset = (int) (entry0) & 0x1ffff;
           }
           ;
@@ -982,9 +1049,9 @@ public class AriaHash {
             while (hits0 != 0) {
               int pos = Long.numberOfTrailingZeros(hits0) >> 3;
               ;
-              entry0 = table.table[hash0 * 8 + pos];
+              entry0 = table0.table[hash0 * 8 + pos];
               {
-                g0slice = slices[(int) ((entry0) >> 17)];
+                g0slice = slices0[(int) ((entry0) >> 17)];
                 g0offset = (int) (entry0) & 0x1ffff;
               }
               ;
@@ -998,9 +1065,9 @@ public class AriaHash {
               hits0 &= hits0 - 1;
             }
             if (empty0 != 0) break;
-            hash0 = (hash0 + 1) & statusMask;
+            hash0 = (hash0 + 1) & statusMask0;
             ;
-            hits0 = table.status[hash0];
+            hits0 = table0.status[hash0];
             empty0 = hits0 & 0x8080808080808080L;
             hits0 ^= field0;
             hits0 -= 0x0101010101010101L;
@@ -1011,64 +1078,6 @@ public class AriaHash {
       }
       finishResult();
       return returnPage;
-    }
-
-    @Override
-    public int getChannelCount() {
-      return 1;
-    }
-
-    @Override
-    public long getInMemorySizeInBytes() {
-      return table != null ? table.getSizeInBytes() : 0;
-    }
-
-    @Override
-    public long getJoinPositionCount() {
-      return table != null ? table.getJoinPositionCount() : 0;
-    }
-
-    @Override
-    public long joinPositionWithinPartition(long joinPosition) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public long getJoinPosition(
-        int position, Page hashChannelsPage, Page allChannelsPage, long rawHash) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public long getNextJoinPosition(
-        long currentJoinPosition, int probePosition, Page allProbeChannelsPage) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void appendTo(long position, PageBuilder pageBuilder, int outputChannelOffset) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public boolean isJoinPositionEligible(
-        long currentJoinPosition, int probePosition, Page allProbeChannelsPage) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public boolean isEmpty() {
-      return table == null || table.statusMask == 0;
-    }
-
-    @Override
-    public void close() {
-      table = null;
     }
   }
 }

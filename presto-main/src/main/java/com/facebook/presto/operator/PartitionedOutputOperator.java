@@ -482,6 +482,7 @@ public class PartitionedOutputOperator
         private int[] rowSizes;
         private ArrayList<Integer> variableWidthChannels;
         private BlockDecoder[] blockContents;
+        private BlockDecoder partitionDecoder;
         private BlockEncoding[] encodings;
         private IntArrayAllocator intArrayAllocator;
         private boolean useAria;
@@ -528,10 +529,11 @@ public class PartitionedOutputOperator
                     partitionData[i] = new PartitionData(i, pagesAdded, rowsAdded, serde);
                 }
                 blockContents = new BlockDecoder[sourceTypes.size()];
+                intArrayAllocator = new IntArrayAllocator();
+                partitionDecoder = new BlockDecoder(intArrayAllocator);
                 for (int i = 0; i < blockContents.length; i++) {
                     blockContents[i] = new BlockDecoder();
                 }
-                intArrayAllocator = new IntArrayAllocator();
                 this.pageBuilders = null;
                 return;
             }
@@ -604,7 +606,7 @@ public class PartitionedOutputOperator
                 if (partitionOfRow == null || partitionOfRow.length < positionCount) {
                     partitionOfRow = new int[(int)(positionCount * 1.2)];
                 }
-                partitionFunction.getPartitions(partitionData.length, page, partitionOfRow);
+                partitionFunction.getPartitions(partitionData.length, page, partitionDecoder, partitionOfRow);
                 ariaPartitionPage(page, positionCount);
                 return;
             }

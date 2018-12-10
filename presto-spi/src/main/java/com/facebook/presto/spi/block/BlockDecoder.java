@@ -28,9 +28,18 @@ public class BlockDecoder
     int arrayOffset;
     public boolean isIdentityMap;
     boolean isMapOwned;
-
+    IntArrayAllocator intArrayAllocator;
     static int[] identityMap;
 
+    public BlockDecoder()
+    {
+    }
+
+    public BlockDecoder(IntArrayAllocator intArrayALlocator)
+    {
+        this.intArrayAllocator = intArrayAllocator;
+    }
+    
     static int[] getIdentityMap(int size, int start, IntArrayAllocator intArrayAllocator)
     {
         if (start == 0) {
@@ -52,6 +61,14 @@ public class BlockDecoder
         return map;
     }
 
+    public void decodeBlock(Block block)
+    {
+        if (intArrayAllocator == null) {
+            intArrayAllocator = new IntArrayAllocator();
+        }
+        decodeBlock(block, intArrayAllocator);
+    }
+    
     public void decodeBlock(Block block, IntArrayAllocator intArrayAllocator) {
         int positionCount = block.getPositionCount();
         isMapOwned = false;
@@ -132,8 +149,8 @@ public class BlockDecoder
                 }
                 else {
                     if (map == null) {
-                        isIdentityMap = arrayOffset == 0;
-                        rowNumberMap = getIdentityMap(positionCount, arrayOffset, intArrayAllocator);
+                        isIdentityMap = true;
+                        rowNumberMap = getIdentityMap(positionCount, 0, null);
                     }
                     else {
                         rowNumberMap = map;
@@ -143,7 +160,11 @@ public class BlockDecoder
             }
         }
     }
-
+    public void release()
+    {
+        release(intArrayAllocator);
+    }
+    
     public void release(IntArrayAllocator intArrayAllocator) {
         if (isMapOwned) {
             intArrayAllocator.store(rowNumberMap);

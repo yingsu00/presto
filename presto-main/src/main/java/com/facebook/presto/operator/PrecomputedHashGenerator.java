@@ -25,8 +25,6 @@ public class PrecomputedHashGenerator
         implements HashGenerator
 {
     private final int hashChannel;
-    private BlockDecoder contents;
-    private IntArrayAllocator intArrayAllocator;
     
     public PrecomputedHashGenerator(int hashChannel)
     {
@@ -40,28 +38,24 @@ public class PrecomputedHashGenerator
     }
 
     @Override
-    public void getPartitions(int partitionCount, Page page, int[] partitionsOut)
+    public void getPartitions(int partitionCount, Page page, BlockDecoder decoder, int[] partitionsOut)
     {
-        if (contents == null) {
-            contents = new BlockDecoder();
-            intArrayAllocator = new IntArrayAllocator();
-        }
         Block block = page.getBlock(hashChannel);
-        contents.decodeBlock(block, intArrayAllocator);
+        decoder.decodeBlock(block);
         int positionCount = block.getPositionCount();
-        long[] longs = contents.longs;
-        if (contents.isIdentityMap) {
+        long[] longs = decoder.longs;
+        if (decoder.isIdentityMap) {
             for (int i = 0; i < positionCount; i++) {
                 partitionsOut[i] = (int)((longs[i] & 0x7fffffffffffL) % partitionCount);
             }
         }
         else {
-            int[] map = contents.rowNumberMap;
+            int[] map = decoder.rowNumberMap;
             for (int i = 0; i < positionCount; i++) {
                 partitionsOut[i] = (int)((longs[map[i]] & 0x7fffffffffffL) % partitionCount);
             }
         }
-        contents.release(intArrayAllocator);
+        decoder.release();
     }
     
     @Override

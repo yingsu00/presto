@@ -64,15 +64,26 @@
     #ifdef SLICES
 #define LABEL "With Slices"
         
-	#define DECLTABLE(table) \
-  int statusMask = table.statusMask; \
+	#define DECLTABLE(table_in) \
+AriaLookupSource table = table_in; \
+int statusMask = table.statusMask;              \
 Slice[] slices = table.slices;
   
-	
+
+#define DECLTABLE_N(table_in, sub)          \
+  AriaLookupSource table##sub = table_in; \
+  int statusMask##sub = table##sub.statusMask; \
+Slice[] slices##sub = table##sub.slices;
+
+      
 #define DECLGET(prefix) Slice prefix##slice; int prefix##offset 
 
     #define  PREGET(prefix, l)					\
 { prefix##slice = slices[(int)((l) >> SLABSHIFT)]; prefix##offset = (int)(l) & SLABMASK; }
+
+#define  PREGET_N(prefix, l, sub)                                       \
+{ prefix##slice = slices##sub[(int)((l) >> SLABSHIFT)]; prefix##offset = (int)(l) & SLABMASK; }
+
 
 #define GETL(prefix, field)			\
     prefix##slice.getLong(prefix##offset + field)
@@ -91,23 +102,38 @@ Slice[] slices = table.slices;
 
                                                  #define LABEL "With unmanaged"
 
-                                                 #define DECLTABLE(table) \
-  int statusMask = table.statusMask; \
+                                                 #define DECLTABLE(table_in) \
+AriaLookupSource table = table_in; \
+int statusMask = table.statusMask;              \
 long[] slabs = table.slabs;
-                                                 
+
+#define DECLTABLE_N(table_in, sub)          \
+      AriaLookupSource table##sub = table_in; \
+      int statusMask##sub = table##sub.statusMask;   \
+long[] slabs##sub = table##sub.slabs;
+
+      
                                                  #define DECLGET(prefix) long prefix##ptr
 	    #define PREGET(prefix, l)		\
 	  prefix##ptr = l
-						 #define GETL(prefix, field) \
+
+#define PREGET_N(prefix, l, sub)                    \
+	  prefix##ptr = l
+
+
+#define GETL(prefix, field)                     \
     unsafe.getLong(prefix##ptr + field)
 
 						 #define SETL(prefix, field, v) \
     unsafe.putLong(prefix##ptr + field, v)
 
-                                                 #define SLICEREF(s, o) \
+#define SLICEREF(s, o)                                                 \
                                                  ((slabs[s]) + (o))
                                                  
-    
+#define SLICEREF_N(s, o)                                                 \
+                                                 ((slabs[s]) + (o))
+
+
 #endif
 
 
@@ -127,12 +153,13 @@ long[] slabs = table.slabs;
 
 
 	    #define PREPROBE(sub) \
+DECLTABLE_N(tables[partitions[candidates[currentProbe + sub]]], sub); \
 		row##sub = candidates[currentProbe + sub]; \
         tempHash = hashes[row##sub]; \
-	hash##sub = (int)tempHash & statusMask;	   \
+	hash##sub = (int)tempHash & statusMask##sub;	   \
 	    field##sub = (tempHash >> 56) & 0x7f; \
-        ARRAY_PREGET(st##sub, table.status, h); \
-        hits##sub = ARRAY_GET(st##sub, table.status, hash##sub); \
+        ARRAY_PREGET(st##sub, table##sub.status, h); \
+        hits##sub = ARRAY_GET(st##sub, table##sub.status, hash##sub); \
 	    field##sub |= field##sub << 8; \
 	    field##sub |= field##sub << 16; \
 	    field##sub |= field##sub << 32; 
@@ -146,9 +173,9 @@ long[] slabs = table.slabs;
 	if (hits##sub != 0) { \
 	    int pos = Long.numberOfTrailingZeros(hits##sub) >> 3; \
 	    hits##sub &= hits##sub - 1; \
-            ARRAY_PREGET(ent##sub, table.table, hash##sub * 8 + pos); \
-	    entry##sub = ARRAY_GET(ent##sub, table.table, hash##sub * 8 + pos); \
-	    PREGET(g##sub, entry##sub); \
+            ARRAY_PREGET(ent##sub, table##sub.table, hash##sub * 8 + pos); \
+	    entry##sub = ARRAY_GET(ent##sub, table##sub.table, hash##sub * 8 + pos); \
+	    PREGET_N(g##sub, entry##sub, sub);                              \
 	    match##sub =GETL(g##sub, 0) == k1d[k1Map[row##sub]] \
 		& GETL(g##sub, 8) == k2d[k2Map[row##sub]]; \
 	}
@@ -162,9 +189,9 @@ long[] slabs = table.slabs;
 	for (;;) {		 \
 	while (hits##sub != 0) { \
 	    int pos = Long.numberOfTrailingZeros(hits##sub) >> 3; \
-            ARRAY_PREGET(st##sub, table.table, hash##sub * 8 + pos); \
-	    entry##sub = ARRAY_GET(ent##sub, table.table, hash##sub * 8 + pos); \
-	    PREGET(g##sub, entry##sub); \
+            ARRAY_PREGET(st##sub, table##sub.table, hash##sub * 8 + pos); \
+	    entry##sub = ARRAY_GET(ent##sub, table##sub.table, hash##sub * 8 + pos); \
+	    PREGET_N(g##sub, entry##sub, sub);                              \
 	    if (GETL(g##sub, 0) == k1d[k1Map[row##sub]] && GETL(g##sub, 8) == k2d[k2Map[row##sub]]) { \
 		if (addResult(entry##sub, currentProbe + sub)) { \
 		    return returnPage; \
@@ -174,9 +201,9 @@ long[] slabs = table.slabs;
 	    hits##sub &= hits##sub - 1; \
 	} \
 	if (empty##sub != 0) break; \
-	hash##sub = (hash##sub + 1) & statusMask;	\
-        ARRAY_PREGET(st##sub, table.status, hash##sub); \
-	hits##sub = ARRAY_GET(st##sub, table.status, hash##sub);        \
+	hash##sub = (hash##sub + 1) & statusMask##sub;	\
+        ARRAY_PREGET(st##sub, table##sub.status, hash##sub); \
+	hits##sub = ARRAY_GET(st##sub, table##sub.status, hash##sub);        \
         empty##sub = hits##sub & 0x8080808080808080L; \
 	hits##sub ^= field##sub;          \
 	hits##sub -= 0x0101010101010101L; \

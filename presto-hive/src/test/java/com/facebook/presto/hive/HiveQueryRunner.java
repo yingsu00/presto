@@ -77,7 +77,8 @@ public final class HiveQueryRunner
             throws Exception
     {
         assertEquals(DateTimeZone.getDefault(), TIME_ZONE, "Timezone not configured correctly. Add -Duser.timezone=America/Bahia_Banderas to your JVM arguments");
-        boolean singleThreaded = System.getenv("SINGLE_THREAD") == "y";
+        String singleThreadEnv = System.getenv("SINGLE_THREAD");
+        boolean singleThreaded = singleThreadEnv != null && singleThreadEnv.equals("y");
 	DistributedQueryRunner queryRunner = new DistributedQueryRunner(createSession(), singleThreaded ? 1 : 4, extraProperties);
 
         try {

@@ -14,6 +14,7 @@
 package com.facebook.presto.operator;
 
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.block.BlockDecoder;
 
 import static com.google.common.base.Preconditions.checkState;
 
@@ -34,7 +35,7 @@ public interface HashGenerator
         return partition;
     }
 
-    default void getPartitions(int partitionCount, Page page, int[] partitionsOut)
+    default void getPartitions(int partitionCount, Page page, BlockDecoder decoder, int[] partitionsOut)
     {
         throw new UnsupportedOperationException();
     }

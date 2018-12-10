@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.spi;
 
+import com.facebook.presto.spi.block.BlockDecoder;
+
 public interface BucketFunction
 {
     /**
@@ -21,7 +23,7 @@ public interface BucketFunction
      */
     int getBucket(Page page, int position);
 
-    default void getBuckets(int partitionCount, Page page, int[] partitionsOut)
+    default void getBuckets(int partitionCount, Page page, BlockDecoder decoder, int[] partitionsOut)
     {
         throw new UnsupportedOperationException();
     }

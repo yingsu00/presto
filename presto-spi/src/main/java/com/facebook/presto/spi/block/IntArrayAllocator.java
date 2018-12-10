@@ -35,6 +35,9 @@ public class IntArrayAllocator {
 
     public void store(int[] array)
     {
+        if (array.length < 1) {
+            throw new IllegalArgumentException();
+        }
 	arrays.add(array);
     }
 }
