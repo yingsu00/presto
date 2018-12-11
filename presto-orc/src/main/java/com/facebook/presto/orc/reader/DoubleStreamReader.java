@@ -356,6 +356,7 @@ public class DoubleStreamReader
             values = null;
             valueIsNull = null;
             block = null;
+            numValues = 0;
         }
         return oldBlock;
     }

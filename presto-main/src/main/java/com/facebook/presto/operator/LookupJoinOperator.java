@@ -202,10 +202,6 @@ public class LookupJoinOperator
     @Override
     public boolean needsInput()
     {
-        if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
-            return !finishing
-                && ariaProbe.needsInput();
-        }
         return !finishing
             && lookupSourceProviderFuture.isDone()
                 && spillInProgress.isDone()

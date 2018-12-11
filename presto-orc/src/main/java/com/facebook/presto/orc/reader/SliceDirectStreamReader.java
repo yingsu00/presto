@@ -506,6 +506,7 @@ public class SliceDirectStreamReader
         }
         Block oldBlock = block;
         if (!mayReuse) {
+            numValues = 0;
             resultOffsets = null;
             valueIsNull = null;
             bytes = null;

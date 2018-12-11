@@ -353,30 +353,35 @@ public class BenchmarkBlockDecoder
     TestExpr();
   }
 
-    public void testSlice()
+    public static void testSlice()
     {
-      Slice slice = Slices.allocateDirect(10000);
+      Slice slice = Slices.allocateDirect(2000030);
         long sum = 0;
-        for (int i = 0; i < 2000000; ++i) {
-            sum += testMem(slice);
+        for (int ctr = 0; ctr < 10000; ctr++) {
+            for (int i = 0; i < 2000000; ++i) {
+                sum += testMem(slice, i);
+            }
         }
-        System.out.println("Sum " + sum);
+            System.out.println("Sum " + sum);
     }
 
-    static long testMem(Slice slice)
+    static long testMem(Slice slice, int off)
     {
-        slice.setLong(10, 11);
-        slice.setLong(18, 11);
-        return slice.getLong(10) + slice.getLong(18);
+        slice.setLong(off + 10, 11);
+        slice.setLong(off + 18, 11);
+        return slice.getLong(off + 10) + slice.getLong(off + 18);
     }
 
     public static void main(String args[])
         throws InterruptedException
-  {
-      System.out.println("===Main:");
-      TestExpr();
-      System.out.println("Press enter");
-      System.console().readLine();
-      TestExpr();
-  }
+    {
+        System.out.println("===Main:");
+        testSlice();
+//        TestExpr();
+        System.out.println("Press enter");
+        System.console().readLine();
+//        TestExpr();
+        testSlice();
+    }
+
 }
