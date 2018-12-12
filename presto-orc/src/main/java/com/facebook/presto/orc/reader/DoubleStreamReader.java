@@ -20,10 +20,12 @@ import com.facebook.presto.orc.StreamDescriptor;
 import com.facebook.presto.orc.metadata.ColumnEncoding;
 import com.facebook.presto.orc.stream.BooleanInputStream;
 import com.facebook.presto.orc.stream.DoubleInputStream;
+import com.facebook.presto.orc.stream.OrcInputStream;
 import com.facebook.presto.orc.stream.InputStreamSource;
 import com.facebook.presto.orc.stream.InputStreamSources;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.block.ByteArrayUtils;
 import com.facebook.presto.spi.block.LongArrayBlock;
 import com.facebook.presto.spi.type.Type;
 import org.openjdk.jol.info.ClassLayout;
@@ -41,6 +43,8 @@ import static com.facebook.presto.orc.stream.MissingInputStreamSource.missingStr
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Verify.verify;
 import static io.airlift.slice.SizeOf.sizeOf;
+import static io.airlift.slice.SizeOf.SIZE_OF_DOUBLE;
+
 import static java.lang.Double.doubleToLongBits;
 import static java.lang.Double.longBitsToDouble;
 import static java.util.Objects.requireNonNull;
@@ -70,8 +74,6 @@ public class DoubleStreamReader
     boolean[] present;
     // position of first element of lengths from the start of RowGroup.
     int posInRowGroup;
-    // positions of non-null values from start of row group. Set only if presentStream != null.
-    int[] nonNullRows;
     // Result arrays from outputQualifyingSet.
     int[] outputRows;
     int[] resultInputNumbers;
@@ -215,22 +217,16 @@ public class DoubleStreamReader
         int rowsInRange = end - posInRowGroup;
         int valuesSize = end;
         if (presentStream != null) {
-            if (nonNullRows == null || nonNullRows.length < end) {
-                nonNullRows = new int[end];
-            }
             if (present == null || present.length < end) {
                 present = new boolean[end];
             }
             presentStream.getSetBits(rowsInRange, present);
-            for (int i = 0; i < rowsInRange; i++) {
-                if (present[i]) {
-                    numNonNull++;
-                    if (filter != null) {
-                                                nonNullRows[numNonNull - 1] = i + posInRowGroup;
-                    }
-                }
-            }
         }
+        OrcInputStream orcDataStream = dataStream.getInput();
+        int available = orcDataStream.available();
+        byte[] inputBuffer = orcDataStream.getBuffer(available);
+        int inputOffset = orcDataStream.getOffsetInBuffer();
+        int offsetInStream = inputOffset;
         if (values == null || values.length < valuesSize) {
             values = new long[valuesSize];
         }
@@ -249,16 +245,40 @@ public class DoubleStreamReader
                         addNullResult(i + posInRowGroup, activeIdx);
                     }
                 }
-                    else {
+                else {
                         // Non-null row in qualifying set.
                         if (toSkip > 0) {
-                        dataStream.skip(toSkip);
-                        toSkip = 0;
-                    }
-                    if (filter != null) {
-                        double value = dataStream.next();
+                            int bytes = SIZE_OF_DOUBLE * toSkip;
+                            if (bytes > available) {
+                                orcDataStream.skipFully(bytes);
+                                available = orcDataStream.available();
+                                inputBuffer = orcDataStream.getBuffer(available);
+                                inputOffset = orcDataStream.getOffsetInBuffer();
+                                offsetInStream = inputOffset;
+                            }
+                            else {
+                                inputOffset += bytes;
+                                available -= bytes;
+                            }
+                            toSkip = 0;
+                        }
+                        double value;
+                        if (available >= SIZE_OF_DOUBLE) {
+                            value = ByteArrayUtils.getDouble(inputBuffer, inputOffset);
+                            available -= SIZE_OF_DOUBLE;
+                            inputOffset += SIZE_OF_DOUBLE;
+                        }
+                        else {
+                            orcDataStream.skipFully(inputOffset - offsetInStream);
+                            value = dataStream.next();
+                            available = orcDataStream.available();
+                            inputBuffer = orcDataStream.getBuffer(available);
+                            inputOffset = orcDataStream.getOffsetInBuffer();
+                            offsetInStream = inputOffset;
+                        }
+                        if (filter != null) {
                         if (filter.testDouble(value)) {
-                            outputRows[numResults] = presentStream != null ? nonNullRows[valueIdx] : i + posInRowGroup;
+                            outputRows[numResults] = i + posInRowGroup;
                             resultInputNumbers[numResults] = activeIdx;
                             if (outputChannel != -1) {
                                 addResult(value);
@@ -268,13 +288,23 @@ public class DoubleStreamReader
                     }
                     else {
                         // No filter.
-                        addResult(dataStream.next());
+                        addResult(value);
                         numResults++;
                     }
                     valueIdx++;
-                    }
+                }
                 if (++activeIdx == numActive) {
-                    toSkip = numNonNull - valueIdx;
+                    i++;
+                    if (present != null) {
+                        for (; i < end; i++) {
+                            if (present[i]) {
+                                toSkip++;
+                            }
+                        }
+                    }
+                    else {
+                        toSkip = end - i;
+                    }
                     break;
                 }
                 nextActive = inputPositions[activeIdx];
@@ -288,8 +318,8 @@ public class DoubleStreamReader
                 }
             }
         }   
-        if (toSkip > 0) {
-            dataStream.skip(toSkip);
+        if (toSkip > 0 || inputOffset != offsetInStream) {
+            orcDataStream.skipFully(toSkip * SIZE_OF_DOUBLE + (inputOffset - offsetInStream));
         }
         if (output != null) {
             output.setPositionCount(numResults);
@@ -323,10 +353,13 @@ public class DoubleStreamReader
 
     void addResult(double value)
     {
-        ensureResultRows();
-        values[numValues + numResults] = doubleToLongBits(value);
+        int position = numValues + numResults;
+        if (position >= values.length) {
+            ensureResultRows();
+        }
+        values[position] = doubleToLongBits(value);
         if (valueIsNull != null) {
-            valueIsNull[numValues + numResults] = false;
+            valueIsNull[position] = false;
         }
     }
 

@@ -86,7 +86,7 @@ Slice[] slices##sub = table##sub.slices;
 
 
 #define GETL(prefix, field)			\
-    prefix##slice.getLong(prefix##offset + field)
+  getLongUnchecked(prefix##slice, prefix##offset + field)
 
     #define SETL(prefix, field, v)			\
     prefix##slice.setLong(prefix##offset + field, v)

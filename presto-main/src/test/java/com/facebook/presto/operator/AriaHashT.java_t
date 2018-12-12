@@ -82,6 +82,11 @@ import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import static sun.misc.Unsafe.ARRAY_BYTE_BASE_OFFSET;
+import static io.airlift.slice.UnsafeSlice.getLongUnchecked;
+
+
+
 #include "hash.h"
 
 public class AriaHash {
@@ -107,7 +112,7 @@ public class AriaHash {
     static boolean useBloomFilter = false;
 
 
-    static boolean recycleTable = true;
+    static boolean recycleTable = false;
     #ifdef SLICES
     static List<Slice> sliceReserve = new ArrayList();
 
@@ -277,6 +282,15 @@ public class AriaHash {
                 ARRAY_PREGET(st, status, i);
 		ARRAY_SET(st, status, i, 0x8080808080808080L);
 	    }
+	    for (int i = 0; i < size; ++i) {
+                ARRAY_PREGET(st, table, i);
+#ifdef SLICES
+		ARRAY_SET(st, table, i, -1);
+#else
+		ARRAY_SET(st, table, i, 0);
+    #endif
+	    }
+
 	}
 
     @Override
@@ -503,7 +517,8 @@ DECLGET(k);
 		DECLGET(a);
 		DECLGET(b);
 		while (hits != 0) {
-                    PREGET(b, entries[i]);                    int pos = Long.numberOfTrailingZeros(hits) >> 3;
+                    PREGET(b, entries[i]);
+                    int pos = Long.numberOfTrailingZeros(hits) >> 3;
                     ARRAY_PREGET(ent, table.table, h * 8 + pos);
                     PREGET(a, ARRAY_GET(ent, table.table, h * 8 + pos));
 			       if (GETL(a, 0) == GETL(b, 0) && GETL(a, 8) == GETL(b, 8)) {

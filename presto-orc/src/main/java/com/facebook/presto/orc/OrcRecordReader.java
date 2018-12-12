@@ -850,6 +850,9 @@ public class OrcRecordReader
     // Makes a Page based the Blocks in StreamReaders.
     Page resultPage()
     {
+        if (numRowsInResult == 0) {
+            return null;
+        }
         if (reusePages) {
             Block[] blocks = reusedPageBlocks;
             if (blocks == null) {

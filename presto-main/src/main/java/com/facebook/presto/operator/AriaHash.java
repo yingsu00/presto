@@ -2,6 +2,7 @@ package com.facebook.presto.operator;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
+import static io.airlift.slice.UnsafeSlice.getLongUnchecked;
 
 import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
@@ -47,7 +48,7 @@ public class AriaHash {
   static boolean silent = false;
   static boolean useBloomFilter = false;
 
-  static boolean recycleTable = true;
+  static boolean recycleTable = false;
 
   static List<Slice> sliceReserve = new ArrayList();
 
@@ -103,7 +104,7 @@ public class AriaHash {
         aoffset = (int) (entry) & 0x1ffff;
       }
       ;
-      return aslice.getLong(aoffset + offset);
+      return getLongUnchecked(aslice, aoffset + offset);
     }
 
     public long allocBytes(int bytes) {
@@ -154,6 +155,10 @@ public class AriaHash {
       statusMask = (size >> 3) - 1;
       for (int i = 0; i <= statusMask; ++i) {;
         status[i] = 0x8080808080808080L;
+      }
+      for (int i = 0; i < size; ++i) {;
+
+        table[i] = -1;
       }
     }
 
@@ -246,14 +251,14 @@ public class AriaHash {
       ;
       long h;
       {
-        long __k = kslice.getLong(koffset + 0);
+        long __k = getLongUnchecked(kslice, koffset + 0);
         __k *= 0xc6a4a7935bd1e995L;
         __k ^= __k >> 47;
         h = __k * 0xc6a4a7935bd1e995L;
       }
       ;
       {
-        long __k = kslice.getLong(koffset + 8);
+        long __k = getLongUnchecked(kslice, koffset + 8);
         __k *= 0xc6a4a7935bd1e995L;
         __k ^= __k >> 47;
         __k *= 0xc6a4a7935bd1e995L;
@@ -404,8 +409,8 @@ public class AriaHash {
               aoffset = (int) (table.table[h * 8 + pos]) & 0x1ffff;
             }
             ;
-            if (aslice.getLong(aoffset + 0) == bslice.getLong(boffset + 0)
-                && aslice.getLong(aoffset + 8) == bslice.getLong(boffset + 8)) {
+            if (getLongUnchecked(aslice, aoffset + 0) == getLongUnchecked(bslice, boffset + 0)
+                && getLongUnchecked(aslice, aoffset + 8) == getLongUnchecked(bslice, boffset + 8)) {
               aslice.setLong(aoffset + 24, entries[i]);
               break nextKey;
             }
@@ -617,8 +622,8 @@ public class AriaHash {
           aoffset = (int) (entry) & 0x1ffff;
         }
         ;
-        result1[resultFill] = aslice.getLong(aoffset + 16);
-        entry = aslice.getLong(aoffset + 24);
+        result1[resultFill] = getLongUnchecked(aslice, aoffset + 16);
+        entry = getLongUnchecked(aslice, aoffset + 24);
         ++resultFill;
         if (resultFill >= maxResults) {
           currentResult = entry;
@@ -799,8 +804,8 @@ public class AriaHash {
           }
           ;
           match0 =
-              g0slice.getLong(g0offset + 0) == k1d[k1Map[row0]]
-                  & g0slice.getLong(g0offset + 8) == k2d[k2Map[row0]];
+              getLongUnchecked(g0slice, g0offset + 0) == k1d[k1Map[row0]]
+                  & getLongUnchecked(g0slice, g0offset + 8) == k2d[k2Map[row0]];
         }
         ;
         empty1 = hits1 & 0x8080808080808080L;
@@ -818,8 +823,8 @@ public class AriaHash {
           }
           ;
           match1 =
-              g1slice.getLong(g1offset + 0) == k1d[k1Map[row1]]
-                  & g1slice.getLong(g1offset + 8) == k2d[k2Map[row1]];
+              getLongUnchecked(g1slice, g1offset + 0) == k1d[k1Map[row1]]
+                  & getLongUnchecked(g1slice, g1offset + 8) == k2d[k2Map[row1]];
         }
         ;
         empty2 = hits2 & 0x8080808080808080L;
@@ -837,8 +842,8 @@ public class AriaHash {
           }
           ;
           match2 =
-              g2slice.getLong(g2offset + 0) == k1d[k1Map[row2]]
-                  & g2slice.getLong(g2offset + 8) == k2d[k2Map[row2]];
+              getLongUnchecked(g2slice, g2offset + 0) == k1d[k1Map[row2]]
+                  & getLongUnchecked(g2slice, g2offset + 8) == k2d[k2Map[row2]];
         }
         ;
         empty3 = hits3 & 0x8080808080808080L;
@@ -856,8 +861,8 @@ public class AriaHash {
           }
           ;
           match3 =
-              g3slice.getLong(g3offset + 0) == k1d[k1Map[row3]]
-                  & g3slice.getLong(g3offset + 8) == k2d[k2Map[row3]];
+              getLongUnchecked(g3slice, g3offset + 0) == k1d[k1Map[row3]]
+                  & getLongUnchecked(g3slice, g3offset + 8) == k2d[k2Map[row3]];
         }
         ;
         if (match0) {
@@ -874,8 +879,8 @@ public class AriaHash {
                 g0offset = (int) (entry0) & 0x1ffff;
               }
               ;
-              if (g0slice.getLong(g0offset + 0) == k1d[k1Map[row0]]
-                  && g0slice.getLong(g0offset + 8) == k2d[k2Map[row0]]) {
+              if (getLongUnchecked(g0slice, g0offset + 0) == k1d[k1Map[row0]]
+                  && getLongUnchecked(g0slice, g0offset + 8) == k2d[k2Map[row0]]) {
                 if (addResult(entry0, currentProbe + 0)) {
                   return returnPage;
                 }
@@ -908,8 +913,8 @@ public class AriaHash {
                 g1offset = (int) (entry1) & 0x1ffff;
               }
               ;
-              if (g1slice.getLong(g1offset + 0) == k1d[k1Map[row1]]
-                  && g1slice.getLong(g1offset + 8) == k2d[k2Map[row1]]) {
+              if (getLongUnchecked(g1slice, g1offset + 0) == k1d[k1Map[row1]]
+                  && getLongUnchecked(g1slice, g1offset + 8) == k2d[k2Map[row1]]) {
                 if (addResult(entry1, currentProbe + 1)) {
                   return returnPage;
                 }
@@ -942,8 +947,8 @@ public class AriaHash {
                 g2offset = (int) (entry2) & 0x1ffff;
               }
               ;
-              if (g2slice.getLong(g2offset + 0) == k1d[k1Map[row2]]
-                  && g2slice.getLong(g2offset + 8) == k2d[k2Map[row2]]) {
+              if (getLongUnchecked(g2slice, g2offset + 0) == k1d[k1Map[row2]]
+                  && getLongUnchecked(g2slice, g2offset + 8) == k2d[k2Map[row2]]) {
                 if (addResult(entry2, currentProbe + 2)) {
                   return returnPage;
                 }
@@ -976,8 +981,8 @@ public class AriaHash {
                 g3offset = (int) (entry3) & 0x1ffff;
               }
               ;
-              if (g3slice.getLong(g3offset + 0) == k1d[k1Map[row3]]
-                  && g3slice.getLong(g3offset + 8) == k2d[k2Map[row3]]) {
+              if (getLongUnchecked(g3slice, g3offset + 0) == k1d[k1Map[row3]]
+                  && getLongUnchecked(g3slice, g3offset + 8) == k2d[k2Map[row3]]) {
                 if (addResult(entry3, currentProbe + 3)) {
                   return returnPage;
                 }
@@ -1037,8 +1042,8 @@ public class AriaHash {
           }
           ;
           match0 =
-              g0slice.getLong(g0offset + 0) == k1d[k1Map[row0]]
-                  & g0slice.getLong(g0offset + 8) == k2d[k2Map[row0]];
+              getLongUnchecked(g0slice, g0offset + 0) == k1d[k1Map[row0]]
+                  & getLongUnchecked(g0slice, g0offset + 8) == k2d[k2Map[row0]];
         }
         ;
         if (match0) {
@@ -1055,8 +1060,8 @@ public class AriaHash {
                 g0offset = (int) (entry0) & 0x1ffff;
               }
               ;
-              if (g0slice.getLong(g0offset + 0) == k1d[k1Map[row0]]
-                  && g0slice.getLong(g0offset + 8) == k2d[k2Map[row0]]) {
+              if (getLongUnchecked(g0slice, g0offset + 0) == k1d[k1Map[row0]]
+                  && getLongUnchecked(g0slice, g0offset + 8) == k2d[k2Map[row0]]) {
                 if (addResult(entry0, currentProbe + 0)) {
                   return returnPage;
                 }
