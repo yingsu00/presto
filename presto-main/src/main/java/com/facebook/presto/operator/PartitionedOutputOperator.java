@@ -714,6 +714,9 @@ public class PartitionedOutputOperator
             for (int i = 0; i  < partitionData.length; i++) {
                 partitionData[i].appendRows(blockContents, i, fixedRowSize, rowSizes, outputBuffer);
             }
+            for (int i = 0; i < sourceTypes.size(); i++) {
+                blockContents[i].release(intArrayAllocator);
+            }
         }
     }
 
