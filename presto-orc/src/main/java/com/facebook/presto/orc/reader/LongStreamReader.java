@@ -136,12 +136,12 @@ public void setFilterAndChannel(Filter filter, int channel)
     }
     
     @Override
-    public int erase(int begin, int end, int numValuesBeforeRowGroup, int numErasedFromInput)
+    public void erase(int end)
     {
         if (currentReader == null) {
-            return 0;
+            return;
         }
-        return currentReader.erase(begin, end, numValuesBeforeRowGroup, numErasedFromInput);
+        currentReader.erase(end);
     }
     
     public int scan(int maxResultBytes)

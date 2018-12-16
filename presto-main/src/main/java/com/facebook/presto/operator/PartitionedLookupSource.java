@@ -353,14 +353,13 @@ public class PartitionedLookupSource
         return lookupSources[0] instanceof AriaHash.AriaLookupSource;
     }
 
-    public AriaHash.AriaProbe createAriaProbe(Session session)
+    public AriaHash.AriaProbe createAriaProbe(Session session, boolean reusePages)
     {
-        boolean reuse = SystemSessionProperties.enableAriaReusePages(session);
         AriaHash.AriaLookupSource[] castLookupSources = new AriaHash.AriaLookupSource[lookupSources.length];
         for (int i = 0; i < lookupSources.length; i++) {
             castLookupSources[i] = (AriaHash.AriaLookupSource)lookupSources[i];
         }
-        return new AriaHash.AriaProbe(castLookupSources, partitionGenerator, reuse);
+        return new AriaHash.AriaProbe(castLookupSources, partitionGenerator, reusePages);
     }
 
         }

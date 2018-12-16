@@ -99,6 +99,7 @@ public class LookupJoinOperator
     private Optional<ListenableFuture<Supplier<LookupSource>>> unspilledLookupSource = Optional.empty();
     private Iterator<Page> unspilledInputPages = emptyIterator();
     private JoinPushdown joinPushdown = JoinPushdown.UNKNOWN;
+    private boolean reusePages;
 
     public LookupJoinOperator(
             OperatorContext operatorContext,
@@ -426,7 +427,7 @@ public class LookupJoinOperator
                             joinPushdown = JoinPushdown.NO_PUSHDOWN;
                             return null;
                         }
-                        ariaProbe = ((PartitionedLookupSource)lookupSource).createAriaProbe(operatorContext.getSession());
+                        ariaProbe = ((PartitionedLookupSource)lookupSource).createAriaProbe(operatorContext.getSession(), reusePages);
                     }
                     if (probe.getPosition() == -1) {
                         ariaProbe.addInput(probe);
@@ -739,4 +740,16 @@ public class LookupJoinOperator
         buildPage();
         probe = null;
     }
+
+    @Override
+    public boolean retainsInputPages()
+    {
+        return false;
+    }
+    @Override
+    public void enableOutputPageReuse()
+    {
+        reusePages = true;
+    }
+    
 }

@@ -26,6 +26,10 @@ abstract class ColumnReader
     int outputChannel = -1;
     Filter filter;
     int expectNumValues = 10000;
+    // First row number in row group that is not processed due to
+    // reaching target size. This must occur as a position in
+    // inputQualifyingSet. -1 if all inputQualifyingSet is processed.
+    int truncationRow = -1;
 
     public QualifyingSet getInputQualifyingSet()
     {
@@ -60,5 +64,17 @@ abstract class ColumnReader
     public Filter getFilter()
     {
         return filter;
+    }
+    
+    public void compactQualifyingSet(int[] surviving, int numSurviving)
+    {
+        if (outputQualifyingSet == null) {
+            return;
+        }
+        int[] rows = outputQualifyingSet.getMutablePositions(0);
+        for (int i = 0; i < numSurviving; i++) {
+            rows[i] = rows[surviving[i]];
+        }
+        outputQualifyingSet.setPositionCount(numSurviving);
     }
 }

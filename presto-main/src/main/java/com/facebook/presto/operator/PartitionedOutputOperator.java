@@ -781,5 +781,9 @@ public class PartitionedOutputOperator
                     .toString();
         }
     }
-
+    @Override
+    public boolean retainsInputPages()
+    {
+        return false;
+    }
 }

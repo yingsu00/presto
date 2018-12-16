@@ -186,16 +186,31 @@ public class DoubleStreamReader
     }
 
         @Override
-    public int erase(int begin, int end, int numResultsBeforeRowGroup, int numErasedFromInput)
+    public void erase(int end)
     {
-        if (block != null) {
-            block.erase(numResultsBeforeRowGroup + begin, block.getPositionCount());
+        numValues -= end;
+        if (numValues > 0) {
+            System.arraycopy(values, end, values, 0, numValues);
+            if (valueIsNull != null) {
+                            System.arraycopy(valueIsNull, end, valueIsNull, 0, numValues);
+            }
         }
-        if (valueIsNull != null) {
-            Arrays.fill(valueIsNull, false);
+    }
+
+    @Override
+    public void compactValues(int[] positions, int base, int numPositions)
+    {
+        if (outputChannel != -1) {
+            StreamReaders.compactArrays(positions, base, numPositions, values, valueIsNull);
+            numValues = base + numPositions;
         }
-        numValues = 0;
-        return 0;
+            compactQualifyingSet(positions, numPositions);
+    }
+
+    @Override
+    public int getFixedWidth()
+    {
+        return SIZE_OF_DOUBLE;
     }
     
     @Override
@@ -208,6 +223,7 @@ public class DoubleStreamReader
         if (!rowGroupOpen) {
             openRowGroup();
         }
+        truncationRow = -1;
         numResults = 0;
         int numNonNull = 0;
         QualifyingSet input = inputQualifyingSet;

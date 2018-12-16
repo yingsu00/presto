@@ -31,8 +31,8 @@ public class QualifyingSet
     private int[] inputNumbers;
     private boolean isRanges;
 
-    static int[] wholeRowGroup;
-    static int[] allZeros;
+    static volatile int[] wholeRowGroup;
+    static volatile int[] allZeros;
     private int[] ownedPositions;
     private int[] ownedInputNumbers;
     

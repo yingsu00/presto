@@ -42,6 +42,7 @@ import static com.facebook.presto.orc.stream.MissingInputStreamSource.missingStr
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Verify.verify;
 import static io.airlift.slice.SizeOf.sizeOf;
+import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
@@ -72,7 +73,9 @@ public class LongDirectStreamReader
 
     private long[] values = null;
     private boolean[] valueIsNull = null;
-    
+    // Number of positions in values, valueIsNull.
+    private int numValues = 0;
+
     public LongDirectStreamReader(StreamDescriptor streamDescriptor, LocalMemoryContext systemMemoryContext)
     {
         this.streamDescriptor = requireNonNull(streamDescriptor, "stream is null");
@@ -173,16 +176,34 @@ public class LongDirectStreamReader
     }
 
     @Override
-    public int erase(int begin, int end, int numResultsBeforeRowGroup, int numErasedFromInput)
+    public void erase(int end)
     {
-        if (block != null) {
-            block.erase(numResultsBeforeRowGroup + begin, block.getPositionCount());
-            return 0;
+        numValues -= end;
+        if (numValues > 0) {
+            System.arraycopy(values, end, values, 0, numValues);
+            if (valueIsNull != null) {
+                            System.arraycopy(valueIsNull, end, valueIsNull, 0, numValues);
+            }
         }
-        return 0;
     }
-    
+
+    public void compactValues(int[] positions, int base, int numPositions)
+    {
+        if (outputChannel != -1) {
+            StreamReaders.compactArrays(positions, base, numPositions, values, valueIsNull);
+
+           numValues = base + numPositions;
+        }
+           compactQualifyingSet(positions, numPositions);
+    }
+
     @Override
+    public int getFixedWidth()
+    {
+        return SIZE_OF_LONG;
+    }
+
+@Override
     public int scan(int maxBytes)
             throws IOException
     {
@@ -193,6 +214,7 @@ public class LongDirectStreamReader
             throw new UnsupportedOperationException("scan() does not support nulls");
         }
 
+        truncationRow = -1;
         if (outputChannel != -1) {
             ensureBlockSize();
         }

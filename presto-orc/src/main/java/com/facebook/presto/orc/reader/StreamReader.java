@@ -80,15 +80,42 @@ public interface StreamReader
         return 8;
     }
 
-    default int erase(int begin, int end, int numValuesBeforeRowGroup, int numErasedFromInput)
+    default void erase(int end)
     {
         throw new UnsupportedOperationException();
     }
-    
+
+    default void compactValues(int[] surviving, int base, int numValues)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    // Returns the row number of the first unprocessed input in the
+    // input QualifyingSet, -1 if the whole input QualifyingSet was
+    // processed by scan(). This is set when stopping due to reaching
+    // target datasize.
+    default int getTruncationRow()
+    {
+        return -1;
+    }
+
     default int scan(int maxResultBytes)
         throws IOException
     {
         throw new UnsupportedOperationException();
+    }
+
+    // Reads lengths for the rows in the input QualifyingSet.
+    default int scanLengths(int maxResultBytes)
+        throws IOException
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    // Returns the number of bytes per non-null row. -1 if variable.
+    default int getFixedWidth()
+    {
+        return -1;
     }
     
     Block readBlock(Type type)
