@@ -121,9 +121,9 @@ public class SliceStreamReader
     }
     
     @Override
-public void setFilterAndChannel(Filter filter, int channel)
+    public void setFilterAndChannel(Filter filter, int channel, int columnIndex)
     {
-        directReader.setFilterAndChannel(filter, channel);
+        directReader.setFilterAndChannel(filter, channel, columnIndex);
     }
 
     @Override

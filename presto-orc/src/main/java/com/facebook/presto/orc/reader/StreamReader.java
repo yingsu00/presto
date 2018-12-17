@@ -49,7 +49,7 @@ public interface StreamReader
      * applying filter to the rows in the input QualifyingSet. If
      * channel is not -1, appends the values in the post-filter rows
      * to a Block. The Block can be retrieved by getBlock(). */
-    default void setFilterAndChannel(Filter filter, int channel)    {
+    default void setFilterAndChannel(Filter filter, int channel, int columnIndex)    {
         throw new UnsupportedOperationException();
     }
 
@@ -76,8 +76,17 @@ public interface StreamReader
         return null;
     }
     
-    default int getValueSize() {
-        return 8;
+    default int getColumnIndex()
+    {
+        return -1;
+    }
+
+    // Sets the number of additional result bytes a scan() is allowed
+    // to accumulate before truncating the result. A scan, even with
+    // truncation, will add at least one row.
+    default void setResultSizeBudget(int bytes)
+    {
+        throw new UnsupportedOperationException();
     }
 
     default void erase(int end)
@@ -99,14 +108,19 @@ public interface StreamReader
         return -1;
     }
 
-    default int scan(int maxResultBytes)
+    // Returns an approximation of the size of the Block to be returned from getBlock().
+    default int getResultSizeInBytes()
+    {
+        throw new UnsupportedOperationException();
+    }
+    // Reads lengths for the rows in the input QualifyingSet.
+    default int scanLengths(int maxResultBytes)
         throws IOException
     {
         throw new UnsupportedOperationException();
     }
-
-    // Reads lengths for the rows in the input QualifyingSet.
-    default int scanLengths(int maxResultBytes)
+    
+    default int scan(int maxResultBytes)
         throws IOException
     {
         throw new UnsupportedOperationException();
@@ -116,6 +130,11 @@ public interface StreamReader
     default int getFixedWidth()
     {
         return -1;
+    }
+
+    default int getAverageResultSize()
+    {
+        throw new UnsupportedOperationException();
     }
     
     Block readBlock(Type type)

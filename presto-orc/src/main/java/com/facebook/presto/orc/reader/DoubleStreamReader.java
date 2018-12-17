@@ -66,8 +66,6 @@ public class DoubleStreamReader
     private boolean[] nullVector = new boolean[0];
     private boolean[] valueIsNull;
     private long[] values;
-    // Number of positions in values, valueIsNull.
-    private int numValues = 0;
     // Number of result rows in scan() so far.
     private int numResults;
     //Present flag for each row in input QualifyingSet.

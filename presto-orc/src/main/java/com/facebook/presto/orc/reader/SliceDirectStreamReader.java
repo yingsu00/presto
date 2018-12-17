@@ -81,9 +81,7 @@ public class SliceDirectStreamReader
 
     private boolean rowGroupOpen;
 
-    // Number of values in bytes, resultOffsets, valueIsNull before scan().
-    int numValues = 0;
-    // Number of result rows in scan() so far.
+    // Number of result rows added  by current scan() so far.
     private int numResults;
     // Content bytes to be returned in Block.
     private byte[] bytes;
@@ -104,6 +102,8 @@ public class SliceDirectStreamReader
     // Result arrays from outputQualifyingSet.
     int[] outputRows;
     int[] resultInputNumbers;
+    long totalBytes = 0;
+    long totalRows = 0;
     
     public SliceDirectStreamReader(StreamDescriptor streamDescriptor)
     {
@@ -241,6 +241,7 @@ public class SliceDirectStreamReader
         lengthStream = lengthStreamSource.openStream();
         dataStream = dataByteSource.openStream();
         posInRowGroup = 0;
+        numLengths = 0;
         rowGroupOpen = true;
     }
 
@@ -327,6 +328,21 @@ public class SliceDirectStreamReader
     {
         return -1;
     }
+
+    @Override
+    public int getResultSizeInBytes()
+    {
+        return 4 * numValues + resultOffsets[numValues];
+    }
+
+    @Override
+    public int getAverageResultSize()
+    {
+        if (totalRows == 0) {
+            return 16;
+        }
+        return (int) ((4 + totalBytes) / totalRows);
+    }
     
     @Override
     public int scanLengths(int maxBytes)
@@ -336,30 +352,35 @@ public class SliceDirectStreamReader
             openRowGroup();
         }
         numResults = 0;
-        int numLengths = 0;
         truncationRow = -1;
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
         int numInput = input.getPositionCount();
         int end = input.getEnd();
         int rowsInRange = end - posInRowGroup;
+        int neededLengths = 0;
         if (presentStream == null) {
-            numLengths = end;
-        } else {
-            if (present == null || present.length < end) {
-                present = new boolean[end];
+            neededLengths = rowsInRange;
+        }
+        else {
+            if (present == null || present.length < rowsInRange) {
+                present = new boolean[rowsInRange];
             }
             presentStream.getSetBits(rowsInRange, present);
             for (int i = 0; i < rowsInRange; i++) {
                 if (present[i]) {
-                    numLengths++;
+                    neededLengths++;
                 }
             }
         }
-        if (lengths == null || lengths.length < numLengths) {
-            lengths = new int[numLengths];
+        if (lengths == null) {
+            lengths = new int[neededLengths];
         }
-        lengthStream.nextIntVector(numLengths, lengths, 0);
+        else if (lengths.length < numLengths + neededLengths) {
+            lengths = Arrays.copyOf(lengths, numLengths + neededLengths + 100);
+        }
+        lengthStream.nextIntVector(neededLengths, lengths, numLengths);
+        numLengths += neededLengths;
         return end;
     }
     
@@ -380,6 +401,7 @@ public class SliceDirectStreamReader
         if (!rowGroupOpen) {
             throw new IllegalArgumentException("Row group must be open before variable length scan()");
         }
+        long bytesToGo = resultSizeBudget;
         numResults = 0;
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
@@ -395,8 +417,12 @@ public class SliceDirectStreamReader
         int activeIdx = 0;
         int numActive = input.getPositionCount();
         int toSkip = 0;
-        for (int i = 0; i < rowsInRange; i++) {
+        int i = 0;
+        for (; i < rowsInRange; i++) {
             if (i + posInRowGroup == nextActive) {
+                if (truncationRow == nextActive) {
+                    break;
+                }
                 if (present != null && !present[i]) {
                     if (filter == null || filter.testNull()) {
                         addNullResult(i + posInRowGroup, activeIdx);
@@ -430,6 +456,7 @@ public class SliceDirectStreamReader
                             resultInputNumbers[numResults] = activeIdx;
                             if (outputChannel != -1) {
                                 addResultBytes(buffer, pos, length);
+                                bytesToGo -= length + 4;
                             }
                             numResults++;
                         }
@@ -438,6 +465,7 @@ public class SliceDirectStreamReader
                         // No filter.
                         addResultFromStream(length);
                         numResults++;
+                        bytesToGo -= length + 4;
                     }
                     lengthIdx++;
                     }
@@ -448,6 +476,10 @@ public class SliceDirectStreamReader
                     break;
                 }
                 nextActive = inputPositions[activeIdx];
+                if (bytesToGo <= 0) {
+                    truncationRow = nextActive;
+                    input.setTruncationPosition(activeIdx);
+                }
                 continue;
             }
             else {
@@ -460,7 +492,16 @@ public class SliceDirectStreamReader
         if (toSkip > 0) {
             dataStream.skip(toSkip);
         }
-        if (output != null) {
+        // The reader is positioned at inputQualifyingSet.end() or truncationRow.
+            // If truncation, consume present flags and lengths.
+        if (i != rowsInRange && present != null) {
+            System.arraycopy(present, i, present, 0, rowsInRange - i);
+        }
+        if (lengthIdx < numLengths) {
+            System.arraycopy(lengths, lengthIdx, lengths, 0, numLengths - lengthIdx);
+        }
+        numLengths -= lengthIdx;
+            if (output != null) {
             output.setPositionCount(numResults);
         }
         numValues += numResults;
@@ -470,8 +511,8 @@ public class SliceDirectStreamReader
         if (output != null) {
             output.setEnd(end);
         }
-        posInRowGroup = end;
-        return end;
+        posInRowGroup = truncationRow != -1 ? truncationRow : end;
+        return posInRowGroup;
     }
 
     void addNullResult(int row, int activeIdx)

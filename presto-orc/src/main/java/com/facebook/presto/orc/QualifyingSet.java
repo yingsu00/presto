@@ -14,6 +14,7 @@
 package com.facebook.presto.orc;
 
 import java.util.Arrays;
+import static com.google.common.base.Preconditions.checkArgument;
 
 public class QualifyingSet
 {
@@ -27,6 +28,9 @@ public class QualifyingSet
     private int[] positions;
     private int numRanges;
     private int positionCount;
+    // Index into positions for the first row after truncation. -1 if
+    // no truncation.
+    private int truncationPosition = -1;
 
     private int[] inputNumbers;
     private boolean isRanges;
@@ -135,6 +139,9 @@ public class QualifyingSet
 
     public int getEnd()
     {
+        if (truncationPosition != -1) {
+            return positions[truncationPosition];
+                                       }
         return end;
     }
 
@@ -145,15 +152,29 @@ public class QualifyingSet
     
     public int getPositionCount()
     {
+        if (truncationPosition != -1) {
+            return truncationPosition;
+        }
         return positionCount;
     }
 
     public void setPositionCount(int positionCount)
     {
+        checkArgument(truncationPosition < positionCount && truncationPosition > 0, "truncationPosition  must be between 1 and positionCount - 1");
         this.positionCount = positionCount;
     }
 
-    // Erases qulifying rows and corresponding input numbers below position.
+public void setTruncationPosition(int position)
+{
+    truncationPosition = position;
+}
+
+public void clearTruncationPosition()
+{
+    truncationPosition = -1;
+}
+
+// Erases qulifying rows and corresponding input numbers below position.
     public void eraseBelowPosition(int position)
     {
         if (positions != ownedPositions) {

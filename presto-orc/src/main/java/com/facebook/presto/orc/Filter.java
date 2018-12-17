@@ -53,6 +53,14 @@ public class Filter
             return (double)time / (1 + nIn - nOut);
 }
 
+    double getSelectivity()
+    {
+        if (nIn == 0) {
+            return 1;
+        }
+        return (double) nOut / (double) nIn;
+    }
+    
     void decayStats()
     {
         nIn /= 2;

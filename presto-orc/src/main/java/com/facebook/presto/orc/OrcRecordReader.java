@@ -125,19 +125,21 @@ public class OrcRecordReader
     QualifyingSet initialQualifyingSet = new QualifyingSet();
     QualifyingSet tempQualifyingSet;
     
-    boolean reusePages = false;
-    boolean reorderFilters = false;
+    boolean reusePages;
+    boolean reorderFilters;
     Page reusedPage;
     Block[] reusedPageBlocks;
 
         int lastTruncatedStreamIdx = -1;
     int maxOutputChannel = -1;
     int targetNumRows = 10000;
+    int targetResultBytes;
     // The number of leading elements in streamOredr that is subject to reordering.
     int numFilters = 0;
     // Temporary array for compacting results that have been decimated
     // by subsequent filters.
     int[] survivingRows;
+    int readerBudget[];
     
     public OrcRecordReader(
             Map<Integer, Type> includedColumns,
@@ -763,11 +765,12 @@ public class OrcRecordReader
             }
             int outputChannel = i < targetChannels.length ? targetChannels[i] : -1;
             Filter filter = filters.get(columnIndex);
-            streamReaders[columnIndex].setFilterAndChannel(filter, outputChannel);
+            streamReaders[columnIndex].setFilterAndChannel(filter, outputChannel, columnIndex);
             maxOutputChannel = Math.max(maxOutputChannel, outputChannel);
         }
         reusePages = options.getReusePages();
         reorderFilters = options.getReorderFilters();
+        targetResultBytes = options.getTargetBytes();
         setupStreamOrder();
         return true;
     }
@@ -793,7 +796,7 @@ public class OrcRecordReader
                 return aFilter.staticScore() - bFilter.staticScore();
             }
             // Streans that have no filters go longer data type first. This hits maximum batch size sooner.
-            return b.getValueSize() - a.getValueSize();
+            return b.getAverageResultSize() - a.getAverageResultSize();
         }
 
     void setupStreamOrder()
@@ -818,6 +821,7 @@ public class OrcRecordReader
         if (numFilters < 2) {
             reorderFilters = false;
         }
+        readerBudget = new int[streamOrder.length];
     }
 
     void maybeReorderFilters()
@@ -838,7 +842,54 @@ public class OrcRecordReader
         }
         Arrays.sort(streamOrder, 0, numFilters, (StreamReader a, StreamReader b) -> compareReaders(a, b));
     }
-    
+
+    // Divides the space available in the result Page between the
+    // streams at firstStreamIdx and to the right of at. 
+    boolean makeResultBudget(int firstStreamIdx, int numRows, boolean mayReturn)
+    {
+        int bytesSoFar = 0;
+        double selectivity = 1;
+        int totalAsk = 0;
+        for (int i = 0; i < streamOrder.length; i++) {
+            StreamReader reader = streamOrder[i];
+            bytesSoFar += reader.getResultSizeInBytes();
+            if (i >= firstStreamIdx) {
+                Filter filter = reader.getFilter();
+                int channel = reader.getChannel();
+                if (filter != null) {
+                    selectivity *= filter.getSelectivity();
+                }
+                if (channel != -1) {
+                    int avgSize = reader.getAverageResultSize();
+                    readerBudget[i] = Math.max(8000, (int) (numRows * selectivity * avgSize));
+                    totalAsk += readerBudget[i];
+                }
+                else {
+                    readerBudget[i] = 0;
+                }
+            }
+        }
+        if (totalAsk == 0) {
+            return false;
+        }
+        int available = targetResultBytes - bytesSoFar;
+        if (available < targetResultBytes / 10 && mayReturn) {
+            return true;
+        }
+        if (available < 10000) {
+            available = 10000;
+        }
+        double grantedFraction = (double) available / totalAsk;
+        for (int i = firstStreamIdx; i < streamOrder.length; i++) {
+            StreamReader reader = streamOrder[i];
+            if (reader.getChannel() != -1) {
+                int budget = (int) (readerBudget[i] * grantedFraction);
+                reader.setResultSizeBudget(budget);
+            }
+        }
+        return false;
+    }
+
     /* Sets up all new Blocks if returning new Blocks or removes the
      * previously returned data from Blocks if reusing Blocks. May
      * alter filter order if we have no column values from prior
@@ -889,7 +940,7 @@ public class OrcRecordReader
     
     // Removes the first numValues values from all reader and
     // QualifyingSets. If the last batch was truncated, some of the
-    // readers may hold values from last batch. */ reusing Blocks.
+    // readers may hold values from last batch. 
     void discardBatch(int numValues)
     {
         numRowsInResult = 0;
@@ -916,13 +967,13 @@ public class OrcRecordReader
                     currentPosition = totalRowCount;
                     return resultPage();
                 }
-            }
-            if (currentRowGroup >= trapRowGroup) {
-                System.out.println("***");
-            }
-            if (reorderFilters && (currentRowGroup & 0x3) != 0  && currentRowGroup != 0) {
-                // Reconsider filter order Every 4 row groups.
-                maybeReorderFilters();
+                if (currentRowGroup >= trapRowGroup) {
+                    System.out.println("***");
+                }
+                if (reorderFilters && (currentRowGroup & 0x3) != 0  && currentRowGroup != 0) {
+                    // Reconsider filter order Every 4 row groups.
+                    maybeReorderFilters();
+                }
             }
             qualifyingSet = initialQualifyingSet;
             initialQualifyingSet.setRange((int)nextRowInGroup, (int)currentGroupRowCount);
@@ -933,12 +984,17 @@ public class OrcRecordReader
                 lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
                 if (lastTruncatedStreamIdx == -1) {
                     firstStreamIdx = 0;
+                    if (makeResultBudget(0, qualifyingSet.getPositionCount(), true)) {
+                        return resultPage();
+                    }
                 }
                 else {
                     firstStreamIdx = lastTruncatedStreamIdx;
                     StreamReader reader = streamOrder[firstStreamIdx];
                     // The last call to compactSparseBlocks() has removed returned rows from the set.
                     qualifyingSet = reader.getInputQualifyingSet();
+                    qualifyingSet.clearTruncationPosition();
+                    makeResultBudget(firstStreamIdx, qualifyingSet.getPositionCount(), false);
                 }
                 int numStreams = streamOrder.length;
                 for (int streamIdx = firstStreamIdx; streamIdx < numStreams; ++streamIdx) {
@@ -972,7 +1028,7 @@ public class OrcRecordReader
                 }
                 int lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
                 int numAdded = numRowsBeforeTruncation(qualifyingSet, lastTruncatedStreamIdx);
-                compactSparseBlocks(numAdded);
+                alignResultsAndRemoveFromQualifyingSet(numAdded);
                 numRowsInResult += numAdded;
                 nextRowInGroup = endRowInGroup;
                 if (numRowsInResult >= targetNumRows || lastTruncatedStreamIdx != -1) {
@@ -982,6 +1038,7 @@ public class OrcRecordReader
             }
         }
     }
+
     private int numRowsBeforeTruncation(QualifyingSet qualifyingSet, int streamIdx)
     {
         int numPositions = qualifyingSet.getPositionCount();
@@ -1010,7 +1067,7 @@ public class OrcRecordReader
          * filters have dropped. lastStreamIdx is the position in
          * streamOrder for the rightmost stream that has values for
          * this batch. */
-    void compactSparseBlocks(int numAdded)
+    void alignResultsAndRemoveFromQualifyingSet(int numAdded)
     {
         boolean needCompact = false;
         int numSurviving = numAdded;

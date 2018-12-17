@@ -73,8 +73,6 @@ public class LongDirectStreamReader
 
     private long[] values = null;
     private boolean[] valueIsNull = null;
-    // Number of positions in values, valueIsNull.
-    private int numValues = 0;
 
     public LongDirectStreamReader(StreamDescriptor streamDescriptor, LocalMemoryContext systemMemoryContext)
     {
@@ -218,7 +216,6 @@ public class LongDirectStreamReader
         if (outputChannel != -1) {
             ensureBlockSize();
         }
-        int numValues = block != null ? block.getPositionCount() : 0;
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
         int numInput = input.getPositionCount();
@@ -254,8 +251,9 @@ public class LongDirectStreamReader
         if (output != null) {
             output.setPositionCount(numOut);
         }
-            if (block != null) {
-            block.setPositionCount(numOut + numValues);
+        numValues += numOut;
+        if (block != null) {
+            block.setPositionCount(numValues);
         }
         return inputQualifyingSet.getEnd();
     }
