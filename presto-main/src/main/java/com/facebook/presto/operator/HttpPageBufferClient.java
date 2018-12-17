@@ -296,7 +296,7 @@ public final class HttpPageBufferClient
 
     private synchronized void sendGetResults()
     {
-        System.println(httpClient.zippy());
+        httpClient.zippy();
         URI uri = HttpUriBuilder.uriBuilderFrom(location).appendPath(String.valueOf(token)).build();
         HttpResponseFuture<PagesResponse> resultFuture = httpClient.executeAsync(
                 prepareGet()
