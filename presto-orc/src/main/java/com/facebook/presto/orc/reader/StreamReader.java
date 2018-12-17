@@ -52,7 +52,7 @@ public interface StreamReader
     default void setFilterAndChannel(Filter filter, int channel, int columnIndex)    {
         throw new UnsupportedOperationException();
     }
-
+    
     /* True if the extracted values depend on a row group
      * dictionary. Cannot move to the next row group without losing
      * the dictionary encoding .*/

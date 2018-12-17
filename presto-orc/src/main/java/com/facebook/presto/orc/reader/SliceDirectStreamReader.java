@@ -477,8 +477,10 @@ public class SliceDirectStreamReader
                 }
                 nextActive = inputPositions[activeIdx];
                 if (bytesToGo <= 0) {
-                    truncationRow = nextActive;
-                    input.setTruncationPosition(activeIdx);
+                    int truncationPosition = input.getNextTruncationPosition(activeIdx);
+                    if (truncationPosition < numActive)
+                        truncationRow = inputPositions[truncationPosition];
+                    input.setTruncationPosition(truncationPosition);
                 }
                 continue;
             }

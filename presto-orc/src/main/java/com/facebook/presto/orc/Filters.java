@@ -168,4 +168,17 @@ public class Filters {
             return upper != null && lower != null ? 6 : 7;
         }
         }
+
+    static public class MapFilters
+        extends Filter
+    {
+        Filter keyFilter;
+        Filter valueFilter;
+            }
+
+    static public class RowFilter
+    {
+        String[] subFields;
+        Filter[] fieldFilters;
+    }
 }

@@ -39,6 +39,7 @@ public class QualifyingSet
     static volatile int[] allZeros;
     private int[] ownedPositions;
     private int[] ownedInputNumbers;
+    private QualifyingSet parent;
     
     static {
         wholeRowGroup = new int[10000];
@@ -164,17 +165,27 @@ public class QualifyingSet
         this.positionCount = positionCount;
     }
 
-public void setTruncationPosition(int position)
-{
-    truncationPosition = position;
-}
+    // Returns the first position after the argument position where
+    // one can truncate a result column. For a top level column this
+    // is the position itself. For a nested column, this is the
+    // positioning corresponding to the first of row of the next top
+    // level row.
+    public int getNextTruncationPosition(int position)
+    {
+        return position;
+    }
 
-public void clearTruncationPosition()
-{
-    truncationPosition = -1;
-}
+    public void setTruncationPosition(int position)
+    {
+        truncationPosition = position;
+    }
 
-// Erases qulifying rows and corresponding input numbers below position.
+    public void clearTruncationPosition()
+    {
+        truncationPosition = -1;
+    }
+
+    // Erases qulifying rows and corresponding input numbers below position.
     public void eraseBelowPosition(int position)
     {
         if (positions != ownedPositions) {
@@ -196,12 +207,6 @@ public void clearTruncationPosition()
                 
             }
         }
-    }
-  
-    
-    // Sets this to be those rows of input that are above the end of output.
-    public void setContinueAfterTruncate(QualifyingSet input, QualifyingSet truncated)
-    {
     }
 }
 
