@@ -652,4 +652,11 @@ public class HashBuilderOperator
             throw new RuntimeException(e);
         }
     }
+
+    @Override
+    public boolean retainsInputPages()
+    {
+        // Aria copies build side pages, Presto retains them in index.
+        return ariaBuild == null;
+    }
 }

@@ -14,6 +14,7 @@
 package com.facebook.presto.orc;
 
 import java.util.Arrays;
+import static com.google.common.base.Preconditions.checkArgument;
 
 public class QualifyingSet
 {
@@ -27,14 +28,18 @@ public class QualifyingSet
     private int[] positions;
     private int numRanges;
     private int positionCount;
+    // Index into positions for the first row after truncation. -1 if
+    // no truncation.
+    private int truncationPosition = -1;
 
     private int[] inputNumbers;
     private boolean isRanges;
 
-    static int[] wholeRowGroup;
-    static int[] allZeros;
+    static volatile int[] wholeRowGroup;
+    static volatile int[] allZeros;
     private int[] ownedPositions;
     private int[] ownedInputNumbers;
+    private QualifyingSet parent;
     
     static {
         wholeRowGroup = new int[10000];
@@ -135,6 +140,9 @@ public class QualifyingSet
 
     public int getEnd()
     {
+        if (truncationPosition != -1) {
+            return positions[truncationPosition];
+                                       }
         return end;
     }
 
@@ -145,12 +153,36 @@ public class QualifyingSet
     
     public int getPositionCount()
     {
+        if (truncationPosition != -1) {
+            return truncationPosition;
+        }
         return positionCount;
     }
 
     public void setPositionCount(int positionCount)
     {
+        checkArgument(truncationPosition < positionCount && truncationPosition > 0, "truncationPosition  must be between 1 and positionCount - 1");
         this.positionCount = positionCount;
+    }
+
+    // Returns the first position after the argument position where
+    // one can truncate a result column. For a top level column this
+    // is the position itself. For a nested column, this is the
+    // positioning corresponding to the first of row of the next top
+    // level row.
+    public int getNextTruncationPosition(int position)
+    {
+        return position;
+    }
+
+    public void setTruncationPosition(int position)
+    {
+        truncationPosition = position;
+    }
+
+    public void clearTruncationPosition()
+    {
+        truncationPosition = -1;
     }
 
     // Erases qulifying rows and corresponding input numbers below position.
@@ -175,12 +207,6 @@ public class QualifyingSet
                 
             }
         }
-    }
-  
-    
-    // Sets this to be those rows of input that are above the end of output.
-    public void setContinueAfterTruncate(QualifyingSet input, QualifyingSet truncated)
-    {
     }
 }
 

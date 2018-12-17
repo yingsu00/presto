@@ -82,7 +82,8 @@ public class ScanFilterAndProjectOperator
     private long completedBytes;
     private long readTimeNanos;
 
-    private boolean filterAndProjectPushedDown = false;
+    private boolean filterAndProjectPushedDown;
+    private boolean reusePages;
     
     protected ScanFilterAndProjectOperator(
             OperatorContext operatorContext,
@@ -288,7 +289,6 @@ public class ScanFilterAndProjectOperator
                         filters = new FilterExpression[1];
                         filters[0] = new FilterExpression(operatorContext.getSession().toConnectorSession(), filter.get());
                     }
-                    boolean reusePages = SystemSessionProperties.enableAriaReusePages(operatorContext.getSession());
                     boolean reorderFilters = SystemSessionProperties.ariaReorderFilters(operatorContext.getSession());
                     
                     boolean filterPushedDown = pageSource.pushdownFilterAndProjection(new PageSourceOptions(channels, reusePages, filters, reorderFilters, mergingOutput.getMinPageSizeInBytes()));
@@ -463,5 +463,10 @@ public class ScanFilterAndProjectOperator
         {
             closed = true;
         }
+    }
+
+    public void enableReuseOutputPages()
+    {
+        reusePages = true;
     }
 }

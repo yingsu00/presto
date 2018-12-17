@@ -121,9 +121,9 @@ public class SliceStreamReader
     }
     
     @Override
-public void setFilterAndChannel(Filter filter, int channel)
+    public void setFilterAndChannel(Filter filter, int channel, int columnIndex)
     {
-        directReader.setFilterAndChannel(filter, channel);
+        directReader.setFilterAndChannel(filter, channel, columnIndex);
     }
 
     @Override
@@ -145,14 +145,22 @@ public void setFilterAndChannel(Filter filter, int channel)
     }
     
     @Override
-    public int erase(int begin, int end, int numValuesBeforeRowGroup, int numErasedFromInput)
+    public void erase(int end)
     {
         if (currentReader == null) {
-            return 0;
+            return;
         }
-        return currentReader.erase(begin, end, numValuesBeforeRowGroup, numErasedFromInput);
+        currentReader.erase(end);
     }
-    
+
+    @Override
+    public int scanLengths(int maxResultBytes)
+        throws IOException
+    {
+        return currentReader.scanLengths(maxResultBytes);
+    }
+
+    @Override
     public int scan(int maxResultBytes)
         throws IOException
     {

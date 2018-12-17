@@ -49,10 +49,10 @@ public interface StreamReader
      * applying filter to the rows in the input QualifyingSet. If
      * channel is not -1, appends the values in the post-filter rows
      * to a Block. The Block can be retrieved by getBlock(). */
-    default void setFilterAndChannel(Filter filter, int channel)    {
+    default void setFilterAndChannel(Filter filter, int channel, int columnIndex)    {
         throw new UnsupportedOperationException();
     }
-
+    
     /* True if the extracted values depend on a row group
      * dictionary. Cannot move to the next row group without losing
      * the dictionary encoding .*/
@@ -76,17 +76,63 @@ public interface StreamReader
         return null;
     }
     
-    default int getValueSize() {
-        return 8;
+    default int getColumnIndex()
+    {
+        return -1;
     }
 
-    default int erase(int begin, int end, int numValuesBeforeRowGroup, int numErasedFromInput)
+    // Sets the number of additional result bytes a scan() is allowed
+    // to accumulate before truncating the result. A scan, even with
+    // truncation, will add at least one row.
+    default void setResultSizeBudget(int bytes)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default void erase(int end)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default void compactValues(int[] surviving, int base, int numValues)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    // Returns the row number of the first unprocessed input in the
+    // input QualifyingSet, -1 if the whole input QualifyingSet was
+    // processed by scan(). This is set when stopping due to reaching
+    // target datasize.
+    default int getTruncationRow()
+    {
+        return -1;
+    }
+
+    // Returns an approximation of the size of the Block to be returned from getBlock().
+    default int getResultSizeInBytes()
+    {
+        throw new UnsupportedOperationException();
+    }
+    // Reads lengths for the rows in the input QualifyingSet.
+    default int scanLengths(int maxResultBytes)
+        throws IOException
     {
         throw new UnsupportedOperationException();
     }
     
     default int scan(int maxResultBytes)
         throws IOException
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    // Returns the number of bytes per non-null row. -1 if variable.
+    default int getFixedWidth()
+    {
+        return -1;
+    }
+
+    default int getAverageResultSize()
     {
         throw new UnsupportedOperationException();
     }

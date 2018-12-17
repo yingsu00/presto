@@ -125,16 +125,21 @@ public class OrcRecordReader
     QualifyingSet initialQualifyingSet = new QualifyingSet();
     QualifyingSet tempQualifyingSet;
     
-    boolean reusePages = false;
-    boolean reorderFilters = false;
+    boolean reusePages;
+    boolean reorderFilters;
     Page reusedPage;
     Block[] reusedPageBlocks;
 
         int lastTruncatedStreamIdx = -1;
     int maxOutputChannel = -1;
     int targetNumRows = 10000;
+    int targetResultBytes;
     // The number of leading elements in streamOredr that is subject to reordering.
     int numFilters = 0;
+    // Temporary array for compacting results that have been decimated
+    // by subsequent filters.
+    int[] survivingRows;
+    int readerBudget[];
     
     public OrcRecordReader(
             Map<Integer, Type> includedColumns,
@@ -760,11 +765,12 @@ public class OrcRecordReader
             }
             int outputChannel = i < targetChannels.length ? targetChannels[i] : -1;
             Filter filter = filters.get(columnIndex);
-            streamReaders[columnIndex].setFilterAndChannel(filter, outputChannel);
+            streamReaders[columnIndex].setFilterAndChannel(filter, outputChannel, columnIndex);
             maxOutputChannel = Math.max(maxOutputChannel, outputChannel);
         }
         reusePages = options.getReusePages();
         reorderFilters = options.getReorderFilters();
+        targetResultBytes = options.getTargetBytes();
         setupStreamOrder();
         return true;
     }
@@ -790,7 +796,7 @@ public class OrcRecordReader
                 return aFilter.staticScore() - bFilter.staticScore();
             }
             // Streans that have no filters go longer data type first. This hits maximum batch size sooner.
-            return b.getValueSize() - a.getValueSize();
+            return b.getAverageResultSize() - a.getAverageResultSize();
         }
 
     void setupStreamOrder()
@@ -815,6 +821,7 @@ public class OrcRecordReader
         if (numFilters < 2) {
             reorderFilters = false;
         }
+        readerBudget = new int[streamOrder.length];
     }
 
     void maybeReorderFilters()
@@ -835,7 +842,54 @@ public class OrcRecordReader
         }
         Arrays.sort(streamOrder, 0, numFilters, (StreamReader a, StreamReader b) -> compareReaders(a, b));
     }
-    
+
+    // Divides the space available in the result Page between the
+    // streams at firstStreamIdx and to the right of at. 
+    boolean makeResultBudget(int firstStreamIdx, int numRows, boolean mayReturn)
+    {
+        int bytesSoFar = 0;
+        double selectivity = 1;
+        int totalAsk = 0;
+        for (int i = 0; i < streamOrder.length; i++) {
+            StreamReader reader = streamOrder[i];
+            bytesSoFar += reader.getResultSizeInBytes();
+            if (i >= firstStreamIdx) {
+                Filter filter = reader.getFilter();
+                int channel = reader.getChannel();
+                if (filter != null) {
+                    selectivity *= filter.getSelectivity();
+                }
+                if (channel != -1) {
+                    int avgSize = reader.getAverageResultSize();
+                    readerBudget[i] = Math.max(8000, (int) (numRows * selectivity * avgSize));
+                    totalAsk += readerBudget[i];
+                }
+                else {
+                    readerBudget[i] = 0;
+                }
+            }
+        }
+        if (totalAsk == 0) {
+            return false;
+        }
+        int available = targetResultBytes - bytesSoFar;
+        if (available < targetResultBytes / 10 && mayReturn) {
+            return true;
+        }
+        if (available < 10000) {
+            available = 10000;
+        }
+        double grantedFraction = (double) available / totalAsk;
+        for (int i = firstStreamIdx; i < streamOrder.length; i++) {
+            StreamReader reader = streamOrder[i];
+            if (reader.getChannel() != -1) {
+                int budget = (int) (readerBudget[i] * grantedFraction);
+                reader.setResultSizeBudget(budget);
+            }
+        }
+        return false;
+    }
+
     /* Sets up all new Blocks if returning new Blocks or removes the
      * previously returned data from Blocks if reusing Blocks. May
      * alter filter order if we have no column values from prior
@@ -884,17 +938,14 @@ public class OrcRecordReader
         }
     }
     
-    // Removes the first numValues values from all Blocks and
-    // QualifyingSets. This is called at the start of a batch when
-    // reusing Blocks. */
+    // Removes the first numValues values from all reader and
+    // QualifyingSets. If the last batch was truncated, some of the
+    // readers may hold values from last batch. 
     void discardBatch(int numValues)
     {
         numRowsInResult = 0;
-        if (!reusePages) {
-            return;
-        }
         for (int i = streamOrder.length - 1; i >= 0; i--) {
-            streamOrder[i].erase(0, numValues, 0, 0);
+            streamOrder[i].erase(numValues);
         }
     }
 
@@ -916,13 +967,13 @@ public class OrcRecordReader
                     currentPosition = totalRowCount;
                     return resultPage();
                 }
-            }
-            if (currentRowGroup >= trapRowGroup) {
-                System.out.println("***");
-            }
-            if (reorderFilters && (currentRowGroup & 0x3) != 0  && currentRowGroup != 0) {
-                // Reconsider filter order Every 4 row groups.
-                maybeReorderFilters();
+                if (currentRowGroup >= trapRowGroup) {
+                    System.out.println("***");
+                }
+                if (reorderFilters && (currentRowGroup & 0x3) != 0  && currentRowGroup != 0) {
+                    // Reconsider filter order Every 4 row groups.
+                    maybeReorderFilters();
+                }
             }
             qualifyingSet = initialQualifyingSet;
             initialQualifyingSet.setRange((int)nextRowInGroup, (int)currentGroupRowCount);
@@ -930,14 +981,20 @@ public class OrcRecordReader
             for (;;) {
                 int firstStreamIdx;
                 int endRowInGroup = 0;
+                lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
                 if (lastTruncatedStreamIdx == -1) {
                     firstStreamIdx = 0;
+                    if (makeResultBudget(0, qualifyingSet.getPositionCount(), true)) {
+                        return resultPage();
+                    }
                 }
                 else {
                     firstStreamIdx = lastTruncatedStreamIdx;
-                    qualifyingSet = tempQualifyingSet;
-                    throw new UnsupportedOperationException("Truncated result columns not supported");
-                    //qualifyingSet.setContinueAfterTruncate(streamOrder[firstStreamIdx - 1].getOutputQualifyingSet(), streamOrder[firstStreamIdx].getOutputQualifyingSet())
+                    StreamReader reader = streamOrder[firstStreamIdx];
+                    // The last call to compactSparseBlocks() has removed returned rows from the set.
+                    qualifyingSet = reader.getInputQualifyingSet();
+                    qualifyingSet.clearTruncationPosition();
+                    makeResultBudget(firstStreamIdx, qualifyingSet.getPositionCount(), false);
                 }
                 int numStreams = streamOrder.length;
                 for (int streamIdx = firstStreamIdx; streamIdx < numStreams; ++streamIdx) {
@@ -948,6 +1005,9 @@ public class OrcRecordReader
                     if (reorderFilters && filter != null) {
                         startTime = System.nanoTime();
                     }
+                    if (reader.getFixedWidth() == -1) {
+                        endRowInGroup = reader.scanLengths(0);
+                    }
                     endRowInGroup =                     reader.scan(0);
                     if (filter != null) {
                         QualifyingSet input = qualifyingSet;
@@ -957,7 +1017,7 @@ public class OrcRecordReader
                         }
                         if (qualifyingSet.isEmpty()) {
                             discardBatchSoFar(streamIdx);
-                            lastTruncatedStreamIdx = findLastTruncatedStreamIdx(numStreams - 1);
+                            lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
                             if (lastTruncatedStreamIdx == -1) {
                                 nextRowInGroup = currentGroupRowCount;
                                 continue nextRowGroup;
@@ -965,12 +1025,13 @@ public class OrcRecordReader
                             continue resumeTruncated;
                         }
                 }
-                    lastTruncatedStreamIdx = findLastTruncatedStreamIdx(numStreams - 1);
                 }
-                compactSparseBlocks(streamOrder.length - 1);
-                numRowsInResult += qualifyingSet.getPositionCount();
+                int lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
+                int numAdded = numRowsBeforeTruncation(qualifyingSet, lastTruncatedStreamIdx);
+                alignResultsAndRemoveFromQualifyingSet(numAdded);
+                numRowsInResult += numAdded;
                 nextRowInGroup = endRowInGroup;
-                if (numRowsInResult >= targetNumRows) {
+                if (numRowsInResult >= targetNumRows || lastTruncatedStreamIdx != -1) {
                     return resultPage();
                 }
                 continue nextRowGroup;
@@ -978,11 +1039,27 @@ public class OrcRecordReader
         }
     }
 
+    private int numRowsBeforeTruncation(QualifyingSet qualifyingSet, int streamIdx)
+    {
+        int numPositions = qualifyingSet.getPositionCount();
+        if (streamIdx == -1) {
+            return numPositions;
+        }
+        int truncationRow = streamOrder[streamIdx].getTruncationRow();
+        int[] rows = qualifyingSet.getPositions();
+        for (int i = 0; i < numPositions; i++) {
+            if (rows[i] == truncationRow) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException("Truncation row is not in QualifyingSet");
+    }
+    
     // 
     private void discardBatchSoFar(int streamIdx)
     {
         for (int i = 0; i < streamIdx; i++) {
-            streamOrder[i].erase(0, (int)currentGroupRowCount, numRowsInResult, 0);
+            streamOrder[i].compactValues(null, numRowsInResult, 0);
         }
     }
 
@@ -990,57 +1067,101 @@ public class OrcRecordReader
          * filters have dropped. lastStreamIdx is the position in
          * streamOrder for the rightmost stream that has values for
          * this batch. */
-    void compactSparseBlocks(int lastStreamIdx)
+    void alignResultsAndRemoveFromQualifyingSet(int numAdded)
     {
-        // The first row number in the row group that is above the
-        // range of rows being considered. All values and qualifying
-        // sets at or above this positions survive. -1 if not
-        // applicable.
-        int firstAboveRange = -1;
-        int[] survivingRows = null;
-        int numSurviving;
-        StreamReader lastStream = streamOrder[lastStreamIdx];
-        if (lastStream.getChannel() != -1) {
-            Block lastBlock = lastStream.getBlock(true);
-            numSurviving = lastBlock.getPositionCount() - numRowsInResult;
-        }
-        else {
-            QualifyingSet output = lastStream.getOutputQualifyingSet();
-            survivingRows = output.getInputNumbers();
-            numSurviving = output.getPositionCount();
-        }
-        for (int streamIdx = lastStreamIdx - 1; streamIdx >= 0; --streamIdx) {
+        boolean needCompact = false;
+        int numSurviving = numAdded;
+        int lastStreamIdx = streamOrder.length - 1;
+        for (int streamIdx = lastStreamIdx; streamIdx >= 0; --streamIdx) {
             StreamReader reader = streamOrder[streamIdx];
-            if (survivingRows != null && reader.getChannel() != -1) {
-                Block block = reader.getBlock(true);
-                block.compact(survivingRows, numRowsInResult, numSurviving);
-            }
-            if (reader.getFilter() == null) {
-                continue;
+            if (needCompact) {
+                reader.compactValues(survivingRows, numRowsInResult, numSurviving);
             }
             if (streamIdx == 0) {
                 break;
             }
+
             QualifyingSet output = reader.getOutputQualifyingSet();
             QualifyingSet input = reader.getInputQualifyingSet();
-            if (output.getPositionCount() == input.getPositionCount()) {
+            int truncationRow = reader.getTruncationRow();
+            if (truncationRow == -1 &&
+                (output == null || output.getPositionCount() == input.getPositionCount())) {
                 continue;
             }
-            if (survivingRows == null) {
-                survivingRows = output.getInputNumbers();
-            }
-            else {
-                int[] inputs = output.getInputNumbers();
+            if (reader.getFilter() != null) {
+                if (!needCompact) {
+                    int[] rows = output.getInputNumbers();
+                    if (survivingRows == null || survivingRows.length < numSurviving) {
+                        survivingRows = Arrays.copyOf(rows, numSurviving);
+                    }
+                    else {
+                        System.arraycopy(rows, 0, survivingRows, 0, numSurviving);
+                    }
+                    needCompact = true;
+                }
+                else {
+                    int[] inputs = output.getInputNumbers();
                 for (int i = 0; i < numSurviving; i++) {
                     survivingRows[i] = inputs[survivingRows[i]];
                 }
             }
+                if (truncationRow != -1) {
+                    numSurviving = addUnusedInputToSurviving(reader, numSurviving);
+                }
+            }
+        }
+        // Now all QulifyingSets are compact.  A leading one does not have an element that would be dropped by a trailing one. Thus all the sets have input numbers {0, ... numPositions - 1}.
+        for (int streamIdx = lastStreamIdx - 1; streamIdx >= 0; --streamIdx) {
+            StreamReader reader = streamOrder[streamIdx];
+            QualifyingSet output = reader.getOutputQualifyingSet();
+            if (output != null) {
+                int numPositions = output.getPositionCount();
+                // The row numbers for the added rows are no longer needed.
+                int[] rows = output.getMutablePositions(numPositions);
+                System.arraycopy(rows, numAdded, rows, 0, numPositions - numAdded);
+                int[] inputNumbers = output.getMutableInputNumbers(numPositions);
+                numPositions -= numAdded;
+                output.setPositionCount(numPositions);
+                for (int i = 0; i < numPositions; i++) {
+                        inputNumbers[i] = i;
+                    }
+            }
         }
     }
 
-    int findLastTruncatedStreamIdx(int streamIdx)
+    private int addUnusedInputToSurviving(StreamReader reader , int numSurviving)
     {
+        int truncationRow = reader.getTruncationRow();
+        QualifyingSet input = reader.getInputQualifyingSet();
+        int numIn = input.getPositionCount();
+        int[] rows = input.getPositions();
+        // Find the place of the truncation row in the input and add
+        // this and all above this to surviving.
+        for (int i = 0; i < numIn; i++) {
+            if (rows[i] == truncationRow) {
+                int last = survivingRows[numSurviving - 1];
+                int numAdded = numIn - i;
+                if (survivingRows.length < numSurviving + numAdded) {
+                    survivingRows = Arrays.copyOf(survivingRows, numSurviving + numAdded + 100);
+                }
+                for (int counter = 0; counter < numAdded; counter++) {
+                    survivingRows[numSurviving + counter] = last + 1 + counter;
+                }
+                return numSurviving + numAdded;
+            }
+        }
+        throw new IllegalArgumentException("Truncation row was not in the input QualifyingSet");
+    }
+
+    int findLastTruncatedStreamIdx()
+    {
+        for (int i = streamOrder.length - 1; i >= 0; i--) {
+            if (streamOrder[i].getTruncationRow() != -1) {
+                return i;
+            }
+        }
         return -1;
     }
+
 
 }

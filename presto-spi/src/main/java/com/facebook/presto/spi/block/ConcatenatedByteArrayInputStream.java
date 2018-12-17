@@ -14,11 +14,10 @@
 
 package com.facebook.presto.spi.block;
 
-import io.airlift.slice.FixedLengthSliceInput;
+import io.airlift.slice.ByteArrays;
 import io.airlift.slice.Slice;
-import io.airlift.slice.SliceInput;
+import io.airlift.slice.FixedLengthSliceInput;
 import io.airlift.slice.Slices;
-
 import org.openjdk.jol.info.ClassLayout;
 
 import java.io.IOException;
@@ -46,17 +45,19 @@ public final class ConcatenatedByteArrayInputStream
     private long position;
     private long totalSize;
     private ByteArrayAllocator allocator;
-    private boolean freeAfterRead = false;
-    byte[] tempBytes = new byte[8];
-    long previousBuffersSize = 0;
-    
-    public ConcatenatedByteArrayInputStream(List<byte[]> buffers, int size, ByteArrayAllocator allocator)
+    private boolean freeAfterRead;
+    byte[] tempBytes = new byte[SIZE_OF_LONG];
+    long previousBuffersSize;
+
+    public ConcatenatedByteArrayInputStream(List<byte[]> buffers, long size, ByteArrayAllocator allocator)
     {
+        requireNonNull(buffers);
         this.buffers = new ArrayList(buffers);
         for (byte[] buffer : buffers) {
             this.buffers.add(buffer);
         }
-        this.allocator = allocator; 
+        totalSize = size;
+        this.allocator = allocator;
         position = 0;
         currentIdx = -1;
         nextBuffer(0);
@@ -66,8 +67,8 @@ public final class ConcatenatedByteArrayInputStream
     {
         int numInCurrent = 0;
         if (dataSize > 0) {
-            numInCurrent = (int)(currentSize - position);
-            System.arraycopy(current, (int)position, tempBytes, 0, numInCurrent);
+            numInCurrent = (int) (currentSize - position);
+            System.arraycopy(current, (int) position, tempBytes, 0, numInCurrent);
         }
         if (currentIdx >= 0 && freeAfterRead) {
             allocator.free(buffers.get(currentIdx));
@@ -75,7 +76,6 @@ public final class ConcatenatedByteArrayInputStream
         }
         previousBuffersSize += currentSize;
         currentIdx++;
-        
         if (currentIdx >= buffers.size()) {
             if (dataSize - numInCurrent > 0) {
                 throw new IndexOutOfBoundsException();
@@ -87,7 +87,8 @@ public final class ConcatenatedByteArrayInputStream
         current = buffers.get(currentIdx);
         if (currentIdx == buffers.size() - 1) {
             currentSize = totalSize - previousBuffersSize;
-        } else {
+        }
+        else {
             currentSize = current.length;
         }
         position = 0;
@@ -116,7 +117,7 @@ public final class ConcatenatedByteArrayInputStream
             throw new IndexOutOfBoundsException();
         }
         if (position > previousBuffersSize && position - previousBuffersSize < currentSize) {
-            this.position =  position - previousBuffersSize;
+            this.position = position - previousBuffersSize;
             return;
         }
         if (!freeAfterRead) {
@@ -149,22 +150,22 @@ public final class ConcatenatedByteArrayInputStream
     @Override
     public int available()
     {
-        return (int)(totalSize - previousBuffersSize - position);
+        return (int) (totalSize - previousBuffersSize - position);
     }
 
     public int contiguousAvailable()
     {
-        return (int)(currentSize - position);
+        return (int) (currentSize - position);
     }
 
-    byte[] getBuffer()
+    public byte[] getBuffer()
     {
         return current;
     }
-    
-    int getOffsetInBuffer()
+
+    public int getOffsetInBuffer()
     {
-        return (int)position;
+        return (int) position;
     }
 
     @Override
@@ -181,8 +182,8 @@ public final class ConcatenatedByteArrayInputStream
             if (current == null) {
                 return -1;
             }
-            }
-        int result = current[(int)position] & 0xff;
+        }
+        int result = current[(int) position] & 0xff;
         position++;
         return result;
     }
@@ -209,12 +210,12 @@ public final class ConcatenatedByteArrayInputStream
         long newPosition = position + SIZE_OF_SHORT;
         short v;
         if (newPosition < currentSize) {
-            v = ByteArrayUtils.getShort(current, (int)position);
+            v = ByteArrays.getShort(current, (int) position);
             position = newPosition;
         }
         else {
             nextBuffer(SIZE_OF_SHORT);
-            v = ByteArrayUtils.getShort(tempBytes, 0);
+            v = ByteArrays.getShort(tempBytes, 0);
         }
         return v;
     }
@@ -231,12 +232,12 @@ public final class ConcatenatedByteArrayInputStream
         long newPosition = position + SIZE_OF_INT;
         int v;
         if (newPosition < currentSize) {
-            v = ByteArrayUtils.getInt(current, (int)position);
+            v = ByteArrays.getInt(current, (int) position);
             position = newPosition;
         }
         else {
             nextBuffer(SIZE_OF_INT);
-            v = ByteArrayUtils.getInt(tempBytes, 0);
+            v = ByteArrays.getInt(tempBytes, 0);
         }
         return v;
     }
@@ -247,12 +248,12 @@ public final class ConcatenatedByteArrayInputStream
         long newPosition = position + SIZE_OF_LONG;
         long v;
         if (newPosition < currentSize) {
-            v = ByteArrayUtils.getLong(current, (int)position);
+            v = ByteArrays.getLong(current, (int) position);
             position = newPosition;
         }
         else {
             nextBuffer(SIZE_OF_LONG);
-            v = ByteArrayUtils.getLong(tempBytes, 0);
+            v = ByteArrays.getLong(tempBytes, 0);
         }
         return v;
     }
@@ -263,28 +264,28 @@ public final class ConcatenatedByteArrayInputStream
         long newPosition = position + SIZE_OF_FLOAT;
         float v;
         if (newPosition < currentSize) {
-            v = ByteArrayUtils.getFloat(current, (int)position);
+            v = ByteArrays.getFloat(current, (int) position);
             position = newPosition;
         }
         else {
             nextBuffer(SIZE_OF_FLOAT);
-            v = ByteArrayUtils.getFloat(tempBytes, 0);
+            v = ByteArrays.getFloat(tempBytes, 0);
         }
         return v;
     }
 
-@Override
+    @Override
     public double readDouble()
     {
         long newPosition = position + SIZE_OF_DOUBLE;
-        double v; 
+        double v;
         if (newPosition < currentSize) {
-            v = ByteArrayUtils.getDouble(current, (int)position);
+            v = ByteArrays.getDouble(current, (int) position);
             position = newPosition;
         }
         else {
             nextBuffer(SIZE_OF_DOUBLE);
-            v = ByteArrayUtils.getFloat(tempBytes, 0);
+            v = ByteArrays.getFloat(tempBytes, 0);
         }
         return v;
     }
@@ -296,7 +297,7 @@ public final class ConcatenatedByteArrayInputStream
             return Slices.EMPTY_SLICE;
         }
         if (!freeAfterRead && currentSize - position <= length) {
-            Slice v = Slices.wrappedBuffer(current, (int)position, length);
+            Slice v = Slices.wrappedBuffer(current, (int) position, length);
             skip(length);
             return v;
         }
@@ -319,11 +320,11 @@ public final class ConcatenatedByteArrayInputStream
         return length;
     }
 
-@Override
+    @Override
     public void readBytes(byte[] destination, int destinationIndex, int length)
     {
         while (length > 0) {
-            int copy = (int)Math.min(length, currentSize - position);
+            int copy = (int) Math.min(length, currentSize - position);
             if (copy == 0) {
                 nextBuffer(0);
                 if (current == null) {
@@ -331,18 +332,18 @@ public final class ConcatenatedByteArrayInputStream
                 }
                 continue;
             }
-            System.arraycopy(current, (int)position, destination, destinationIndex, copy);
-        position += copy;
-        destinationIndex += copy;
-        length -= copy;
+            System.arraycopy(current, (int) position, destination, destinationIndex, copy);
+            position += copy;
+            destinationIndex += copy;
+            length -= copy;
         }
         if (position == currentSize) {
             nextBuffer(0);
         }
     }
 
-@Override
-public void readBytes(Slice destination, int destinationIndex, int length)
+    @Override
+    public void readBytes(Slice destination, int destinationIndex, int length)
     {
         throw new UnsupportedOperationException();
     }
@@ -373,7 +374,7 @@ public void readBytes(Slice destination, int destinationIndex, int length)
     @Override
     public int skipBytes(int length)
     {
-        return (int)skip(length);
+        return (int) skip(length);
     }
 
     @Override
@@ -417,6 +418,3 @@ public void readBytes(Slice destination, int destinationIndex, int length)
         return builder.toString();
     }
 }
-
-
-

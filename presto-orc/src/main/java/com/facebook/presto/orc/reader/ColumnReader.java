@@ -25,7 +25,18 @@ abstract class ColumnReader
     Block block;
     int outputChannel = -1;
     Filter filter;
+    int columnIndex;
     int expectNumValues = 10000;
+    // First row number in row group that is not processed due to
+    // reaching target size. This must occur as a position in
+    // inputQualifyingSet. -1 if all inputQualifyingSet is processed.
+    int truncationRow = -1;
+
+    // Number of values in Block to be returned by getBlock.
+    int numValues;
+    
+    // Number of bytes the next scan() may add to the result.
+    int resultSizeBudget = 8 * 10000;
 
     public QualifyingSet getInputQualifyingSet()
     {
@@ -45,10 +56,11 @@ abstract class ColumnReader
 
 
     @Override
-    public void setFilterAndChannel(Filter filter, int channel)
+    public void setFilterAndChannel(Filter filter, int channel, int columnIndex)
     {
         this.filter = filter;
         outputChannel = channel;
+        this.columnIndex = columnIndex;
     }
 
     @Override
@@ -60,5 +72,55 @@ abstract class ColumnReader
     public Filter getFilter()
     {
         return filter;
+    }
+
+    @Override
+    public int getColumnIndex()
+    {
+        return columnIndex;
+    }
+
+    @Override
+    public void setResultSizeBudget(int bytes)
+    {
+        resultSizeBudget = bytes;
+    }
+    
+    @Override
+    public int getTruncationRow()
+    {
+        return truncationRow;
+    }
+
+    @Override
+    public int getResultSizeInBytes()
+    {
+        int fixedSize = getFixedWidth();
+        if (fixedSize != -1) {
+            return numValues * fixedSize;
+        }
+        throw new UnsupportedOperationException("Variable width streams must implement getResultSizeInBytes()");
+    }
+
+    @Override
+    public int getAverageResultSize()
+    {
+        int fixed = getFixedWidth();
+        if (fixed != -1) {
+            return fixed;
+        }
+        throw new UnsupportedOperationException();
+    }
+    
+    public void compactQualifyingSet(int[] surviving, int numSurviving)
+    {
+        if (outputQualifyingSet == null) {
+            return;
+        }
+        int[] rows = outputQualifyingSet.getMutablePositions(0);
+        for (int i = 0; i < numSurviving; i++) {
+            rows[i] = rows[surviving[i]];
+        }
+        outputQualifyingSet.setPositionCount(numSurviving);
     }
 }

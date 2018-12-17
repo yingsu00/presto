@@ -29,7 +29,7 @@ public class BlockDecoder
     public boolean isIdentityMap;
     boolean isMapOwned;
     IntArrayAllocator intArrayAllocator;
-    static int[] identityMap;
+    static volatile int[] identityMap;
 
     public BlockDecoder()
     {
@@ -38,6 +38,42 @@ public class BlockDecoder
     public BlockDecoder(IntArrayAllocator intArrayALlocator)
     {
         this.intArrayAllocator = intArrayAllocator;
+    }
+
+
+    public boolean[] getValueIsNull()
+    {
+        return valueIsNull;
+    }
+
+    public long[] getLongs()
+    {
+        return longs;
+    }
+
+    public Slice getSlice()
+    {
+        return slice;
+    }
+
+    public int[] getOffsets()
+    {
+        return offsets;
+    }
+    
+    public Block getLeafBlock()
+    {
+        return leafBlock;
+    }
+
+    public int[] getRowNumberMap()
+    {
+        return rowNumberMap;
+    }
+    
+    public boolean isIdentityMap()
+    {
+        return this.isIdentityMap;
     }
     
     static int[] getIdentityMap(int size, int start, IntArrayAllocator intArrayAllocator)
