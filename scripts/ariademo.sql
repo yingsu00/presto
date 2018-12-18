@@ -1,7 +1,16 @@
 use hive.tpch;
+
+-- aria enable Aria scan. Works with ORC V2 direct longs, doubles and direct Slices
 set session aria=true;
+-- OR of 1: enable repartitioning 2: enable hash join, works only with fixed size data, hash join w 2 longs k=as key and 1 double as payload.
 set session aria_flags = 3;
+-- Enables reusing Pages and Blocks between result batches if the pipeline is suitable, e.g. scan - repartition - hash join
 set session aria_reuse_pages = true;
+-- Enables adaptive reorder of single column filters.
+set session aria_reorder = true;
+
+
+-- The literals are scaled  for 100G scale. The tables should be compressed with Snappy.
 
 -- 1/1M
 select  sum (extendedprice) from lineitem_s where suppkey = 111;
