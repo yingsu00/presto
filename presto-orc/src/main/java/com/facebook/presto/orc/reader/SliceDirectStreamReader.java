@@ -282,7 +282,7 @@ public class SliceDirectStreamReader
         @Override
         public void erase(int end)
     {
-        if (end == 0) {
+        if (end == 0 || bytes == null) {
             return;
         }
         if (end == numResults) {

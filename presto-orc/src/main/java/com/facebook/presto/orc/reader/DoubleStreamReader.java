@@ -186,6 +186,9 @@ public class DoubleStreamReader
         @Override
     public void erase(int end)
     {
+        if (values == null) {
+            return;
+        }
         numValues -= end;
         if (numValues > 0) {
             System.arraycopy(values, end, values, 0, numValues);

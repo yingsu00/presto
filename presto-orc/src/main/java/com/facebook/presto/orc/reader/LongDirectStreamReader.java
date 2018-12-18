@@ -176,6 +176,9 @@ public class LongDirectStreamReader
     @Override
     public void erase(int end)
     {
+        if (values == null) {
+            return;
+        }
         numValues -= end;
         if (numValues > 0) {
             System.arraycopy(values, end, values, 0, numValues);
@@ -214,7 +217,7 @@ public class LongDirectStreamReader
 
         truncationRow = -1;
         if (outputChannel != -1) {
-            ensureBlockSize();
+            ensureValuesSize();
         }
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
@@ -260,36 +263,35 @@ public class LongDirectStreamReader
     @Override
     public Block getBlock(boolean mayReuse)
     {
-        if (block == null) {
-            block = new LongArrayBlock(0, Optional.empty(), new long[0]);
+        if (numValues == 0) {
+            return new LongArrayBlock(0, Optional.empty(), new long[0]);
         }
-        Block oldBlock = block;
+        Block returnBlock = new LongArrayBlock(numValues, valueIsNull != null ? Optional.of(valueIsNull) : Optional.empty(), values);
+
         if (!mayReuse) {
             values = null;
             valueIsNull = null;
+            numValues = 0;
             block = null;
         }
-        return oldBlock;
+        return returnBlock;
     }
 
-    private void ensureBlockSize()
+    private void ensureValuesSize()
     {
         if (outputChannel == -1) {
             return;
         }
         int numInput = inputQualifyingSet.getPositionCount();
-        if (block == null) {
+        if (values == null) {
             values = new long[Math.max(numInput, expectNumValues)];
-            block = new LongArrayBlock(0, Optional.empty(), values);
         }
-        else if (block.getPositionCount() + numInput > values.length) {
-            int newSize = (int)((block.getPositionCount() + numInput) * 1.2);
+        else if (numValues + numInput > values.length) {
+            int newSize = (int)((numValues + numInput) * 1.2);
             if (valueIsNull != null) {
                 valueIsNull = Arrays.copyOf(valueIsNull, newSize);
             }
             values = Arrays.copyOf(values, newSize);
-            block = new LongArrayBlock(block.getPositionCount(), valueIsNull != null ? Optional.of(valueIsNull) : Optional.empty(),
-                                       values);
         }
     }
 
