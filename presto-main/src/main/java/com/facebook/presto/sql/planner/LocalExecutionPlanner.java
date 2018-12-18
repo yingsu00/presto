@@ -1225,7 +1225,7 @@ public class LocalExecutionPlanner
             try {
                 if (columns != null) {
                     Supplier<CursorProcessor> cursorProcessor = expressionCompiler.compileCursorProcessor(translatedFilter, translatedProjections, sourceNode.getId());
-                    Supplier<PageProcessor> pageProcessor = expressionCompiler.compilePageProcessor(translatedFilter, translatedFilterWithoutTupleDomain, translatedProjections, Optional.of(context.getStageId() + "_" + planNodeId));
+                    Supplier<PageProcessor> pageProcessor = expressionCompiler.compilePageProcessor(translatedFilter, translatedFilterWithoutTupleDomain, translatedProjections, Optional.of(context.getStageId() + "_" + planNodeId), OptionalInt.empty());
                     SourceOperatorFactory operatorFactory = new ScanFilterAndProjectOperatorFactory(
                             context.getNextOperatorId(),
                             planNodeId,

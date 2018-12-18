@@ -20,6 +20,7 @@ import com.facebook.presto.operator.project.PageProcessor;
 import com.facebook.presto.operator.project.PageProjection;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.sql.relational.RowExpression;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -34,6 +35,7 @@ import javax.inject.Inject;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Supplier;
 
 import static com.facebook.presto.spi.StandardErrorCode.COMPILER_ERROR;
@@ -90,10 +92,15 @@ public class ExpressionCompiler
 
     public Supplier<PageProcessor> compilePageProcessor(Optional<RowExpression> filter, List<? extends RowExpression> projections, Optional<String> classNameSuffix)
     {
-        return compilePageProcessor(filter, Optional.empty(),  projections, classNameSuffix);
+        return compilePageProcessor(filter, Optional.empty(), projections, classNameSuffix, OptionalInt.empty());
     }
-    
-    public Supplier<PageProcessor> compilePageProcessor(Optional<RowExpression> filter, Optional<RowExpression> filterWithoutTupleDomain, List<? extends RowExpression> projections, Optional<String> classNameSuffix)
+
+    private Supplier<PageProcessor> compilePageProcessor(
+            Optional<RowExpression> filter,
+            Optional<RowExpression> filterWithoutTupleDomain,
+            List<? extends RowExpression> projections,
+            Optional<String> classNameSuffix,
+            OptionalInt initialBatchSize)
     {
         Optional<Supplier<PageFilter>> filterFunctionSupplier = filter.map(expression -> pageFunctionCompiler.compileFilter(expression, classNameSuffix));
         Optional<Supplier<PageFilter>> filterFunctionSupplierWithoutTupleDomain = filterWithoutTupleDomain.map(expression -> pageFunctionCompiler.compileFilter(expression, classNameSuffix));
@@ -109,13 +116,19 @@ public class ExpressionCompiler
             List<PageProjection> pageProjections = pageProjectionSuppliers.stream()
                     .map(Supplier::get)
                     .collect(toImmutableList());
-            return new PageProcessor(filterFunction, filterFunctionWithoutTupleDomain, pageProjections);
+            return new PageProcessor(filterFunction, filterFunctionWithoutTupleDomain, pageProjections, initialBatchSize);
         };
     }
 
     public Supplier<PageProcessor> compilePageProcessor(Optional<RowExpression> filter, List<? extends RowExpression> projections)
     {
         return compilePageProcessor(filter, projections, Optional.empty());
+    }
+
+    @VisibleForTesting
+    public Supplier<PageProcessor> compilePageProcessor(Optional<RowExpression> filter, List<? extends RowExpression> projections, int initialBatchSize)
+    {
+        return compilePageProcessor(filter, projections, Optional.empty(), OptionalInt.of(initialBatchSize));
     }
 
     private <T> Class<? extends T> compile(Optional<RowExpression> filter, List<RowExpression> projections, BodyCompiler bodyCompiler, Class<? extends T> superType)
