@@ -143,7 +143,8 @@ public class SliceStreamReader
     {
         return directReader.getFilter();
     }
-    
+
+
     @Override
     public void erase(int end)
     {
@@ -154,17 +155,39 @@ public class SliceStreamReader
     }
 
     @Override
-    public int scanLengths(int maxResultBytes)
-        throws IOException
+    public void compactValues(int[] positions, int base, int numPositions)
     {
-        return currentReader.scanLengths(maxResultBytes);
+        currentReader.compactValues(positions, base, numPositions);
+    }
+    
+    @Override
+    public int getResultSizeInBytes()
+    {
+        if (currentReader == null) {
+            return 0;
+        }
+        return currentReader.getResultSizeInBytes();
     }
 
     @Override
-    public int scan(int maxResultBytes)
+    public void setResultSizeBudget(int bytes)
+    {
+        currentReader.setResultSizeBudget(bytes);
+    }
+
+
+    @Override
+    public void scanLengths()
         throws IOException
     {
-        return currentReader.scan(maxResultBytes);
+        currentReader.scanLengths();
+    }
+
+    @Override
+    public void scan()
+        throws IOException
+    {
+        currentReader.scan();
     }
 
     @Override

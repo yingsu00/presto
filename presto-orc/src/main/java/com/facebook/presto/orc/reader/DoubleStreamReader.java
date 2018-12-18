@@ -212,7 +212,7 @@ public class DoubleStreamReader
     }
     
     @Override
-    public int scan(int maxBytes)
+    public void scan()
             throws IOException
     {
         if (filter != null && outputQualifyingSet == null) {
@@ -264,7 +264,7 @@ public class DoubleStreamReader
                         if (toSkip > 0) {
                             int bytes = SIZE_OF_DOUBLE * toSkip;
                             if (bytes > available) {
-                                orcDataStream.skipFully(bytes);
+                                orcDataStream.skipFully(bytes + inputOffset - offsetInStream);
                                 available = orcDataStream.available();
                                 inputBuffer = orcDataStream.getBuffer(available);
                                 inputOffset = orcDataStream.getOffsetInBuffer();
@@ -346,7 +346,6 @@ public class DoubleStreamReader
             output.setEnd(end);
         }
         posInRowGroup = end;
-        return end;
     }
 
     void addNullResult(int row, int activeIdx)

@@ -202,7 +202,7 @@ public class LongDirectStreamReader
     }
 
 @Override
-    public int scan(int maxBytes)
+    public void scan()
             throws IOException
     {
         if (!rowGroupOpen) {
@@ -255,7 +255,6 @@ public class LongDirectStreamReader
         if (block != null) {
             block.setPositionCount(numValues);
         }
-        return inputQualifyingSet.getEnd();
     }
 
     @Override

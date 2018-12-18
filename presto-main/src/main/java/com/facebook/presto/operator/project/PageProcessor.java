@@ -76,10 +76,9 @@ public class PageProcessor
         this(filter, Optional.empty(), projections, initialBatchSize, expressionProfiler);
     }
 
-    @VisibleForTesting
-    public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections)
+    public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections, OptionalInt initialBatchSize)
     {
-        this(filter, filterWithoutTupleDomain, projections, initialBatchSize, Optional.empty(), new ExpressionProfiler());
+        this(filter, filterWithoutTupleDomain, projections, initialBatchSize, new ExpressionProfiler());
     }
     
     public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections, OptionalInt initialBatchSize, ExpressionProfiler expressionProfiler)

@@ -114,13 +114,13 @@ public interface StreamReader
         throw new UnsupportedOperationException();
     }
     // Reads lengths for the rows in the input QualifyingSet.
-    default int scanLengths(int maxResultBytes)
+    default void scanLengths()
         throws IOException
     {
         throw new UnsupportedOperationException();
     }
     
-    default int scan(int maxResultBytes)
+    default void scan()
         throws IOException
     {
         throw new UnsupportedOperationException();
@@ -134,6 +134,10 @@ public interface StreamReader
 
     default int getAverageResultSize()
     {
+        int fixed = getFixedWidth();
+        if (fixed != -1) {
+            return fixed;
+        }
         throw new UnsupportedOperationException();
     }
     

@@ -101,16 +101,6 @@ abstract class ColumnReader
         }
         throw new UnsupportedOperationException("Variable width streams must implement getResultSizeInBytes()");
     }
-
-    @Override
-    public int getAverageResultSize()
-    {
-        int fixed = getFixedWidth();
-        if (fixed != -1) {
-            return fixed;
-        }
-        throw new UnsupportedOperationException();
-    }
     
     public void compactQualifyingSet(int[] surviving, int numSurviving)
     {

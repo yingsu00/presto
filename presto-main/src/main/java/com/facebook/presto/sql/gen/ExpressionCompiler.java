@@ -95,7 +95,7 @@ public class ExpressionCompiler
         return compilePageProcessor(filter, Optional.empty(), projections, classNameSuffix, OptionalInt.empty());
     }
 
-    private Supplier<PageProcessor> compilePageProcessor(
+    public Supplier<PageProcessor> compilePageProcessor(
             Optional<RowExpression> filter,
             Optional<RowExpression> filterWithoutTupleDomain,
             List<? extends RowExpression> projections,
@@ -128,7 +128,7 @@ public class ExpressionCompiler
     @VisibleForTesting
     public Supplier<PageProcessor> compilePageProcessor(Optional<RowExpression> filter, List<? extends RowExpression> projections, int initialBatchSize)
     {
-        return compilePageProcessor(filter, projections, Optional.empty(), OptionalInt.of(initialBatchSize));
+        return compilePageProcessor(filter, Optional.empty(), projections, Optional.empty(), OptionalInt.of(initialBatchSize));
     }
 
     private <T> Class<? extends T> compile(Optional<RowExpression> filter, List<RowExpression> projections, BodyCompiler bodyCompiler, Class<? extends T> superType)

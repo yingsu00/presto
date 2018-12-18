@@ -34,6 +34,7 @@ import static com.facebook.presto.orc.metadata.ColumnEncoding.ColumnEncodingKind
 import static com.facebook.presto.orc.metadata.ColumnEncoding.ColumnEncodingKind.DIRECT_V2;
 import static com.facebook.presto.orc.metadata.ColumnEncoding.ColumnEncodingKind.DWRF_DIRECT;
 import static com.google.common.base.MoreObjects.toStringHelper;
+import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
 import static java.util.Objects.requireNonNull;
 
 public class LongStreamReader
@@ -135,6 +136,13 @@ public class LongStreamReader
         return directReader.getFilter();
     }
     
+
+    @Override
+    public int getFixedWidth()
+    {
+        return SIZE_OF_LONG;
+    }
+
     @Override
     public void erase(int end)
     {
@@ -143,11 +151,32 @@ public class LongStreamReader
         }
         currentReader.erase(end);
     }
+
+    @Override
+    public void compactValues(int[] positions, int base, int numPositions)
+    {
+        currentReader.compactValues(positions, base, numPositions);
+    }
     
-    public int scan(int maxResultBytes)
+    @Override
+    public int getResultSizeInBytes()
+    {
+        if (currentReader == null) {
+            return 0;
+        }
+        return currentReader.getResultSizeInBytes();
+    }
+
+    @Override
+    public void setResultSizeBudget(int bytes)
+    {
+        currentReader.setResultSizeBudget(bytes);
+    }
+        
+    public void scan()
         throws IOException
     {
-        return currentReader.scan(maxResultBytes);
+        currentReader.scan();
     }
 
     @Override

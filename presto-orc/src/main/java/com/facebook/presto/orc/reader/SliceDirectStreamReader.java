@@ -345,7 +345,7 @@ public class SliceDirectStreamReader
     }
     
     @Override
-    public int scanLengths(int maxBytes)
+    public void scanLengths()
             throws IOException
     {
         if (!rowGroupOpen) {
@@ -381,11 +381,10 @@ public class SliceDirectStreamReader
         }
         lengthStream.nextIntVector(neededLengths, lengths, numLengths);
         numLengths += neededLengths;
-        return end;
     }
     
     @Override
-    public int scan(int maxBytes)
+    public void scan()
             throws IOException
     {
         if (resultOffsets == null) {
@@ -514,7 +513,6 @@ public class SliceDirectStreamReader
             output.setEnd(end);
         }
         posInRowGroup = truncationRow != -1 ? truncationRow : end;
-        return posInRowGroup;
     }
 
     void addNullResult(int row, int activeIdx)

@@ -980,7 +980,6 @@ public class OrcRecordReader
             resumeTruncated:
             for (;;) {
                 int firstStreamIdx;
-                int endRowInGroup = 0;
                 lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
                 if (lastTruncatedStreamIdx == -1) {
                     firstStreamIdx = 0;
@@ -1006,9 +1005,9 @@ public class OrcRecordReader
                         startTime = System.nanoTime();
                     }
                     if (reader.getFixedWidth() == -1) {
-                        endRowInGroup = reader.scanLengths(0);
+                        reader.scanLengths();
                     }
-                    endRowInGroup =                     reader.scan(0);
+                    reader.scan();
                     if (filter != null) {
                         QualifyingSet input = qualifyingSet;
                         qualifyingSet = reader.getOutputQualifyingSet();
@@ -1030,7 +1029,7 @@ public class OrcRecordReader
                 int numAdded = numRowsBeforeTruncation(qualifyingSet, lastTruncatedStreamIdx);
                 alignResultsAndRemoveFromQualifyingSet(numAdded);
                 numRowsInResult += numAdded;
-                nextRowInGroup = endRowInGroup;
+                nextRowInGroup = qualifyingSet.getEnd();
                 if (numRowsInResult >= targetNumRows || lastTruncatedStreamIdx != -1) {
                     return resultPage();
                 }
@@ -1046,6 +1045,9 @@ public class OrcRecordReader
             return numPositions;
         }
         int truncationRow = streamOrder[streamIdx].getTruncationRow();
+        if (truncationRow == -1) {
+            return numPositions;
+        }
         int[] rows = qualifyingSet.getPositions();
         for (int i = 0; i < numPositions; i++) {
             if (rows[i] == truncationRow) {
