@@ -22,6 +22,7 @@ import com.facebook.presto.metadata.Metadata;
 import com.facebook.presto.metadata.TableLayoutResult;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.Constraint;
+import com.facebook.presto.spi.ReferencePath;
 import com.facebook.presto.spi.predicate.NullableValue;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.Type;
@@ -32,6 +33,7 @@ import com.facebook.presto.sql.planner.LiteralEncoder;
 import com.facebook.presto.sql.planner.LookupSymbolResolver;
 import com.facebook.presto.sql.planner.PlanNodeIdAllocator;
 import com.facebook.presto.sql.planner.Symbol;
+import com.facebook.presto.sql.planner.SymbolWithSubfieldPath;
 import com.facebook.presto.sql.planner.SymbolsExtractor;
 import com.facebook.presto.sql.planner.TypeProvider;
 import com.facebook.presto.sql.planner.iterative.Rule;
@@ -261,7 +263,7 @@ public class PickTableLayout
                 types);
 
         TupleDomain<ColumnHandle> newDomain = decomposedPredicate.getTupleDomain()
-                .transform(node.getAssignments()::get)
+            .transform(symbol -> {return toColumnHandle(node.getAssignments(), symbol); })
                 .intersect(node.getEnforcedConstraint());
 
         Map<ColumnHandle, Symbol> assignments = ImmutableBiMap.copyOf(node.getAssignments()).inverse();
@@ -346,6 +348,19 @@ public class PickTableLayout
                 .collect(toImmutableList());
     }
 
+    private static ColumnHandle toColumnHandle(Map<Symbol, ColumnHandle> assignments, Symbol symbol)
+    {
+        if (symbol instanceof SymbolWithSubfieldPath) {
+            SymbolWithSubfieldPath subfieldSymbol = (SymbolWithSubfieldPath) symbol;
+            ReferencePath path = subfieldSymbol.getPath();
+            ColumnHandle topColumn = assignments.get(new Symbol(path.getPath().get(0).getField()));
+            return topColumn.createSubfieldColumnHandle(path);
+        }
+        else {
+            return assignments.get(symbol);
+        }
+    }
+    
     private static class LayoutConstraintEvaluator
     {
         private final Map<Symbol, ColumnHandle> assignments;
