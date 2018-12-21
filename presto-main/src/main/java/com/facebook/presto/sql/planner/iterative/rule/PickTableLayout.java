@@ -260,7 +260,7 @@ public class PickTableLayout
                 metadata,
                 session,
                 deterministicPredicate,
-                types);
+                types, true);
 
         TupleDomain<ColumnHandle> newDomain = decomposedPredicate.getTupleDomain()
             .transform(symbol -> {return toColumnHandle(node.getAssignments(), symbol); })
@@ -332,7 +332,7 @@ public class PickTableLayout
                     //   and non-TupleDomain-expressible expressions should be retained. Changing the order can lead
                     //   to failures of previously successful queries.
                     Expression resultingPredicate = combineConjuncts(
-                            domainTranslator.toPredicate(layout.getUnenforcedConstraint().transform(assignments::get)),
+                                                                     domainTranslator.toPredicate(layout.getUnenforcedConstraint().transform(symbol -> { return fromColumnHandle(assignments, symbol); })),
                             filterNonDeterministicConjuncts(predicate),
                             decomposedPredicate.getRemainingExpression());
                     Expression predicateWithoutTupleDomain = combineConjuncts(
@@ -359,6 +359,15 @@ public class PickTableLayout
         else {
             return assignments.get(symbol);
         }
+    }
+
+    private static Symbol fromColumnHandle(Map<ColumnHandle, Symbol> assignments, ColumnHandle columnHandle)
+    {
+        ReferencePath path = columnHandle.getSubfieldPath();
+        if (path != null) {
+            return new SymbolWithSubfieldPath(path);
+        }
+        return assignments.get(columnHandle);
     }
     
     private static class LayoutConstraintEvaluator

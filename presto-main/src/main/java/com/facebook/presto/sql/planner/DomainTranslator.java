@@ -286,6 +286,15 @@ public final class DomainTranslator
                 && !range.getHigh().isUpperUnbounded() && range.getHigh().getBound() == Marker.Bound.EXACTLY;
     }
 
+    public static ExtractionResult fromPredicate(
+            Metadata metadata,
+            Session session,
+            Expression predicate,
+            TypeProvider types)
+    {
+        return fromPredicate(metadata, session, predicate, types, false);
+    }
+
     /**
      * Convert an Expression predicate into an ExtractionResult consisting of:
      * 1) A successfully extracted TupleDomain
@@ -296,9 +305,10 @@ public final class DomainTranslator
             Metadata metadata,
             Session session,
             Expression predicate,
-            TypeProvider types)
+            TypeProvider types,
+            boolean includeSubfields)
     {
-        return new Visitor(metadata, session, types).process(predicate, false);
+        return new Visitor(metadata, session, types, includeSubfields).process(predicate, false);
     }
 
     private static class Visitor
@@ -309,14 +319,16 @@ public final class DomainTranslator
         private final Session session;
         private final TypeProvider types;
         private final InterpretedFunctionInvoker functionInvoker;
-
-        private Visitor(Metadata metadata, Session session, TypeProvider types)
+        private final boolean includeSubfields;
+        
+        private Visitor(Metadata metadata, Session session, TypeProvider types, boolean includeSubfields)
         {
             this.metadata = requireNonNull(metadata, "metadata is null");
             this.literalEncoder = new LiteralEncoder(metadata.getBlockEncodingSerde());
             this.session = requireNonNull(session, "session is null");
             this.types = requireNonNull(types, "types is null");
             this.functionInvoker = new InterpretedFunctionInvoker(metadata.getFunctionRegistry());
+            this.includeSubfields = includeSubfields;
         }
 
         private Type checkedTypeLookup(Symbol symbol)
@@ -457,7 +469,7 @@ public final class DomainTranslator
 
                 return super.visitComparisonExpression(node, complement);
             }
-            else if (isSubfieldPath(symbolExpression)) {
+            else if (includeSubfields && isSubfieldPath(symbolExpression)) {
                 ReferencePath path = subfieldToReferencePath(symbolExpression);
                 if (path == null) {
                     return super.visitComparisonExpression(node, complement);
