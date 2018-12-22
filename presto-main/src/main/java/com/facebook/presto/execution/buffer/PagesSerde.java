@@ -44,8 +44,8 @@ public class PagesSerde
     private final BlockEncodingSerde blockEncodingSerde;
     private final Optional<Compressor> compressor;
     private final Optional<Decompressor> decompressor;
-    private byte[] compressionBuffer = null;
-    
+    private byte[] compressionBuffer;
+
     public PagesSerde(BlockEncodingSerde blockEncodingSerde, Optional<Compressor> compressor, Optional<Decompressor> decompressor)
     {
         this.blockEncodingSerde = requireNonNull(blockEncodingSerde, "blockEncodingSerde is null");
@@ -58,11 +58,11 @@ public class PagesSerde
     {
         return blockEncodingSerde;
     }
-    
+
     public SerializedPage serialize(Page page)
     {
-        
-        SliceOutput serializationBuffer = new DynamicSliceOutput(toIntExact((page.getSizeInBytes() + Integer.BYTES))); // block length is an int
+        // block length is an int
+        SliceOutput serializationBuffer = new DynamicSliceOutput(toIntExact((page.getSizeInBytes() + Integer.BYTES)));
         writeRawPage(page, serializationBuffer, blockEncodingSerde);
 
         if (!compressor.isPresent()) {
@@ -94,7 +94,7 @@ public class PagesSerde
         if (compressionBuffer == null || compressionBuffer.length < maxCompressedLength) {
             compressionBuffer = new byte[maxCompressedLength];
         }
-            int actualCompressedLength = compressor.get().compress((byte[])buffer.getBase(), 0, buffer.length(), compressionBuffer, 0, maxCompressedLength);
+        int actualCompressedLength = compressor.get().compress((byte[]) buffer.getBase(), 0, buffer.length(), compressionBuffer, 0, maxCompressedLength);
 
         if (((1.0 * actualCompressedLength) / buffer.length()) > MINIMUM_COMPRESSION_RATIO) {
             return new SerializedPage(buffer, UNCOMPRESSED, positionCount, buffer.length());
@@ -105,9 +105,8 @@ public class PagesSerde
                                   COMPRESSED,
                                   positionCount,
                                   buffer.length());
-
     }
-    
+
     public Page deserialize(SerializedPage serializedPage)
     {
         checkArgument(serializedPage != null, "serializedPage is null");

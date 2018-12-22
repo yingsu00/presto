@@ -120,5 +120,4 @@ public interface Operator
     default void enableOutputPageReuse()
     {
     }
-    
 }

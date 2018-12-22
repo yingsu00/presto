@@ -84,7 +84,7 @@ public class InterpretedPageFilter
     }
 
     @Override
-    public SelectedPositions filter(ConnectorSession session, Page page)
+    public SelectedPositions filterExprContext(ConnectorSession session, Page page)
     {
         if (selectedPositions.length < page.getPositionCount()) {
             selectedPositions = new boolean[page.getPositionCount()];

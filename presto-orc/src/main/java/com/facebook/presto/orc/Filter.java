@@ -13,14 +13,11 @@
  */
 package com.facebook.presto.orc;
 
-import io.airlift.slice.Slice;
-
 public class Filter
 {
-
-    private long nIn = 0;
-    private long nOut = 0;
-    private long time = 0;
+    private long nIn;
+    private long nOut;
+    private long time;
 
     // True if one may call the filter once per distinct value. This
     // is usually true but a counter example is a filter on the data
@@ -50,17 +47,18 @@ public class Filter
     {
         return false;
     }
-    
+
     void updateStats(int nIn, int nOut, long time)
     {
         this.nIn += nIn;
         this.nOut += nOut;
         this.time += time;
-    }    
-        
-    double getTimePerDroppedValue() {
-            return (double)time / (1 + nIn - nOut);
-}
+    }
+
+    double getTimePerDroppedValue()
+    {
+        return (double) time / (1 + nIn - nOut);
+    }
 
     double getSelectivity()
     {
@@ -69,17 +67,17 @@ public class Filter
         }
         return (double) nOut / (double) nIn;
     }
-    
+
     void decayStats()
     {
         nIn /= 2;
         nOut /= 2;
         time /= 2;
     }
-       
+
     // If there are no scores, return a number for making initial filter order. Less is better.
-        int staticScore()
-        {
-            return 100;
-        }
+    int staticScore()
+    {
+        return 100;
     }
+}

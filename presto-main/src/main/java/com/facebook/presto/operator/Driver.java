@@ -127,7 +127,7 @@ public class Driver
 
         Optional<SourceOperator> sourceOperator = Optional.empty();
         Optional<DeleteOperator> deleteOperator = Optional.empty();
-        boolean recyclePages = SystemSessionProperties.enableAriaReusePages(driverContext.getSession()); 
+        boolean recyclePages = SystemSessionProperties.enableAriaReusePages(driverContext.getSession());
         for (Operator operator : operators) {
             if (operator instanceof SourceOperator) {
                 checkArgument(!sourceOperator.isPresent(), "There must be at most one SourceOperator");

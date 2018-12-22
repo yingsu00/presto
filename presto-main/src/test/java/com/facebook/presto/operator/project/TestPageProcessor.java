@@ -621,7 +621,7 @@ public class TestPageProcessor
         }
 
         @Override
-        public SelectedPositions filter(ConnectorSession session, Page page)
+        public SelectedPositions filterExprContext(ConnectorSession session, Page page)
         {
             return selectedPositions;
         }
@@ -643,7 +643,7 @@ public class TestPageProcessor
         }
 
         @Override
-        public SelectedPositions filter(ConnectorSession session, Page page)
+        public SelectedPositions filterExprContext(ConnectorSession session, Page page)
         {
             return positionsRange(0, page.getPositionCount());
         }
@@ -665,7 +665,7 @@ public class TestPageProcessor
         }
 
         @Override
-        public SelectedPositions filter(ConnectorSession session, Page page)
+        public SelectedPositions filterExprContext(ConnectorSession session, Page page)
         {
             return positionsRange(0, 0);
         }

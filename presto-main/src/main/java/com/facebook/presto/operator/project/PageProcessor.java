@@ -29,14 +29,12 @@ import io.airlift.slice.SizeOf;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
-import static java.lang.Math.max;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.OptionalInt;
 import java.util.function.Function;
 
@@ -61,9 +59,9 @@ public class PageProcessor
     private final Optional<PageFilter> filterWithoutTupleDomain;
     private final List<PageProjection> projections;
     private final int[] inputToOutputChannel;
-    boolean filterPushedDown = false;
+    boolean filterPushedDown;
     private int projectBatchSize;
-    
+
     @VisibleForTesting
     public PageProcessor(Optional<PageFilter> filter, List<? extends PageProjection> projections, OptionalInt initialBatchSize)
     {
@@ -80,16 +78,16 @@ public class PageProcessor
     {
         this(filter, filterWithoutTupleDomain, projections, initialBatchSize, new ExpressionProfiler());
     }
-    
+
     public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections, OptionalInt initialBatchSize, ExpressionProfiler expressionProfiler)
     {
         this.filter = requireNonNull(filter, "filter is null")
         .map(pageFilter -> {
-                    if (pageFilter.getInputChannels().size() == 1 && pageFilter.isDeterministic()) {
-                        return new DictionaryAwarePageFilter(pageFilter);
-                    }
-                    return pageFilter;
-                });
+            if (pageFilter.getInputChannels().size() == 1 && pageFilter.isDeterministic()) {
+                return new DictionaryAwarePageFilter(pageFilter);
+            }
+            return pageFilter;
+        });
         this.filterWithoutTupleDomain = requireNonNull(filterWithoutTupleDomain, "filterWithoutTupleDomain is null");
         this.projections = requireNonNull(projections, "projections is null").stream()
                 .map(projection -> {
@@ -114,9 +112,10 @@ public class PageProcessor
             }
             List<Integer> inputs = projection.getInputChannels().getInputChannels();
             if (!inputToOutput.containsKey(inputs.get(0))) {
-                inputToOutput.put(inputs.get(0), new Integer(i));
+                inputToOutput.put(inputs.get(0), Integer.valueOf(i));
                 maxInputChannel = Math.max(maxInputChannel, inputs.get(0).intValue());
-            } else {
+            }
+            else {
                 allAreInputPageProjections = false;
                 break;
             }
@@ -149,7 +148,7 @@ public class PageProcessor
     {
         filterPushedDown = true;
     }
-    
+
     public PageProcessorOutput process(ConnectorSession session, DriverYieldSignal yieldSignal, Page page)
     {
         // limit the scope of the dictionary ids to just one page
@@ -160,7 +159,7 @@ public class PageProcessor
         }
 
         if (!filterPushedDown && filter.isPresent()) {
-            SelectedPositions selectedPositions = filter.get().filter(session, filter.get().getInputChannels().getInputChannels(page));
+            SelectedPositions selectedPositions = filter.get().filterExprContext(session, filter.get().getInputChannels().getInputChannels(page));
             if (selectedPositions.isEmpty()) {
                 return EMPTY_PAGE_PROCESSOR_OUTPUT;
             }

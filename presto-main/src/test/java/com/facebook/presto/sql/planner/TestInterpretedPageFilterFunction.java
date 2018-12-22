@@ -203,7 +203,7 @@ public class TestInterpretedPageFilterFunction
                 SQL_PARSER,
                 TEST_SESSION);
 
-        SelectedPositions selectedPositions = filterFunction.filter(TEST_SESSION.toConnectorSession(), new Page(1));
+        SelectedPositions selectedPositions = filterFunction.filterExprContext(TEST_SESSION.toConnectorSession(), new Page(1));
         assertEquals(selectedPositions.size(), expectedValue ? 1 : 0);
         if (expectedValue) {
             if (selectedPositions.isList()) {
