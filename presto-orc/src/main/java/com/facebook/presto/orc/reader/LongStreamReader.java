@@ -66,7 +66,7 @@ public class LongStreamReader
     {
         return currentReader.readBlock(type);
     }
-    
+
     @Override
     public void startStripe(InputStreamSources dictionaryStreamSources, List<ColumnEncoding> encoding)
             throws IOException
@@ -94,7 +94,7 @@ public class LongStreamReader
         currentReader.startRowGroup(dataStreamSources);
     }
 
-        @Override
+    @Override
     public void setInputQualifyingSet(QualifyingSet qualifyingSet)
     {
         currentReader.setInputQualifyingSet(qualifyingSet);
@@ -105,13 +105,13 @@ public class LongStreamReader
     {
         return currentReader.getInputQualifyingSet();
     }
-    
+
     @Override
     public QualifyingSet getOutputQualifyingSet()
     {
         return currentReader.getOutputQualifyingSet();
     }
-    
+
     @Override
     public void setFilterAndChannel(Filter filter, int channel, int columnIndex)
     {
@@ -135,7 +135,6 @@ public class LongStreamReader
     {
         return directReader.getFilter();
     }
-    
 
     @Override
     public int getFixedWidth()
@@ -157,7 +156,7 @@ public class LongStreamReader
     {
         currentReader.compactValues(positions, base, numPositions);
     }
-    
+
     @Override
     public int getResultSizeInBytes()
     {
@@ -172,9 +171,9 @@ public class LongStreamReader
     {
         currentReader.setResultSizeBudget(bytes);
     }
-        
+
     public void scan()
-        throws IOException
+            throws IOException
     {
         currentReader.scan();
     }

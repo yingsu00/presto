@@ -106,9 +106,9 @@ public class JoinProbe
 
     public Block getProbeHashBlock()
     {
-        return probeHashBlock.isPresent() ? probeHashBlock.get() : null; 
+        return probeHashBlock.isPresent() ? probeHashBlock.get() : null;
     }
-    
+
     private boolean currentRowContainsNull()
     {
         for (Block probeBlock : probeBlocks) {

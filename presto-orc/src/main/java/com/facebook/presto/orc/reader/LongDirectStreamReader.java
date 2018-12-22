@@ -14,7 +14,6 @@
 package com.facebook.presto.orc.reader;
 
 import com.facebook.presto.memory.context.LocalMemoryContext;
-import com.facebook.presto.orc.Filter;
 import com.facebook.presto.orc.OrcCorruptionException;
 import com.facebook.presto.orc.QualifyingSet;
 import com.facebook.presto.orc.StreamDescriptor;
@@ -41,14 +40,12 @@ import static com.facebook.presto.orc.metadata.Stream.StreamKind.PRESENT;
 import static com.facebook.presto.orc.stream.MissingInputStreamSource.missingStreamSource;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Verify.verify;
-import static io.airlift.slice.SizeOf.sizeOf;
 import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
-import static java.lang.Math.max;
-import static java.lang.Math.min;
+import static io.airlift.slice.SizeOf.sizeOf;
 import static java.util.Objects.requireNonNull;
 
 public class LongDirectStreamReader
-    extends ColumnReader 
+        extends ColumnReader
         implements StreamReader
 {
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(LongDirectStreamReader.class).instanceSize();
@@ -71,8 +68,8 @@ public class LongDirectStreamReader
 
     private LocalMemoryContext systemMemoryContext;
 
-    private long[] values = null;
-    private boolean[] valueIsNull = null;
+    private long[] values;
+    private boolean[] valueIsNull;
 
     public LongDirectStreamReader(StreamDescriptor streamDescriptor, LocalMemoryContext systemMemoryContext)
     {
@@ -183,7 +180,7 @@ public class LongDirectStreamReader
         if (numValues > 0) {
             System.arraycopy(values, end, values, 0, numValues);
             if (valueIsNull != null) {
-                            System.arraycopy(valueIsNull, end, valueIsNull, 0, numValues);
+                System.arraycopy(valueIsNull, end, valueIsNull, 0, numValues);
             }
         }
     }
@@ -192,10 +189,9 @@ public class LongDirectStreamReader
     {
         if (outputChannel != -1) {
             StreamReaders.compactArrays(positions, base, numPositions, values, valueIsNull);
-
-           numValues = base + numPositions;
+            numValues = base + numPositions;
         }
-           compactQualifyingSet(positions, numPositions);
+        compactQualifyingSet(positions, numPositions);
     }
 
     @Override
@@ -204,7 +200,7 @@ public class LongDirectStreamReader
         return SIZE_OF_LONG;
     }
 
-@Override
+    @Override
     public void scan()
             throws IOException
     {
@@ -225,7 +221,8 @@ public class LongDirectStreamReader
         int numOut;
         if (filter != null) {
             if (outputQualifyingSet == null) {
-                output = outputQualifyingSet = new QualifyingSet();
+                outputQualifyingSet = new QualifyingSet();
+                output = outputQualifyingSet;
             }
             numOut = dataStream.scan(filter,
                                      input.getPositions(),
@@ -287,7 +284,7 @@ public class LongDirectStreamReader
             values = new long[Math.max(numInput, expectNumValues)];
         }
         else if (numValues + numInput > values.length) {
-            int newSize = (int)((numValues + numInput) * 1.2);
+            int newSize = (int) ((numValues + numInput) * 1.2);
             if (valueIsNull != null) {
                 valueIsNull = Arrays.copyOf(valueIsNull, newSize);
             }
@@ -295,7 +292,7 @@ public class LongDirectStreamReader
         }
     }
 
-        @Override
+    @Override
     public String toString()
     {
         return toStringHelper(this)

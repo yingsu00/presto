@@ -22,7 +22,7 @@ public interface PageFilter
 
     InputChannels getInputChannels();
 
-    SelectedPositions filter(ConnectorSession session, Page page);
+    SelectedPositions filterExprContext(ConnectorSession session, Page page);
 
     static SelectedPositions positionsArrayToSelectedPositions(boolean[] selectedPositions, int size)
     {

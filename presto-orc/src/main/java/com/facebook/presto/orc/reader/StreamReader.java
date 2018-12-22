@@ -39,20 +39,21 @@ public interface StreamReader
     {
         return null;
     }
-    
+
     default QualifyingSet getOutputQualifyingSet()
     {
         return null;
     }
-    
+
     /* If filter is non-null, sets the output QualifyingSet by
      * applying filter to the rows in the input QualifyingSet. If
      * channel is not -1, appends the values in the post-filter rows
      * to a Block. The Block can be retrieved by getBlock(). */
-    default void setFilterAndChannel(Filter filter, int channel, int columnIndex)    {
+    default void setFilterAndChannel(Filter filter, int channel, int columnIndex)
+    {
         throw new UnsupportedOperationException();
     }
-    
+
     /* True if the extracted values depend on a row group
      * dictionary. Cannot move to the next row group without losing
      * the dictionary encoding .*/
@@ -60,7 +61,7 @@ public interface StreamReader
     {
         return false;
     }
-    
+
     default int getChannel()
     {
         return -1;
@@ -75,7 +76,7 @@ public interface StreamReader
     {
         return null;
     }
-    
+
     default int getColumnIndex()
     {
         return -1;
@@ -115,13 +116,13 @@ public interface StreamReader
     }
     // Reads lengths for the rows in the input QualifyingSet.
     default void scanLengths()
-        throws IOException
+            throws IOException
     {
         throw new UnsupportedOperationException();
     }
-    
+
     default void scan()
-        throws IOException
+            throws IOException
     {
         throw new UnsupportedOperationException();
     }
@@ -140,7 +141,7 @@ public interface StreamReader
         }
         throw new UnsupportedOperationException();
     }
-    
+
     Block readBlock(Type type)
             throws IOException;
 

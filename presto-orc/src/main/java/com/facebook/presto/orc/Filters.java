@@ -15,18 +15,19 @@ package com.facebook.presto.orc;
 
 import java.util.Arrays;
 
-public class Filters {
-    static public class BigintRange
-        extends Filter
+public class Filters
+{
+    public static class BigintRange
+            extends Filter
     {
         private final long lower;
         private final long upper;
 
         BigintRange(long lower, long upper)
-            {
-                this.lower = lower;
-                this.upper = upper;
-            }
+        {
+            this.lower = lower;
+            this.upper = upper;
+        }
 
         @Override
         public boolean testLong(long value)
@@ -45,8 +46,8 @@ public class Filters {
         }
     }
 
-        static public class DoubleRange
-        extends Filter
+    public static class DoubleRange
+            extends Filter
     {
         private final double lower;
         private final boolean lowerUnbounded;
@@ -59,9 +60,9 @@ public class Filters {
         {
             this.lower = lower;
             this.lowerUnbounded = lowerUnbounded;
-            this.lowerExclusive =lowerExclusive;
+            this.lowerExclusive = lowerExclusive;
             this.upper = upper;
-            this.upperUnbounded = upperUnbounded ;
+            this.upperUnbounded = upperUnbounded;
             this.upperExclusive = upperExclusive;
         }
 
@@ -98,24 +99,23 @@ public class Filters {
         }
     }
 
-        static public class BytesRange
-        extends Filter
+    public static class BytesRange
+            extends Filter
     {
         private final byte[] lower;
         private final byte[] upper;
         private final boolean isEqual;
         private final boolean lowerInclusive;
         private final boolean upperInclusive;
-        
 
         public BytesRange(byte[] lower, boolean lowerInclusive, byte[] upper, boolean upperInclusive)
-            {
-                this.lower = lower;
-                this.upper = upper;
-                this.lowerInclusive = lowerInclusive;
-                this.upperInclusive = upperInclusive;
-                isEqual = upperInclusive && lowerInclusive &&Arrays.equals(upper, lower);
-            }
+        {
+            this.lower = lower;
+            this.upper = upper;
+            this.lowerInclusive = lowerInclusive;
+            this.upperInclusive = upperInclusive;
+            isEqual = upperInclusive && lowerInclusive && Arrays.equals(upper, lower);
+        }
 
         @Override
         public boolean testBytes(byte[] buffer, int offset, int length)
@@ -167,16 +167,16 @@ public class Filters {
             }
             return upper != null && lower != null ? 6 : 7;
         }
-        }
+    }
 
-    static public class MapFilters
-        extends Filter
+    public static class MapFilters
+            extends Filter
     {
         Filter keyFilter;
         Filter valueFilter;
-            }
+    }
 
-    static public class RowFilter
+    public static class RowFilter
     {
         String[] subFields;
         Filter[] fieldFilters;

@@ -165,7 +165,6 @@ public class TaskExecutor
                 embedVersion,
                 splitQueue,
                 Ticker.systemTicker());
-
     }
 
     @VisibleForTesting
@@ -193,11 +192,10 @@ public class TaskExecutor
         String singleThreadEnv = System.getenv("SINGLE_THREAD");
         if (singleThreadEnv != null && singleThreadEnv.equals("y")) {
             runnerThreads = 1;
-                maximumNumberOfDriversPerTask = 1;
-                guaranteedNumberOfDriversPerTask = 1;
+            maximumNumberOfDriversPerTask = 1;
+            guaranteedNumberOfDriversPerTask = 1;
         }
         checkArgument(runnerThreads > 0, "runnerThreads must be at least 1");
-
         checkArgument(guaranteedNumberOfDriversPerTask > 0, "guaranteedNumberOfDriversPerTask must be at least 1");
         checkArgument(maximumNumberOfDriversPerTask > 0, "maximumNumberOfDriversPerTask must be at least 1");
         checkArgument(guaranteedNumberOfDriversPerTask <= maximumNumberOfDriversPerTask, "guaranteedNumberOfDriversPerTask cannot be greater than maximumNumberOfDriversPerTask");

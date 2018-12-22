@@ -53,7 +53,6 @@ import static java.util.Objects.requireNonNull;
 public class LookupJoinOperator
         implements Operator
 {
-
     enum JoinPushdown {NO_PUSHDOWN, PUSHDOWN_JOIN, UNKNOWN};
     private final OperatorContext operatorContext;
     private final List<Type> probeTypes;
@@ -74,7 +73,7 @@ public class LookupJoinOperator
     private LookupSourceProvider lookupSourceProvider;
     private JoinProbe probe;
     AriaHash.AriaProbe ariaProbe;
-    
+
     private Page outputPage;
 
     private Optional<PartitioningSpiller> spiller = Optional.empty();
@@ -148,10 +147,10 @@ public class LookupJoinOperator
         }
         if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
             lookupSourceProvider.withLease(lookupSourceLease -> {
-                    LookupSource lookupSource = lookupSourceLease.getLookupSource();
-                    lookupSource.close();
-                    return true;
-                });
+                LookupSource lookupSource = lookupSourceLease.getLookupSource();
+                lookupSource.close();
+                return true;
+            });
         }
         if (!spillInProgress.isDone()) {
             return;
@@ -224,7 +223,6 @@ public class LookupJoinOperator
 
     private void addInput(Page page, SpillInfoSnapshot spillInfoSnapshot)
     {
-        
         requireNonNull(spillInfoSnapshot, "spillInfoSnapshot is null");
 
         if (spillInfoSnapshot.hasSpilled()) {
@@ -415,30 +413,30 @@ public class LookupJoinOperator
 
         if (joinPushdown != JoinPushdown.NO_PUSHDOWN) {
             lookupSourceProvider.withLease(lookupSourceLease -> {
-                    LookupSource lookupSource = lookupSourceLease.getLookupSource();
-                    if (joinPushdown == JoinPushdown.UNKNOWN) {
-                        joinPushdown = lookupSource.isJoinPushedDown() ? JoinPushdown.PUSHDOWN_JOIN : JoinPushdown.NO_PUSHDOWN;
-                    }
-                    if (joinPushdown == JoinPushdown.NO_PUSHDOWN) {
+                LookupSource lookupSource = lookupSourceLease.getLookupSource();
+                if (joinPushdown == JoinPushdown.UNKNOWN) {
+                    joinPushdown = lookupSource.isJoinPushedDown() ? JoinPushdown.PUSHDOWN_JOIN : JoinPushdown.NO_PUSHDOWN;
+                }
+                if (joinPushdown == JoinPushdown.NO_PUSHDOWN) {
+                    return null;
+                }
+                if (ariaProbe == null) {
+                    if (!(lookupSource instanceof PartitionedLookupSource)) {
+                        joinPushdown = JoinPushdown.NO_PUSHDOWN;
                         return null;
                     }
-                    if (ariaProbe == null) {
-                        if (!(lookupSource instanceof PartitionedLookupSource)) {
-                            joinPushdown = JoinPushdown.NO_PUSHDOWN;
-                            return null;
-                        }
-                        ariaProbe = ((PartitionedLookupSource)lookupSource).createAriaProbe(operatorContext.getSession(), reusePages);
-                    }
-                    if (probe.getPosition() == -1) {
-                        ariaProbe.addInput(probe);
-                        probe.advanceNextPosition(); 
-                    }
-                    outputPage = ariaProbe.getOutput();
-                    if (outputPage == null) {
-                        probe = null;
-                    }
-                    return Optional.empty();
-});
+                    ariaProbe = ((PartitionedLookupSource) lookupSource).createAriaProbe(operatorContext.getSession(), reusePages);
+                }
+                if (probe.getPosition() == -1) {
+                    ariaProbe.addInput(probe);
+                    probe.advanceNextPosition();
+                }
+                outputPage = ariaProbe.getOutput();
+                if (outputPage == null) {
+                    probe = null;
+                }
+                return Optional.empty();
+            });
             if (joinPushdown == JoinPushdown.PUSHDOWN_JOIN) {
                 return;
             }
@@ -520,7 +518,7 @@ public class LookupJoinOperator
                 if (!joinCurrentPosition(lookupSource, yieldSignal)) {
                     break;
                 }
-                 if (!currentProbePositionProducedRow) {
+                if (!currentProbePositionProducedRow) {
                     currentProbePositionProducedRow = true;
                     if (!outerJoinCurrentPosition()) {
                         break;
@@ -751,5 +749,4 @@ public class LookupJoinOperator
     {
         reusePages = true;
     }
-    
 }

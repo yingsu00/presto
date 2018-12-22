@@ -14,14 +14,10 @@
 package com.facebook.presto.operator;
 
 import com.facebook.presto.Session;
-import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.operator.exchange.LocalPartitionGenerator;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.type.Type;
-import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.spi.block.BlockDecoder;
-import com.facebook.presto.spi.block.IntArrayAllocator;
 import com.google.common.io.Closer;
 
 import javax.annotation.Nullable;
@@ -357,9 +353,8 @@ public class PartitionedLookupSource
     {
         AriaHash.AriaLookupSource[] castLookupSources = new AriaHash.AriaLookupSource[lookupSources.length];
         for (int i = 0; i < lookupSources.length; i++) {
-            castLookupSources[i] = (AriaHash.AriaLookupSource)lookupSources[i];
+            castLookupSources[i] = (AriaHash.AriaLookupSource) lookupSources[i];
         }
         return new AriaHash.AriaProbe(castLookupSources, partitionGenerator, reusePages);
     }
-
-        }
+}

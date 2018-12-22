@@ -51,6 +51,6 @@ public class BucketPartitionFunction
 
     public void getPartitions(int partitionCount, Page page, BlockDecoder decoder, int[] partitionsOut)
     {
-        bucketFunction.getBuckets(        partitionCount, page, decoder, partitionsOut);
+        bucketFunction.getBuckets(partitionCount, page, decoder, partitionsOut);
     }
 }

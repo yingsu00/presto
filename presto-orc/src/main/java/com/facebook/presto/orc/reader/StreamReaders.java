@@ -73,6 +73,5 @@ public final class StreamReaders
                 valueIsNull[base + i] = valueIsNull[base + positions[i]];
             }
         }
-        }
-
+    }
 }

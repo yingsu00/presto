@@ -16,7 +16,6 @@ package com.facebook.presto.operator;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockDecoder;
-import com.facebook.presto.spi.block.IntArrayAllocator;
 import com.facebook.presto.spi.type.BigintType;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
@@ -25,7 +24,7 @@ public class PrecomputedHashGenerator
         implements HashGenerator
 {
     private final int hashChannel;
-    
+
     public PrecomputedHashGenerator(int hashChannel)
     {
         this.hashChannel = hashChannel;
@@ -46,18 +45,18 @@ public class PrecomputedHashGenerator
         long[] longs = decoder.longs;
         if (decoder.isIdentityMap) {
             for (int i = 0; i < positionCount; i++) {
-                partitionsOut[i] = (int)((longs[i] & 0x7fffffffffffL) % partitionCount);
+                partitionsOut[i] = (int) ((longs[i] & 0x7fffffffffffL) % partitionCount);
             }
         }
         else {
             int[] map = decoder.rowNumberMap;
             for (int i = 0; i < positionCount; i++) {
-                partitionsOut[i] = (int)((longs[map[i]] & 0x7fffffffffffL) % partitionCount);
+                partitionsOut[i] = (int) ((longs[map[i]] & 0x7fffffffffffL) % partitionCount);
             }
         }
         decoder.release();
     }
-    
+
     @Override
     public String toString()
     {
