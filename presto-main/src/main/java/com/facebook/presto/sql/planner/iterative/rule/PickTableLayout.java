@@ -255,12 +255,16 @@ public class PickTableLayout
     {
         // don't include non-deterministic predicates
         Expression deterministicPredicate = filterDeterministicConjuncts(predicate);
-
+        boolean supportsSubfieldTupleDomain = false;
+        for (Map.Entry<Symbol, ColumnHandle> entry : node.getAssignments().entrySet()) {
+            supportsSubfieldTupleDomain = entry.getValue().supportsSubfieldTupleDomain();
+            break;
+        }
         DomainTranslator.ExtractionResult decomposedPredicate = DomainTranslator.fromPredicate(
                 metadata,
                 session,
                 deterministicPredicate,
-                types, true);
+                types, supportsSubfieldTupleDomain);
 
         TupleDomain<ColumnHandle> newDomain = decomposedPredicate.getTupleDomain()
             .transform(symbol -> {return toColumnHandle(node.getAssignments(), symbol); })

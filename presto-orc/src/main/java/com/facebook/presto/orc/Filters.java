@@ -13,7 +13,9 @@
  */
 package com.facebook.presto.orc;
 
+import com.facebook.presto.spi.ReferencePath;
 import java.util.Arrays;
+import java.util.HashMap;
 
 public class Filters
 {
@@ -169,16 +171,19 @@ public class Filters
         }
     }
 
-    public static class MapFilters
+    public static class StructFilter
             extends Filter
     {
-        Filter keyFilter;
-        Filter valueFilter;
-    }
+        private final HashMap<ReferencePath.PathElement, Filter> filters = new HashMap();
 
-    public static class RowFilter
-    {
-        String[] subFields;
-        Filter[] fieldFilters;
+        public Filter getMember(ReferencePath.PathElement member)
+        {
+            return filters.get(member);
+        }
+
+        public void addMember(ReferencePath.PathElement member, Filter filter)
+        {
+            filters.put(member, filter);
+        }
     }
 }

@@ -30,7 +30,7 @@ public class ReferencePath
 
         @JsonCreator
         public PathElement(
-                           @JsonProperty("Dfieldid")String field,
+                           @JsonProperty("field")String field,
                            @JsonProperty("subscript") int subscript)
         {
             this.field = field;

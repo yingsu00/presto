@@ -288,8 +288,8 @@ public class ScanFilterAndProjectOperator
                         filters[0] = new FilterExpression(operatorContext.getSession().toConnectorSession(), filter.get());
                     }
                     boolean reorderFilters = SystemSessionProperties.ariaReorderFilters(operatorContext.getSession());
-
-                    boolean filterPushedDown = pageSource.pushdownFilterAndProjection(new PageSourceOptions(channels, reusePages, filters, reorderFilters, mergingOutput.getMinPageSizeInBytes()));
+                    int ariaFlags = SystemSessionProperties.ariaFlags(operatorContext.getSession());
+                    boolean filterPushedDown = pageSource.pushdownFilterAndProjection(new PageSourceOptions(channels, reusePages, filters, reorderFilters, mergingOutput.getMinPageSizeInBytes(), ariaFlags));
                     if (filterPushedDown && projectionPushedDown) {
                         filterAndProjectPushedDown = true;
                     }

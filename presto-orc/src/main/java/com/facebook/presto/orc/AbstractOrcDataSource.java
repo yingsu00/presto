@@ -13,6 +13,10 @@
  */
 package com.facebook.presto.orc;
 
+import com.facebook.presto.spi.AriaFlags;
+import com.facebook.presto.spi.memory.CacheAdapter;
+import com.facebook.presto.spi.memory.CacheEntry;
+import com.facebook.presto.spi.memory.Caches;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.BasicSliceInput;
 import io.airlift.slice.ChunkedSliceInput;
@@ -40,16 +44,27 @@ import static java.util.Objects.requireNonNull;
 public abstract class AbstractOrcDataSource
         implements OrcDataSource
 {
+
+    public interface OrcLoader
+    {
+        FixedLengthSliceInput get();
+        // Allows unpinning possibly held resources rom caches or pools.
+        default void close()
+        {
+        }
+    }
+    
     private final OrcDataSourceId id;
     private final long size;
     private final DataSize maxMergeDistance;
     private final DataSize maxBufferSize;
     private final DataSize streamBufferSize;
     private final boolean lazyReadSmallRanges;
+    private final int ariaFlags;
     private long readTimeNanos;
     private long readBytes;
 
-    public AbstractOrcDataSource(OrcDataSourceId id, long size, DataSize maxMergeDistance, DataSize maxBufferSize, DataSize streamBufferSize, boolean lazyReadSmallRanges)
+    public AbstractOrcDataSource(OrcDataSourceId id, long size, DataSize maxMergeDistance, DataSize maxBufferSize, DataSize streamBufferSize, boolean lazyReadSmallRanges, int ariaFlags)
     {
         this.id = requireNonNull(id, "id is null");
 
@@ -60,6 +75,7 @@ public abstract class AbstractOrcDataSource
         this.maxBufferSize = requireNonNull(maxBufferSize, "maxBufferSize is null");
         this.streamBufferSize = requireNonNull(streamBufferSize, "streamBufferSize is null");
         this.lazyReadSmallRanges = lazyReadSmallRanges;
+        this.ariaFlags = ariaFlags;
     }
 
     protected abstract void readInternal(long position, byte[] buffer, int bufferOffset, int bufferLength)
@@ -244,7 +260,7 @@ public abstract class AbstractOrcDataSource
     }
 
     private final class LazyMergedSliceLoader
-            implements Supplier<FixedLengthSliceInput>
+        implements Loader
     {
         private final DiskRange diskRange;
         private final LazyBufferLoader lazyBufferLoader;
@@ -327,7 +343,7 @@ public abstract class AbstractOrcDataSource
     }
 
     private final class LazyChunkedSliceLoader
-            implements Supplier<FixedLengthSliceInput>
+            implements Loader
     {
         private final DiskRange diskRange;
         private final int bufferSize;

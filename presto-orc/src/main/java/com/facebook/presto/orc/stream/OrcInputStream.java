@@ -84,7 +84,8 @@ public final class OrcInputStream
     @Override
     public void close()
     {
-        // close is never called, so do not add code here
+        // close may be called to unpin cache or pool resources.
+        compressedSliceInput.close();
     }
 
     @Override

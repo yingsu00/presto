@@ -25,11 +25,6 @@ import java.util.List;
 
 public interface StreamReader
 {
-    default boolean scanAtEnd()
-    {
-        return true;
-    }
-
     default void setInputQualifyingSet(QualifyingSet qualifyingSet)
     {
         throw new UnsupportedOperationException();

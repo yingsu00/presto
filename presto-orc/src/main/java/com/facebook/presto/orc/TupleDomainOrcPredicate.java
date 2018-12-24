@@ -17,6 +17,8 @@ import com.facebook.presto.orc.metadata.statistics.BooleanStatistics;
 import com.facebook.presto.orc.metadata.statistics.ColumnStatistics;
 import com.facebook.presto.orc.metadata.statistics.HiveBloomFilter;
 import com.facebook.presto.orc.metadata.statistics.RangeStatistics;
+import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.ReferencePath;
 import com.facebook.presto.spi.predicate.Domain;
 import com.facebook.presto.spi.predicate.Marker;
 import com.facebook.presto.spi.predicate.Range;
@@ -56,10 +58,11 @@ import static com.facebook.presto.spi.type.TinyintType.TINYINT;
 import static com.facebook.presto.spi.type.Varchars.isVarcharType;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Verify.verify;
 import static java.lang.Float.floatToRawIntBits;
 import static java.util.Objects.requireNonNull;
 
-public class TupleDomainOrcPredicate<C>
+public class TupleDomainOrcPredicate<C extends ColumnHandle>
         implements OrcPredicate
 {
     private final TupleDomain<C> effectivePredicate;
@@ -312,11 +315,21 @@ public class TupleDomainOrcPredicate<C>
         }
         Map<C, Domain> effectivePredicateDomains = optionalEffectivePredicateDomains.get();
 
-        for (ColumnReference<C> columnReference : columnReferences) {
-            Domain predicateDomain = effectivePredicateDomains.get(columnReference.getColumn());
-            if (predicateDomain == null) {
-                // no predicate on this column.
-                continue;
+        for (Map.Entry<C, Domain> entry : effectivePredicateDomains.entrySet()) {
+            Domain predicateDomain = entry.getValue();
+            C column = entry.getKey();
+            ReferencePath subfield = column.getSubfieldPath();
+            ColumnHandle topLevelColumn = subfield == null ? column : column.createSubfieldColumnHandle(null);
+            ColumnReference<C> columnReference = null;
+            for (ColumnReference<C> c : columnReferences) {
+                if (c.getColumn().equals(topLevelColumn)) {
+                        columnReference = c;
+                        break;
+                    }
+            }
+            if (columnReference == null) {
+                // Predicate on non-existent column.
+                return null;
             }
             ValueSet values = predicateDomain.getValues();
             if (values instanceof SortedRangeSet) {
@@ -337,7 +350,7 @@ public class TupleDomainOrcPredicate<C>
                     // The domain cannot be converted to a filter. Pushdown fails.
                     return null;
                 }
-                filters.put(columnReference.getOrdinal(), filter);
+                addFilter(columnReference.getOrdinal(), subfield, filter, filters);
             }
             else {
                 return null;
@@ -345,6 +358,40 @@ public class TupleDomainOrcPredicate<C>
         }
         return filters;
     }
+
+    private static void addFilter(Integer ordinal, ReferencePath subfield, Filter filter, Map<Integer, Filter> filters)
+    {
+        if (subfield == null) {
+            filters.put(ordinal, filter);
+        }
+        else {
+            Filter topFilter = filters.get(ordinal);
+            verify(topFilter == null || topFilter instanceof Filters.StructFilter);
+            Filters.StructFilter structFilter = (Filters.StructFilter) topFilter;
+            if (structFilter == null) {
+                structFilter = new Filters.StructFilter();
+                filters.put(ordinal, structFilter);
+            }
+            int depth = subfield.getPath().size();
+            for (int i = 1; i < depth; i++) {
+                    Filter memberFilter = structFilter.getMember(subfield.getPath().get(i));
+                    if (i == depth - 1) {
+                        verify(memberFilter == null);
+                        structFilter.addMember(subfield.getPath().get(i), filter);
+                        return;
+                    }
+                    if (memberFilter == null) {
+                        memberFilter = new Filters.StructFilter();
+                        structFilter.addMember(subfield.getPath().get(i), memberFilter);
+                        structFilter = (Filters.StructFilter) memberFilter;
+                    }
+                    else {
+                        verify(memberFilter instanceof Filters.StructFilter);
+                        structFilter = (Filters.StructFilter) memberFilter;
+                    }
+            }
+        }
+    }    
 
     private static Filter BigintRangesToFilter(List<Range> ranges)
     {
