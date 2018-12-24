@@ -44,27 +44,17 @@ import static java.util.Objects.requireNonNull;
 public abstract class AbstractOrcDataSource
         implements OrcDataSource
 {
-
-    public interface OrcLoader
-    {
-        FixedLengthSliceInput get();
-        // Allows unpinning possibly held resources rom caches or pools.
-        default void close()
-        {
-        }
-    }
-    
     private final OrcDataSourceId id;
     private final long size;
     private final DataSize maxMergeDistance;
     private final DataSize maxBufferSize;
     private final DataSize streamBufferSize;
     private final boolean lazyReadSmallRanges;
-    private final int ariaFlags;
+    private int ariaFlags;
     private long readTimeNanos;
     private long readBytes;
 
-    public AbstractOrcDataSource(OrcDataSourceId id, long size, DataSize maxMergeDistance, DataSize maxBufferSize, DataSize streamBufferSize, boolean lazyReadSmallRanges, int ariaFlags)
+    public AbstractOrcDataSource(OrcDataSourceId id, long size, DataSize maxMergeDistance, DataSize maxBufferSize, DataSize streamBufferSize, boolean lazyReadSmallRanges)
     {
         this.id = requireNonNull(id, "id is null");
 
@@ -75,7 +65,6 @@ public abstract class AbstractOrcDataSource
         this.maxBufferSize = requireNonNull(maxBufferSize, "maxBufferSize is null");
         this.streamBufferSize = requireNonNull(streamBufferSize, "streamBufferSize is null");
         this.lazyReadSmallRanges = lazyReadSmallRanges;
-        this.ariaFlags = ariaFlags;
     }
 
     protected abstract void readInternal(long position, byte[] buffer, int bufferOffset, int bufferLength)
@@ -259,6 +248,15 @@ public abstract class AbstractOrcDataSource
         }
     }
 
+    public interface Loader
+    {
+        FixedLengthSliceInput get();
+        // Allows unpinning possibly held resources rom caches or pools.
+        default void close()
+        {
+        }
+    }
+    
     private final class LazyMergedSliceLoader
         implements Loader
     {

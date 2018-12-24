@@ -62,7 +62,7 @@ import static com.google.common.base.Verify.verify;
 import static java.lang.Float.floatToRawIntBits;
 import static java.util.Objects.requireNonNull;
 
-public class TupleDomainOrcPredicate<C extends ColumnHandle>
+public class TupleDomainOrcPredicate<C>
         implements OrcPredicate
 {
     private final TupleDomain<C> effectivePredicate;
@@ -318,8 +318,12 @@ public class TupleDomainOrcPredicate<C extends ColumnHandle>
         for (Map.Entry<C, Domain> entry : effectivePredicateDomains.entrySet()) {
             Domain predicateDomain = entry.getValue();
             C column = entry.getKey();
-            ReferencePath subfield = column.getSubfieldPath();
-            ColumnHandle topLevelColumn = subfield == null ? column : column.createSubfieldColumnHandle(null);
+            if (!(column instanceof ColumnHandle)) {
+                return null;
+            }
+            ColumnHandle columnHandle = (ColumnHandle) column;
+            ReferencePath subfield = columnHandle.getSubfieldPath();
+            ColumnHandle topLevelColumn = subfield == null ? columnHandle : columnHandle.createSubfieldColumnHandle(null);
             ColumnReference<C> columnReference = null;
             for (ColumnReference<C> c : columnReferences) {
                 if (c.getColumn().equals(topLevelColumn)) {

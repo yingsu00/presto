@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.spi.memory;
 
-import it.unimi.dsi.fastutil.longs.LongArrayList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
@@ -65,7 +64,7 @@ public class ByteArrayPool
             if (count > 0) {
                 data = list.get(count - 1);
                 list.remove(count - 1);
-                times[idx].remove(count - 1);
+                times[idx].popBack();
             }
         }
         if (data != null) {
@@ -109,11 +108,41 @@ public class ByteArrayPool
 
             for (int idx = 0; idx < sizes.length; idx++) {
                 LongArrayList ages = times[idx];
-                for (long t : ages) {
-                    totalTime += t - now;
+                for (int i = 0; i < ages.size(); i++) {
+                    totalTime += ages.get(i) - now;
                 }
             }
             break;
+        }
+    }
+
+    class LongArrayList
+    {
+        long[] longs = new long[10];
+        int size = 0;
+
+        void add(long value)
+        {
+            if (longs.length <= size) {
+                longs = Arrays.copyOf(longs, 2 * size);
+            }
+            longs[size++] = value;
+        }
+
+
+        int size()
+        {
+            return size;
+        }
+
+        long get(int i)
+        {
+            return longs[i];
+        }
+
+        void popBack()
+        {
+            size--;
         }
     }
 }

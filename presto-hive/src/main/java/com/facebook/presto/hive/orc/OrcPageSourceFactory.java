@@ -139,8 +139,7 @@ public class OrcPageSourceFactory
                 getOrcMaxReadBlockSize(session),
                 getOrcLazyReadSmallRanges(session),
                 isOrcBloomFiltersEnabled(session),
-                stats,
-                SystemSessionProperties.ariaFlags(session)));
+                stats));
     }
 
     public static OrcPageSource createOrcPageSource(
@@ -164,8 +163,7 @@ public class OrcPageSourceFactory
             DataSize maxReadBlockSize,
             boolean lazyReadSmallRanges,
             boolean orcBloomFiltersEnabled,
-            FileFormatDataSourceStats stats,
-                                                    int ariaFlags)
+            FileFormatDataSourceStats stats)
     {
         OrcDataSource orcDataSource;
         try {
@@ -179,8 +177,7 @@ public class OrcPageSourceFactory
                     streamBufferSize,
                     lazyReadSmallRanges,
                     inputStream,
-                    stats,
-                    ariaFlags);
+                    stats);
         }
         catch (Exception e) {
             if (nullToEmpty(e.getMessage()).trim().equals("Filesystem closed") ||
