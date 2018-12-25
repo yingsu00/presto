@@ -11,29 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.parquet;
+package com.facebook.presto.operator.aggregation;
 
-import java.io.Closeable;
-import java.io.IOException;
-
-public interface ParquetDataSource
-        extends Closeable
+// Lambda has to be compiled into a dedicated class, as functions might be stateful (e.g. use CachedInstanceBinder)
+public interface LambdaProvider
 {
-    ParquetDataSourceId getId();
+    // To support capture, we can enrich the interface into
+    // getLambda(Object[] capturedValues)
 
-    long getReadBytes();
-
-    long getReadTimeNanos();
-
-    long getSize();
-
-    void readFully(long position, byte[] buffer);
-
-    void readFully(long position, byte[] buffer, int bufferOffset, int bufferLength);
-
-    @Override
-    default void close()
-            throws IOException
-    {
-    }
+    // The lambda capture is done through invokedynamic, and the CallSite will be cached after
+    // the first call. Thus separate classes have to be generated for different captures.
+    Object getLambda();
 }
