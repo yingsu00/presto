@@ -288,7 +288,7 @@ public final class SystemPartitioningHandle
             {
                 generator.getPartitions(partitionCount, page, decoder, partitionsOut);
             }
-            
+
             @Override
             public String toString()
             {

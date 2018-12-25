@@ -34,6 +34,7 @@ import static com.facebook.presto.orc.metadata.ColumnEncoding.ColumnEncodingKind
 import static com.facebook.presto.orc.metadata.ColumnEncoding.ColumnEncodingKind.DIRECT_V2;
 import static com.facebook.presto.orc.metadata.ColumnEncoding.ColumnEncodingKind.DWRF_DIRECT;
 import static com.google.common.base.MoreObjects.toStringHelper;
+import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
 import static java.util.Objects.requireNonNull;
 
 public class LongStreamReader
@@ -65,7 +66,7 @@ public class LongStreamReader
     {
         return currentReader.readBlock(type);
     }
-    
+
     @Override
     public void startStripe(InputStreamSources dictionaryStreamSources, List<ColumnEncoding> encoding)
             throws IOException
@@ -93,7 +94,7 @@ public class LongStreamReader
         currentReader.startRowGroup(dataStreamSources);
     }
 
-        @Override
+    @Override
     public void setInputQualifyingSet(QualifyingSet qualifyingSet)
     {
         currentReader.setInputQualifyingSet(qualifyingSet);
@@ -104,13 +105,13 @@ public class LongStreamReader
     {
         return currentReader.getInputQualifyingSet();
     }
-    
+
     @Override
     public QualifyingSet getOutputQualifyingSet()
     {
         return currentReader.getOutputQualifyingSet();
     }
-    
+
     @Override
     public void setFilterAndChannel(Filter filter, int channel, int columnIndex)
     {
@@ -134,7 +135,13 @@ public class LongStreamReader
     {
         return directReader.getFilter();
     }
-    
+
+    @Override
+    public int getFixedWidth()
+    {
+        return SIZE_OF_LONG;
+    }
+
     @Override
     public void erase(int end)
     {
@@ -143,11 +150,32 @@ public class LongStreamReader
         }
         currentReader.erase(end);
     }
-    
-    public int scan(int maxResultBytes)
-        throws IOException
+
+    @Override
+    public void compactValues(int[] positions, int base, int numPositions)
     {
-        return currentReader.scan(maxResultBytes);
+        currentReader.compactValues(positions, base, numPositions);
+    }
+
+    @Override
+    public int getResultSizeInBytes()
+    {
+        if (currentReader == null) {
+            return 0;
+        }
+        return currentReader.getResultSizeInBytes();
+    }
+
+    @Override
+    public void setResultSizeBudget(int bytes)
+    {
+        currentReader.setResultSizeBudget(bytes);
+    }
+
+    public void scan()
+            throws IOException
+    {
+        currentReader.scan();
     }
 
     @Override

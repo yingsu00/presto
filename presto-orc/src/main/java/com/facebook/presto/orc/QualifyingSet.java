@@ -14,6 +14,7 @@
 package com.facebook.presto.orc;
 
 import java.util.Arrays;
+
 import static com.google.common.base.Preconditions.checkArgument;
 
 public class QualifyingSet
@@ -40,7 +41,7 @@ public class QualifyingSet
     private int[] ownedPositions;
     private int[] ownedInputNumbers;
     private QualifyingSet parent;
-    
+
     static {
         wholeRowGroup = new int[10000];
         allZeros = new int[10000];
@@ -49,7 +50,7 @@ public class QualifyingSet
             wholeRowGroup[i] = i;
         }
     }
-    
+
     public void setRange(int begin, int end)
     {
         this.begin = begin;
@@ -73,17 +74,16 @@ public class QualifyingSet
                 // Thread safe.  If many concurrently create a new wholeRowGroup, many are created but all but one become garbage and everybody has a right size array.
                 int[] newWholeRowGroup = new int[end];
                 for (int i = 0; i < end; i++) {
-                    newWholeRowGroup[i] =i;
+                    newWholeRowGroup[i] = i;
                 }
                 positions = newWholeRowGroup;
                 wholeRowGroup = newWholeRowGroup;
-
             }
-                            positionCount = end;
+            positionCount = end;
         }
         else {
             if (ownedPositions == null || ownedPositions.length < end - begin) {
-                ownedPositions = new int[(int)((end - begin) * 1.2)];
+                ownedPositions = new int[(int) ((end - begin) * 1.2)];
             }
             positions = ownedPositions;
 
@@ -102,16 +102,16 @@ public class QualifyingSet
     {
         return positions;
     }
-    
+
     public int[] getInputNumbers()
     {
         return inputNumbers;
     }
 
-        public int[] getMutablePositions(int minSize)
+    public int[] getMutablePositions(int minSize)
     {
         if (ownedPositions == null || ownedPositions.length < minSize) {
-            minSize = (int)(minSize * 1.2);
+            minSize = (int) (minSize * 1.2);
             ownedPositions = new int[minSize];
         }
         positions = ownedPositions;
@@ -121,7 +121,7 @@ public class QualifyingSet
     public int[] getMutableInputNumbers(int minSize)
     {
         if (ownedInputNumbers == null || ownedInputNumbers.length < minSize) {
-            minSize = (int)(minSize * 1.2);
+            minSize = (int) (minSize * 1.2);
             ownedInputNumbers = new int[minSize];
         }
         inputNumbers = ownedInputNumbers;
@@ -142,7 +142,7 @@ public class QualifyingSet
     {
         if (truncationPosition != -1) {
             return positions[truncationPosition];
-                                       }
+        }
         return end;
     }
 
@@ -150,7 +150,7 @@ public class QualifyingSet
     {
         this.end = end;
     }
-    
+
     public int getPositionCount()
     {
         if (truncationPosition != -1) {
@@ -161,7 +161,6 @@ public class QualifyingSet
 
     public void setPositionCount(int positionCount)
     {
-        checkArgument(truncationPosition < positionCount && truncationPosition > 0, "truncationPosition  must be between 1 and positionCount - 1");
         this.positionCount = positionCount;
     }
 
@@ -177,6 +176,7 @@ public class QualifyingSet
 
     public void setTruncationPosition(int position)
     {
+        checkArgument(truncationPosition < positionCount && truncationPosition > 0, "truncationPosition  must be between 1 and positionCount - 1");
         truncationPosition = position;
     }
 
@@ -204,9 +204,7 @@ public class QualifyingSet
                     inputNumbers[i1 - i] = inputNumbers[i] - numErasedInputs;
                 }
                 positionCount -= i;
-                
             }
         }
     }
 }
-

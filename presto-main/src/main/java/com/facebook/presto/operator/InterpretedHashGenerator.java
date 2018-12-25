@@ -18,7 +18,6 @@ import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockDecoder;
 import com.facebook.presto.spi.block.LongArrayBlock;
-import com.facebook.presto.spi.block.IntArrayAllocator;
 import com.facebook.presto.spi.type.AbstractLongType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.planner.optimizations.HashGenerationOptimizer;
@@ -38,12 +37,12 @@ public class InterpretedHashGenerator
     private final List<Type> hashChannelTypes;
     private final int[] hashChannels;
     private volatile long[] hashesInReserve;
-    
+
     public InterpretedHashGenerator(List<Type> hashChannelTypes, List<Integer> hashChannels)
     {
         this(hashChannelTypes, requireNonNull(hashChannels).stream().mapToInt(i -> i).toArray());
     }
-    
+
     public InterpretedHashGenerator(List<Type> hashChannelTypes, int[] hashChannels)
     {
         this.hashChannels = requireNonNull(hashChannels, "hashChannels is null");
@@ -72,20 +71,19 @@ public class InterpretedHashGenerator
     {
         int positionCount = page.getPositionCount();
         long[] hashes = null;
-        synchronized(this) {
+        synchronized (this) {
             // Access only once. Another thread may set hashesInReserve wihout synchronization.
             long[] candidate = hashesInReserve;
             if (candidate != null && candidate.length >= positionCount) {
                 hashes = candidate;
                 hashesInReserve = null;
-        }
+            }
         }
         if (hashes == null) {
             hashes = new long[positionCount];
         }
-        long result ;
         for (int position = 0; position < positionCount; position++) {
-            hashes[position] =         HashGenerationOptimizer.INITIAL_HASH_VALUE;
+            hashes[position] = HashGenerationOptimizer.INITIAL_HASH_VALUE;
         }
         for (int i = 0; i < hashChannels.length; i++) {
             Type type = hashChannelTypes.get(i);
@@ -98,11 +96,10 @@ public class InterpretedHashGenerator
                 boolean[] nulls = decoder.valueIsNull;
                 for (int position = 0; position < positionCount; position++) {
                     int valueIdx = longsMap[position];
-                    hashes[position] = 
-                        CombineHashFunction.getHash(hashes[position],
-                                                    (nulls == null || !nulls[valueIdx])
-                                                    ?  AbstractLongType.hash(longs[valueIdx])
-                                                    : TypeUtils.NULL_HASH_CODE);
+                    hashes[position] = CombineHashFunction.getHash(hashes[position],
+                            (nulls == null || !nulls[valueIdx])
+                                    ? AbstractLongType.hash(longs[valueIdx])
+                                    : TypeUtils.NULL_HASH_CODE);
                 }
             }
             else {
@@ -111,10 +108,10 @@ public class InterpretedHashGenerator
                 }
             }
             decoder.release();
-        }   
+        }
         hashesInReserve = hashes;
     }
-    
+
     @Override
     public String toString()
     {

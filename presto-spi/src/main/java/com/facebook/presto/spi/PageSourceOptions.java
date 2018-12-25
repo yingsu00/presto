@@ -20,6 +20,7 @@ public class PageSourceOptions
     private final FilterFunction[] filterFunctions;
     private final boolean reorderFilters;
     private final int targetBytes;
+    private final int ariaFlags;
     
     public static class FilterFunction
     {
@@ -41,13 +42,14 @@ public class PageSourceOptions
         }
     }
 
-    public PageSourceOptions(int[] outputChannels, boolean reusePages, FilterFunction[] filterFunctions, boolean reorderFilters, int targetBytes)
+    public PageSourceOptions(int[] outputChannels, boolean reusePages, FilterFunction[] filterFunctions, boolean reorderFilters, int targetBytes, int ariaFlags)
     {
         this.outputChannels = outputChannels;
         this.reusePages = reusePages;
         this.filterFunctions = filterFunctions;
         this.reorderFilters = reorderFilters;
         this.targetBytes = targetBytes;
+        this.ariaFlags = ariaFlags;
     }
 
     public int[] getOutputChannels()
@@ -73,5 +75,10 @@ public class PageSourceOptions
     public int getTargetBytes()
     {
         return targetBytes;
+    }
+
+    public int getAriaFlags()
+    {
+        return ariaFlags;
     }
 }

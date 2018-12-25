@@ -22,20 +22,20 @@ import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.DictionaryBlock;
 import com.facebook.presto.spi.block.DictionaryId;
 import com.facebook.presto.spi.block.LazyBlock;
+import com.facebook.presto.sql.gen.ExpressionProfiler;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.AbstractIterator;
 import io.airlift.slice.SizeOf;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
-import static java.lang.Math.max;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.OptionalInt;
 import java.util.function.Function;
 
 import static com.facebook.presto.operator.project.PageProcessorOutput.EMPTY_PAGE_PROCESSOR_OUTPUT;
@@ -49,32 +49,45 @@ import static java.util.Objects.requireNonNull;
 @NotThreadSafe
 public class PageProcessor
 {
-    static final int MAX_BATCH_SIZE = 8 * 1024;
+    public static final int MAX_BATCH_SIZE = 8 * 1024;
     static final int MAX_PAGE_SIZE_IN_BYTES = 4 * 1024 * 1024;
     static final int MIN_PAGE_SIZE_IN_BYTES = 1024 * 1024;
 
+    private final ExpressionProfiler expressionProfiler;
     private final DictionarySourceIdFunction dictionarySourceIdFunction = new DictionarySourceIdFunction();
     private final Optional<PageFilter> filter;
     private final Optional<PageFilter> filterWithoutTupleDomain;
     private final List<PageProjection> projections;
     private final int[] inputToOutputChannel;
-    private int projectBatchSize = MAX_BATCH_SIZE;
-    boolean filterPushedDown = false;
-    
-    public PageProcessor(Optional<PageFilter> filter, List<? extends PageProjection> projections)
+    boolean filterPushedDown;
+    private int projectBatchSize;
+
+    @VisibleForTesting
+    public PageProcessor(Optional<PageFilter> filter, List<? extends PageProjection> projections, OptionalInt initialBatchSize)
     {
-        this(filter, Optional.empty(), projections);
+        this(filter, projections, initialBatchSize, new ExpressionProfiler());
     }
-    
-    public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections)
+
+    @VisibleForTesting
+    public PageProcessor(Optional<PageFilter> filter, List<? extends PageProjection> projections, OptionalInt initialBatchSize, ExpressionProfiler expressionProfiler)
+    {
+        this(filter, Optional.empty(), projections, initialBatchSize, expressionProfiler);
+    }
+
+    public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections, OptionalInt initialBatchSize)
+    {
+        this(filter, filterWithoutTupleDomain, projections, initialBatchSize, new ExpressionProfiler());
+    }
+
+    public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections, OptionalInt initialBatchSize, ExpressionProfiler expressionProfiler)
     {
         this.filter = requireNonNull(filter, "filter is null")
         .map(pageFilter -> {
-                    if (pageFilter.getInputChannels().size() == 1 && pageFilter.isDeterministic()) {
-                        return new DictionaryAwarePageFilter(pageFilter);
-                    }
-                    return pageFilter;
-                });
+            if (pageFilter.getInputChannels().size() == 1 && pageFilter.isDeterministic()) {
+                return new DictionaryAwarePageFilter(pageFilter);
+            }
+            return pageFilter;
+        });
         this.filterWithoutTupleDomain = requireNonNull(filterWithoutTupleDomain, "filterWithoutTupleDomain is null");
         this.projections = requireNonNull(projections, "projections is null").stream()
                 .map(projection -> {
@@ -99,9 +112,10 @@ public class PageProcessor
             }
             List<Integer> inputs = projection.getInputChannels().getInputChannels();
             if (!inputToOutput.containsKey(inputs.get(0))) {
-                inputToOutput.put(inputs.get(0), new Integer(i));
+                inputToOutput.put(inputs.get(0), Integer.valueOf(i));
                 maxInputChannel = Math.max(maxInputChannel, inputs.get(0).intValue());
-            } else {
+            }
+            else {
                 allAreInputPageProjections = false;
                 break;
             }
@@ -116,6 +130,13 @@ public class PageProcessor
         else {
             inputToOutputChannel = null;
         }
+        this.projectBatchSize = initialBatchSize.orElse(1);
+        this.expressionProfiler = requireNonNull(expressionProfiler, "expressionProfiler is null");
+    }
+
+    public PageProcessor(Optional<PageFilter> filter, List<? extends PageProjection> projections)
+    {
+        this(filter, projections, OptionalInt.of(1));
     }
 
     public Optional<PageFilter> getFilterWithoutTupleDomain()
@@ -127,7 +148,7 @@ public class PageProcessor
     {
         filterPushedDown = true;
     }
-    
+
     public PageProcessorOutput process(ConnectorSession session, DriverYieldSignal yieldSignal, Page page)
     {
         // limit the scope of the dictionary ids to just one page
@@ -138,7 +159,7 @@ public class PageProcessor
         }
 
         if (!filterPushedDown && filter.isPresent()) {
-            SelectedPositions selectedPositions = filter.get().filter(session, filter.get().getInputChannels().getInputChannels(page));
+            SelectedPositions selectedPositions = filter.get().filterExprContext(session, filter.get().getInputChannels().getInputChannels(page));
             if (selectedPositions.isEmpty()) {
                 return EMPTY_PAGE_PROCESSOR_OUTPUT;
             }
@@ -274,14 +295,14 @@ public class PageProcessor
                 verify(result.isSuccess());
                 Page page = result.getPage();
 
-                // if we produced a large page, halve the batch size for the next call
+                // if we produced a large page or if the expression is expensive, halve the batch size for the next call
                 long pageSize = page.getSizeInBytes();
-                if (page.getPositionCount() > 1 && pageSize > MAX_PAGE_SIZE_IN_BYTES) {
+                if (page.getPositionCount() > 1 && (pageSize > MAX_PAGE_SIZE_IN_BYTES || expressionProfiler.isExpressionExpensive())) {
                     projectBatchSize = projectBatchSize / 2;
                 }
 
                 // if we produced a small page, double the batch size for the next call
-                if (pageSize < MIN_PAGE_SIZE_IN_BYTES && projectBatchSize < MAX_BATCH_SIZE) {
+                if (pageSize < MIN_PAGE_SIZE_IN_BYTES && projectBatchSize < MAX_BATCH_SIZE && !expressionProfiler.isExpressionExpensive()) {
                     projectBatchSize = projectBatchSize * 2;
                 }
 
@@ -349,7 +370,9 @@ public class PageProcessor
                 }
                 else {
                     if (pageProjectWork == null) {
+                        expressionProfiler.start();
                         pageProjectWork = projection.project(session, yieldSignal, projection.getInputChannels().getInputChannels(page), positionsBatch);
+                        expressionProfiler.stop(positionsBatch.size());
                     }
                     if (!pageProjectWork.process()) {
                         return ProcessBatchResult.processBatchYield();

@@ -25,11 +25,6 @@ import java.util.List;
 
 public interface StreamReader
 {
-    default boolean scanAtEnd()
-    {
-        return true;
-    }
-
     default void setInputQualifyingSet(QualifyingSet qualifyingSet)
     {
         throw new UnsupportedOperationException();
@@ -39,20 +34,21 @@ public interface StreamReader
     {
         return null;
     }
-    
+
     default QualifyingSet getOutputQualifyingSet()
     {
         return null;
     }
-    
+
     /* If filter is non-null, sets the output QualifyingSet by
      * applying filter to the rows in the input QualifyingSet. If
      * channel is not -1, appends the values in the post-filter rows
      * to a Block. The Block can be retrieved by getBlock(). */
-    default void setFilterAndChannel(Filter filter, int channel, int columnIndex)    {
+    default void setFilterAndChannel(Filter filter, int channel, int columnIndex)
+    {
         throw new UnsupportedOperationException();
     }
-    
+
     /* True if the extracted values depend on a row group
      * dictionary. Cannot move to the next row group without losing
      * the dictionary encoding .*/
@@ -60,7 +56,7 @@ public interface StreamReader
     {
         return false;
     }
-    
+
     default int getChannel()
     {
         return -1;
@@ -75,7 +71,7 @@ public interface StreamReader
     {
         return null;
     }
-    
+
     default int getColumnIndex()
     {
         return -1;
@@ -114,14 +110,14 @@ public interface StreamReader
         throw new UnsupportedOperationException();
     }
     // Reads lengths for the rows in the input QualifyingSet.
-    default int scanLengths(int maxResultBytes)
-        throws IOException
+    default void scanLengths()
+            throws IOException
     {
         throw new UnsupportedOperationException();
     }
-    
-    default int scan(int maxResultBytes)
-        throws IOException
+
+    default void scan()
+            throws IOException
     {
         throw new UnsupportedOperationException();
     }
@@ -134,9 +130,13 @@ public interface StreamReader
 
     default int getAverageResultSize()
     {
+        int fixed = getFixedWidth();
+        if (fixed != -1) {
+            return fixed;
+        }
         throw new UnsupportedOperationException();
     }
-    
+
     Block readBlock(Type type)
             throws IOException;
 

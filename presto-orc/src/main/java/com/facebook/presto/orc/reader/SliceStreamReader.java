@@ -113,13 +113,13 @@ public class SliceStreamReader
     {
         return currentReader.getInputQualifyingSet();
     }
-    
+
     @Override
     public QualifyingSet getOutputQualifyingSet()
     {
         return currentReader.getOutputQualifyingSet();
     }
-    
+
     @Override
     public void setFilterAndChannel(Filter filter, int channel, int columnIndex)
     {
@@ -143,7 +143,7 @@ public class SliceStreamReader
     {
         return directReader.getFilter();
     }
-    
+
     @Override
     public void erase(int end)
     {
@@ -154,17 +154,38 @@ public class SliceStreamReader
     }
 
     @Override
-    public int scanLengths(int maxResultBytes)
-        throws IOException
+    public void compactValues(int[] positions, int base, int numPositions)
     {
-        return currentReader.scanLengths(maxResultBytes);
+        currentReader.compactValues(positions, base, numPositions);
     }
 
     @Override
-    public int scan(int maxResultBytes)
-        throws IOException
+    public int getResultSizeInBytes()
     {
-        return currentReader.scan(maxResultBytes);
+        if (currentReader == null) {
+            return 0;
+        }
+        return currentReader.getResultSizeInBytes();
+    }
+
+    @Override
+    public void setResultSizeBudget(int bytes)
+    {
+        currentReader.setResultSizeBudget(bytes);
+    }
+
+    @Override
+    public void scanLengths()
+            throws IOException
+    {
+        currentReader.scanLengths();
+    }
+
+    @Override
+    public void scan()
+            throws IOException
+    {
+        currentReader.scan();
     }
 
     @Override

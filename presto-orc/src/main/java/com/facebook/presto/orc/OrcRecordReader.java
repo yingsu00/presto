@@ -28,9 +28,11 @@ import com.facebook.presto.orc.metadata.statistics.StripeStatistics;
 import com.facebook.presto.orc.reader.StreamReader;
 import com.facebook.presto.orc.reader.StreamReaders;
 import com.facebook.presto.orc.stream.InputStreamSources;
+import com.facebook.presto.spi.AriaFlags;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageSourceOptions;
 import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.memory.Caches;
 import com.facebook.presto.spi.type.Type;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
@@ -116,7 +118,7 @@ public class OrcRecordReader
     private final Optional<StatisticsValidation> stripeStatisticsValidation;
     private final Optional<StatisticsValidation> fileStatisticsValidation;
     private OrcPredicate predicate;
-    
+
     // Number of complete rows in result Blocks in StreamReaders.
     int numRowsInResult;
 
@@ -124,23 +126,23 @@ public class OrcRecordReader
 
     QualifyingSet initialQualifyingSet = new QualifyingSet();
     QualifyingSet tempQualifyingSet;
-    
+
     boolean reusePages;
     boolean reorderFilters;
     Page reusedPage;
     Block[] reusedPageBlocks;
 
-        int lastTruncatedStreamIdx = -1;
+    int lastTruncatedStreamIdx = -1;
     int maxOutputChannel = -1;
     int targetNumRows = 10000;
     int targetResultBytes;
     // The number of leading elements in streamOredr that is subject to reordering.
-    int numFilters = 0;
+    int numFilters;
     // Temporary array for compacting results that have been decimated
     // by subsequent filters.
     int[] survivingRows;
-    int readerBudget[];
-    
+    int[] readerBudget;
+
     public OrcRecordReader(
             Map<Integer, Type> includedColumns,
             OrcPredicate predicate,
@@ -184,7 +186,7 @@ public class OrcRecordReader
         this.fileStatisticsValidation = writeValidation.map(validation -> validation.createWriteStatisticsBuilder(includedColumns));
         this.systemMemoryUsage = systemMemoryUsage.newAggregatedMemoryContext();
         this.predicate = predicate;
-        
+
         // reduce the included columns to the set that is also present
         ImmutableSet.Builder<Integer> presentColumns = ImmutableSet.builder();
         ImmutableMap.Builder<Integer, Type> presentColumnsAndTypes = ImmutableMap.builder();
@@ -752,6 +754,9 @@ public class OrcRecordReader
 
     public boolean pushdownFilterAndProjection(PageSourceOptions options, int[] channelColumns)
     {
+        if ((options.getAriaFlags() & AriaFlags.orcBufferReuse) != 0) {
+            orcDataSource.setCache(Caches.getByteArrayPoolCacheAdapter());
+        }
         Map<Integer, Filter> filters = predicate.getFilters(includedColumns);
         if (filters == null) {
             // Null means filters are not supported for pushdown, empty map means no filters.
@@ -776,28 +781,28 @@ public class OrcRecordReader
     }
 
     static int compareReaders(StreamReader a, StreamReader b)
-        {
-            // A stream with filter goes before one without.
-            Filter aFilter = a.getFilter();
-            Filter bFilter = b.getFilter();
-            if (aFilter != null && bFilter == null) {
-                return -1;
-            }
-            if (aFilter == null && bFilter != null) {
-                return 1;
-            }
-            if (aFilter != null) {
-                double aScore = aFilter.getTimePerDroppedValue();
-                double bScore = bFilter.getTimePerDroppedValue();
-                if (aScore != bScore) {
-                    return aScore < bScore ? -1 : 1;
-                }
-                // If the score is a draw, e.g., at start of scan, the shorter data type/stricter comparison goes first.
-                return aFilter.staticScore() - bFilter.staticScore();
-            }
-            // Streans that have no filters go longer data type first. This hits maximum batch size sooner.
-            return b.getAverageResultSize() - a.getAverageResultSize();
+    {
+        // A stream with filter goes before one without.
+        Filter aFilter = a.getFilter();
+        Filter bFilter = b.getFilter();
+        if (aFilter != null && bFilter == null) {
+            return -1;
         }
+        if (aFilter == null && bFilter != null) {
+            return 1;
+        }
+        if (aFilter != null) {
+            double aScore = aFilter.getTimePerDroppedValue();
+            double bScore = bFilter.getTimePerDroppedValue();
+            if (aScore != bScore) {
+                return aScore < bScore ? -1 : 1;
+            }
+            // If the score is a draw, e.g., at start of scan, the shorter data type/stricter comparison goes first.
+            return aFilter.staticScore() - bFilter.staticScore();
+        }
+        // Streans that have no filters go longer data type first. This hits maximum batch size sooner.
+        return b.getAverageResultSize() - a.getAverageResultSize();
+    }
 
     void setupStreamOrder()
     {
@@ -809,7 +814,7 @@ public class OrcRecordReader
                     numFilters++;
                 }
             }
-            }
+        }
         streamOrder = new StreamReader[numReaders];
         int fill = 0;
         for (StreamReader reader : streamReaders) {
@@ -844,7 +849,7 @@ public class OrcRecordReader
     }
 
     // Divides the space available in the result Page between the
-    // streams at firstStreamIdx and to the right of at. 
+    // streams at firstStreamIdx and to the right of at.
     boolean makeResultBudget(int firstStreamIdx, int numRows, boolean mayReturn)
     {
         int bytesSoFar = 0;
@@ -900,7 +905,6 @@ public class OrcRecordReader
         numRowsInResult = 0;
     }
 
-
     // Makes a Page based the Blocks in StreamReaders.
     Page resultPage()
     {
@@ -932,15 +936,15 @@ public class OrcRecordReader
                 int channel = reader.getChannel();
                 if (channel != -1) {
                     blocks[channel] = reader.getBlock(false);
-        }
-    }
+                }
+            }
             return new Page(numRowsInResult, blocks);
         }
     }
-    
+
     // Removes the first numValues values from all reader and
     // QualifyingSets. If the last batch was truncated, some of the
-    // readers may hold values from last batch. 
+    // readers may hold values from last batch.
     void discardBatch(int numValues)
     {
         numRowsInResult = 0;
@@ -950,14 +954,14 @@ public class OrcRecordReader
     }
 
     int trapRowGroup = 10000000;
-    
+
     public Page getNextPage()
-        throws IOException
+            throws IOException
     {
         QualifyingSet qualifyingSet = null;
         newBatch();
         nextRowGroup:
-        for (;;) {
+        for (; ; ) {
             if (currentRowGroup == -1 || currentGroupRowCount == nextRowInGroup) {
                 if (currentPosition == totalRowCount) {
                     return null;
@@ -970,17 +974,16 @@ public class OrcRecordReader
                 if (currentRowGroup >= trapRowGroup) {
                     System.out.println("***");
                 }
-                if (reorderFilters && (currentRowGroup & 0x3) != 0  && currentRowGroup != 0) {
+                if (reorderFilters && (currentRowGroup & 0x3) != 0 && currentRowGroup != 0) {
                     // Reconsider filter order Every 4 row groups.
                     maybeReorderFilters();
                 }
             }
             qualifyingSet = initialQualifyingSet;
-            initialQualifyingSet.setRange((int)nextRowInGroup, (int)currentGroupRowCount);
+            initialQualifyingSet.setRange((int) nextRowInGroup, (int) currentGroupRowCount);
             resumeTruncated:
-            for (;;) {
+            for (; ; ) {
                 int firstStreamIdx;
-                int endRowInGroup = 0;
                 lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
                 if (lastTruncatedStreamIdx == -1) {
                     firstStreamIdx = 0;
@@ -1006,9 +1009,9 @@ public class OrcRecordReader
                         startTime = System.nanoTime();
                     }
                     if (reader.getFixedWidth() == -1) {
-                        endRowInGroup = reader.scanLengths(0);
+                        reader.scanLengths();
                     }
-                    endRowInGroup =                     reader.scan(0);
+                    reader.scan();
                     if (filter != null) {
                         QualifyingSet input = qualifyingSet;
                         qualifyingSet = reader.getOutputQualifyingSet();
@@ -1024,13 +1027,13 @@ public class OrcRecordReader
                             }
                             continue resumeTruncated;
                         }
-                }
+                    }
                 }
                 int lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
                 int numAdded = numRowsBeforeTruncation(qualifyingSet, lastTruncatedStreamIdx);
                 alignResultsAndRemoveFromQualifyingSet(numAdded);
                 numRowsInResult += numAdded;
-                nextRowInGroup = endRowInGroup;
+                nextRowInGroup = qualifyingSet.getEnd();
                 if (numRowsInResult >= targetNumRows || lastTruncatedStreamIdx != -1) {
                     return resultPage();
                 }
@@ -1046,6 +1049,9 @@ public class OrcRecordReader
             return numPositions;
         }
         int truncationRow = streamOrder[streamIdx].getTruncationRow();
+        if (truncationRow == -1) {
+            return numPositions;
+        }
         int[] rows = qualifyingSet.getPositions();
         for (int i = 0; i < numPositions; i++) {
             if (rows[i] == truncationRow) {
@@ -1054,8 +1060,7 @@ public class OrcRecordReader
         }
         throw new IllegalArgumentException("Truncation row is not in QualifyingSet");
     }
-    
-    // 
+
     private void discardBatchSoFar(int streamIdx)
     {
         for (int i = 0; i < streamIdx; i++) {
@@ -1085,7 +1090,7 @@ public class OrcRecordReader
             QualifyingSet input = reader.getInputQualifyingSet();
             int truncationRow = reader.getTruncationRow();
             if (truncationRow == -1 &&
-                (output == null || output.getPositionCount() == input.getPositionCount())) {
+                    (output == null || output.getPositionCount() == input.getPositionCount())) {
                 continue;
             }
             if (reader.getFilter() != null) {
@@ -1101,10 +1106,10 @@ public class OrcRecordReader
                 }
                 else {
                     int[] inputs = output.getInputNumbers();
-                for (int i = 0; i < numSurviving; i++) {
-                    survivingRows[i] = inputs[survivingRows[i]];
+                    for (int i = 0; i < numSurviving; i++) {
+                        survivingRows[i] = inputs[survivingRows[i]];
+                    }
                 }
-            }
                 if (truncationRow != -1) {
                     numSurviving = addUnusedInputToSurviving(reader, numSurviving);
                 }
@@ -1123,13 +1128,13 @@ public class OrcRecordReader
                 numPositions -= numAdded;
                 output.setPositionCount(numPositions);
                 for (int i = 0; i < numPositions; i++) {
-                        inputNumbers[i] = i;
-                    }
+                    inputNumbers[i] = i;
+                }
             }
         }
     }
 
-    private int addUnusedInputToSurviving(StreamReader reader , int numSurviving)
+    private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
     {
         int truncationRow = reader.getTruncationRow();
         QualifyingSet input = reader.getInputQualifyingSet();
@@ -1162,6 +1167,4 @@ public class OrcRecordReader
         }
         return -1;
     }
-
-
 }

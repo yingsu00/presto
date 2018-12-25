@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.memory.context.LocalMemoryContext;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.operator.project.CursorProcessor;
@@ -22,7 +23,6 @@ import com.facebook.presto.operator.project.PageFilter;
 import com.facebook.presto.operator.project.PageProcessor;
 import com.facebook.presto.operator.project.PageProcessorOutput;
 import com.facebook.presto.operator.project.SelectedPositions;
-import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPageSource;
 import com.facebook.presto.spi.ConnectorSession;
@@ -84,7 +84,7 @@ public class ScanFilterAndProjectOperator
 
     private boolean filterAndProjectPushedDown;
     private boolean reusePages;
-    
+
     protected ScanFilterAndProjectOperator(
             OperatorContext operatorContext,
             PlanNodeId sourceId,
@@ -217,12 +217,11 @@ public class ScanFilterAndProjectOperator
     }
 
     private static class FilterExpression
-        extends PageSourceOptions.FilterFunction
-
+            extends PageSourceOptions.FilterFunction
     {
         final ConnectorSession session;
         final PageFilter filter;
-        
+
         FilterExpression(ConnectorSession session, PageFilter filter)
         {
             super(filter.getInputChannels().getInputChannels().stream().mapToInt(Integer::intValue).toArray(), 1);
@@ -233,12 +232,12 @@ public class ScanFilterAndProjectOperator
         @Override
         public int filter(Page page, int[] outputRows)
         {
-            SelectedPositions positions = filter.filter(session, page);
-                        
+            SelectedPositions positions = filter.filterExprContext(session, page);
+
             int offset = positions.getOffset();
             int size = positions.size();
             if (!positions.isList()) {
-                for (int i = 0; i  < size; i++) {
+                for (int i = 0; i < size; i++) {
                     outputRows[i] = i + offset;
                 }
             }
@@ -249,10 +248,9 @@ public class ScanFilterAndProjectOperator
                 }
             }
             return size;
-                        
         }
     }
-    
+
     @Override
     public Page getOutput()
     {
@@ -267,7 +265,7 @@ public class ScanFilterAndProjectOperator
             }
             else {
                 pageSource = source;
-                boolean enableAria = SystemSessionProperties.enableAria(operatorContext.getSession()); 
+                boolean enableAria = SystemSessionProperties.enableAria(operatorContext.getSession());
                 if (enableAria) {
                     int[] channels = pageProcessor.getIdentityInputToOutputChannel();
                     boolean projectionPushedDown = channels != null;
@@ -290,8 +288,8 @@ public class ScanFilterAndProjectOperator
                         filters[0] = new FilterExpression(operatorContext.getSession().toConnectorSession(), filter.get());
                     }
                     boolean reorderFilters = SystemSessionProperties.ariaReorderFilters(operatorContext.getSession());
-                    
-                    boolean filterPushedDown = pageSource.pushdownFilterAndProjection(new PageSourceOptions(channels, reusePages, filters, reorderFilters, mergingOutput.getMinPageSizeInBytes()));
+                    int ariaFlags = SystemSessionProperties.ariaFlags(operatorContext.getSession());
+                    boolean filterPushedDown = pageSource.pushdownFilterAndProjection(new PageSourceOptions(channels, reusePages, filters, reorderFilters, mergingOutput.getMinPageSizeInBytes(), ariaFlags));
                     if (filterPushedDown && projectionPushedDown) {
                         filterAndProjectPushedDown = true;
                     }

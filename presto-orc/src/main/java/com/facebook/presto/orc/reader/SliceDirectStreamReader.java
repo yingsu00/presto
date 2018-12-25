@@ -14,9 +14,9 @@
 package com.facebook.presto.orc.reader;
 
 import com.facebook.presto.orc.OrcCorruptionException;
+import com.facebook.presto.orc.QualifyingSet;
 import com.facebook.presto.orc.StreamDescriptor;
 import com.facebook.presto.orc.metadata.ColumnEncoding;
-import com.facebook.presto.orc.QualifyingSet;
 import com.facebook.presto.orc.stream.BooleanInputStream;
 import com.facebook.presto.orc.stream.ByteArrayInputStream;
 import com.facebook.presto.orc.stream.InputStreamSource;
@@ -56,8 +56,8 @@ import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 public class SliceDirectStreamReader
-    extends ColumnReader
-    implements StreamReader
+        extends ColumnReader
+        implements StreamReader
 {
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(SliceDirectStreamReader.class).instanceSize();
     private static final int ONE_GIGABYTE = toIntExact(new DataSize(1, GIGABYTE).toBytes());
@@ -102,9 +102,9 @@ public class SliceDirectStreamReader
     // Result arrays from outputQualifyingSet.
     int[] outputRows;
     int[] resultInputNumbers;
-    long totalBytes = 0;
-    long totalRows = 0;
-    
+    long totalBytes;
+    long totalRows;
+
     public SliceDirectStreamReader(StreamDescriptor streamDescriptor)
     {
         this.streamDescriptor = requireNonNull(streamDescriptor, "stream is null");
@@ -279,10 +279,10 @@ public class SliceDirectStreamReader
         rowGroupOpen = false;
     }
 
-        @Override
-        public void erase(int end)
+    @Override
+    public void erase(int end)
     {
-        if (end == 0) {
+        if (end == 0 || bytes == null) {
             return;
         }
         if (end == numResults) {
@@ -292,14 +292,14 @@ public class SliceDirectStreamReader
             return;
         }
         int firstOffset = resultOffsets[end];
-            numValues -= end;
+        numValues -= end;
         for (int i = 0; i <= numValues; i++) {
             resultOffsets[i] = resultOffsets[end + i] - firstOffset;
         }
         System.arraycopy(bytes, 0, bytes, firstOffset, resultOffsets[numValues + end] - firstOffset);
-            if (valueIsNull != null) {
-                            System.arraycopy(valueIsNull, end, valueIsNull, 0, numValues);
-            }
+        if (valueIsNull != null) {
+            System.arraycopy(valueIsNull, end, valueIsNull, 0, numValues);
+        }
     }
 
     @Override
@@ -322,7 +322,7 @@ public class SliceDirectStreamReader
         }
         compactQualifyingSet(positions, numPositions);
     }
-    
+
     @Override
     public int getFixedWidth()
     {
@@ -332,6 +332,9 @@ public class SliceDirectStreamReader
     @Override
     public int getResultSizeInBytes()
     {
+        if (numValues == 0) {
+            return 0;
+        }
         return 4 * numValues + resultOffsets[numValues];
     }
 
@@ -343,9 +346,9 @@ public class SliceDirectStreamReader
         }
         return (int) ((4 + totalBytes) / totalRows);
     }
-    
+
     @Override
-    public int scanLengths(int maxBytes)
+    public void scanLengths()
             throws IOException
     {
         if (!rowGroupOpen) {
@@ -381,22 +384,21 @@ public class SliceDirectStreamReader
         }
         lengthStream.nextIntVector(neededLengths, lengths, numLengths);
         numLengths += neededLengths;
-        return end;
     }
-    
+
     @Override
-    public int scan(int maxBytes)
+    public void scan()
             throws IOException
     {
-        if (resultOffsets == null) {
+        if (resultOffsets == null && outputChannel != -1) {
             resultOffsets = new int[10001];
             bytes = new byte[100000];
             numValues = 0;
             resultOffsets[0] = 0;
             resultOffsets[1] = 0;
-            if (filter != null && outputQualifyingSet == null) {
-                outputQualifyingSet = new QualifyingSet();
-            }
+        }
+        if (filter != null && outputQualifyingSet == null) {
+            outputQualifyingSet = new QualifyingSet();
         }
         if (!rowGroupOpen) {
             throw new IllegalArgumentException("Row group must be open before variable length scan()");
@@ -428,9 +430,9 @@ public class SliceDirectStreamReader
                         addNullResult(i + posInRowGroup, activeIdx);
                     }
                 }
-                    else {
-                        // Non-null row in qualifying set.
-                        if (toSkip > 0) {
+                else {
+                    // Non-null row in qualifying set.
+                    if (toSkip > 0) {
                         dataStream.skip(toSkip);
                         toSkip = 0;
                     }
@@ -441,7 +443,7 @@ public class SliceDirectStreamReader
                         if (buffer == null) {
                             // The value to test is not fully contained in the buffer. Read it to tempBytes.
                             if (tempBytes == null || tempBytes.length < length) {
-                                tempBytes = new byte[(int)(length * 1.2)];
+                                tempBytes = new byte[(int) (length * 1.2)];
                             }
                             buffer = tempBytes;
                             dataStream.next(tempBytes, 0, length);
@@ -468,7 +470,7 @@ public class SliceDirectStreamReader
                         bytesToGo -= length + 4;
                     }
                     lengthIdx++;
-                    }
+                }
                 if (++activeIdx == numActive) {
                     for (int i2 = lengthIdx; i2 < numLengths; i2++) {
                         toSkip += lengths[i2];
@@ -478,8 +480,9 @@ public class SliceDirectStreamReader
                 nextActive = inputPositions[activeIdx];
                 if (bytesToGo <= 0) {
                     int truncationPosition = input.getNextTruncationPosition(activeIdx);
-                    if (truncationPosition < numActive)
+                    if (truncationPosition < numActive) {
                         truncationRow = inputPositions[truncationPosition];
+                    }
                     input.setTruncationPosition(truncationPosition);
                 }
                 continue;
@@ -490,7 +493,7 @@ public class SliceDirectStreamReader
                     toSkip += lengths[lengthIdx++];
                 }
             }
-        }   
+        }
         if (toSkip > 0) {
             dataStream.skip(toSkip);
         }
@@ -503,10 +506,12 @@ public class SliceDirectStreamReader
             System.arraycopy(lengths, lengthIdx, lengths, 0, numLengths - lengthIdx);
         }
         numLengths -= lengthIdx;
-            if (output != null) {
+        if (output != null) {
             output.setPositionCount(numResults);
         }
-        numValues += numResults;
+        if (outputChannel != -1) {
+            numValues += numResults;
+        }
         if (block != null) {
             block.setPositionCount(numValues);
         }
@@ -514,7 +519,6 @@ public class SliceDirectStreamReader
             output.setEnd(end);
         }
         posInRowGroup = truncationRow != -1 ? truncationRow : end;
-        return posInRowGroup;
     }
 
     void addNullResult(int row, int activeIdx)
@@ -545,16 +549,16 @@ public class SliceDirectStreamReader
             valueIsNull[numValues + numResults] = false;
         }
     }
-    
+
     void addResultFromStream(int length)
-        throws IOException
+            throws IOException
     {
         ensureResultBytes(length);
         ensureResultRows();
         int endOffset = resultOffsets[numValues + numResults + 1];
         dataStream.next(bytes, endOffset, length);
         resultOffsets[numValues + numResults + 2] = endOffset + length;
-                if (valueIsNull != null) {
+        if (valueIsNull != null) {
             valueIsNull[numValues + numResults] = false;
         }
     }
@@ -566,7 +570,7 @@ public class SliceDirectStreamReader
             bytes = Arrays.copyOf(bytes, Math.max(bytes.length * 2, bytes.length + length));
             block = null;
         }
-        }
+    }
 
     void ensureResultRows()
     {
@@ -578,7 +582,7 @@ public class SliceDirectStreamReader
             block = null;
         }
     }
-   
+
     @Override
     public Block getBlock(boolean mayReuse)
     {

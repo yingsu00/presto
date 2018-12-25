@@ -59,6 +59,7 @@ public final class SystemSessionProperties
     public static final String DISTRIBUTED_INDEX_JOIN = "distributed_index_join";
     public static final String HASH_PARTITION_COUNT = "hash_partition_count";
     public static final String GROUPED_EXECUTION_FOR_AGGREGATION = "grouped_execution_for_aggregation";
+    public static final String DYNAMIC_SCHEDULE_FOR_GROUPED_EXECUTION = "dynamic_schedule_for_grouped_execution";
     public static final String PREFER_STREAMING_OPERATORS = "prefer_streaming_operators";
     public static final String TASK_WRITER_COUNT = "task_writer_count";
     public static final String TASK_CONCURRENCY = "task_concurrency";
@@ -118,6 +119,7 @@ public final class SystemSessionProperties
     public static final String ARIA_FLAGS = "aria_flags";
     public static final String IGNORE_STATS_CALCULATOR_FAILURES = "ignore_stats_calculator_failures";
     public static final String MAX_DRIVERS_PER_TASK = "max_drivers_per_task";
+    public static final String DEFAULT_FILTER_FACTOR_ENABLED = "default_filter_factor_enabled";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -185,6 +187,11 @@ public final class SystemSessionProperties
                         "Use grouped execution for aggregation when possible",
                         featuresConfig.isGroupedExecutionForAggregationEnabled(),
                         false),
+                booleanProperty(
+                        DYNAMIC_SCHEDULE_FOR_GROUPED_EXECUTION,
+                        "Experimental: Use dynamic schedule for grouped execution when possible",
+                        false,
+                        featuresConfig.isDynamicScheduleForGroupedExecutionEnabled()),
                 booleanProperty(
                         PREFER_STREAMING_OPERATORS,
                         "Prefer source table layouts that produce streaming operators",
@@ -522,21 +529,19 @@ public final class SystemSessionProperties
                         "Experimental: Enable statistics calculator",
                         featuresConfig.isEnableStatsCalculator(),
                         false),
-                booleanProperty(
-                                ARIA,
+                booleanProperty(ARIA,
                                 "Enable Aria Presto! optimizations",
                                 true,
                                 false),
-                booleanProperty(
-                                ARIA_REUSE_PAGES,                                                                                     "Enable Aria Presto! reuse of Pages",
-                                true,                                                                                     false),
-                booleanProperty(
-                                ARIA_REORDER,
+                booleanProperty(ARIA_REUSE_PAGES,
+                        "Enable Aria Presto! reuse of Pages",
+                        true,
+                        false),
+                booleanProperty(ARIA_REORDER,
                                 "Enable Aria Presto! reorder of filters",
                                 true,
                                 false),
-                integerProperty(
-                                ARIA_FLAGS,
+                integerProperty(ARIA_FLAGS,
                                 "Enable various Aria Presto! experiments",
                                 0,
                                 false),
@@ -553,6 +558,11 @@ public final class SystemSessionProperties
                         IGNORE_STATS_CALCULATOR_FAILURES,
                         "Ignore statistics calculator failures",
                         featuresConfig.isIgnoreStatsCalculatorFailures(),
+                        false),
+                booleanProperty(
+                        DEFAULT_FILTER_FACTOR_ENABLED,
+                        "use a default filter factor for unknown filters in a filter node",
+                        featuresConfig.isDefaultFilterFactorEnabled(),
                         false));
     }
 
@@ -603,6 +613,11 @@ public final class SystemSessionProperties
     public static boolean isGroupedExecutionForAggregationEnabled(Session session)
     {
         return session.getSystemProperty(GROUPED_EXECUTION_FOR_AGGREGATION, Boolean.class);
+    }
+
+    public static boolean isDynamicSchduleForGroupedExecution(Session session)
+    {
+        return session.getSystemProperty(DYNAMIC_SCHEDULE_FOR_GROUPED_EXECUTION, Boolean.class);
     }
 
     public static boolean preferStreamingOperators(Session session)
@@ -931,18 +946,23 @@ public final class SystemSessionProperties
         return session.getSystemProperty(ARIA_REUSE_PAGES, Boolean.class);
     }
 
-        public static boolean ariaReorderFilters(Session session)
+    public static boolean ariaReorderFilters(Session session)
     {
         return session.getSystemProperty(ARIA_REORDER, Boolean.class);
     }
-        public static int ariaFlags(Session session)
+
+    public static int ariaFlags(Session session)
     {
         return session.getSystemProperty(ARIA_FLAGS, Integer.class);
     }
 
-    
     public static boolean isIgnoreStatsCalculatorFailures(Session session)
     {
         return session.getSystemProperty(IGNORE_STATS_CALCULATOR_FAILURES, Boolean.class);
+    }
+
+    public static boolean isDefaultFilterFactorEnabled(Session session)
+    {
+        return session.getSystemProperty(DEFAULT_FILTER_FACTOR_ENABLED, Boolean.class);
     }
 }

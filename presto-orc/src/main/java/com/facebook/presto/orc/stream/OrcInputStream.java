@@ -49,7 +49,7 @@ public final class OrcInputStream
 
     private byte[] buffer;
     private final LocalMemoryContext bufferMemoryUsage;
-    private boolean isUncompressed = false;
+    private boolean isUncompressed;
 
     public OrcInputStream(
             OrcDataSourceId orcDataSourceId,
@@ -84,7 +84,8 @@ public final class OrcInputStream
     @Override
     public void close()
     {
-        // close is never called, so do not add code here
+        // close may be called to unpin cache or pool resources.
+        compressedSliceInput.close();
     }
 
     @Override
@@ -112,9 +113,9 @@ public final class OrcInputStream
 
     public int getOffsetInBuffer()
     {
-        return (int)current.position();
+        return (int) current.position();
     }
-    
+
     @Override
     public int read()
             throws IOException

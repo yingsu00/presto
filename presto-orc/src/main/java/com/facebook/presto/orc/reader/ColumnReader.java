@@ -18,7 +18,7 @@ import com.facebook.presto.orc.QualifyingSet;
 import com.facebook.presto.spi.block.Block;
 
 abstract class ColumnReader
-    implements StreamReader
+        implements StreamReader
 {
     QualifyingSet inputQualifyingSet;
     QualifyingSet outputQualifyingSet;
@@ -34,7 +34,7 @@ abstract class ColumnReader
 
     // Number of values in Block to be returned by getBlock.
     int numValues;
-    
+
     // Number of bytes the next scan() may add to the result.
     int resultSizeBudget = 8 * 10000;
 
@@ -48,12 +48,10 @@ abstract class ColumnReader
         inputQualifyingSet = qualifyingSet;
     }
 
-    
     public QualifyingSet getOutputQualifyingSet()
     {
         return outputQualifyingSet;
     }
-
 
     @Override
     public void setFilterAndChannel(Filter filter, int channel, int columnIndex)
@@ -85,7 +83,7 @@ abstract class ColumnReader
     {
         resultSizeBudget = bytes;
     }
-    
+
     @Override
     public int getTruncationRow()
     {
@@ -102,16 +100,6 @@ abstract class ColumnReader
         throw new UnsupportedOperationException("Variable width streams must implement getResultSizeInBytes()");
     }
 
-    @Override
-    public int getAverageResultSize()
-    {
-        int fixed = getFixedWidth();
-        if (fixed != -1) {
-            return fixed;
-        }
-        throw new UnsupportedOperationException();
-    }
-    
     public void compactQualifyingSet(int[] surviving, int numSurviving)
     {
         if (outputQualifyingSet == null) {

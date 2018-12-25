@@ -54,7 +54,7 @@ public class DictionaryAwarePageFilter
     }
 
     @Override
-    public SelectedPositions filter(ConnectorSession session, Page page)
+    public SelectedPositions filterExprContext(ConnectorSession session, Page page)
     {
         Block block = page.getBlock(0).getLoadedBlock();
 
@@ -80,7 +80,7 @@ public class DictionaryAwarePageFilter
             }
         }
 
-        return filter.filter(session, new Page(block));
+        return filter.filterExprContext(session, new Page(block));
     }
 
     private Optional<boolean[]> processDictionary(ConnectorSession session, Block dictionary)
@@ -100,7 +100,7 @@ public class DictionaryAwarePageFilter
 
         if (shouldProcessDictionary) {
             try {
-                SelectedPositions selectedDictionaryPositions = filter.filter(session, new Page(dictionary));
+                SelectedPositions selectedDictionaryPositions = filter.filterExprContext(session, new Page(dictionary));
                 lastOutputDictionary = Optional.of(toPositionsMask(selectedDictionaryPositions, dictionary.getPositionCount()));
             }
             catch (Exception ignored) {
