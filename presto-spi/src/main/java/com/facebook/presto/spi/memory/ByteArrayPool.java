@@ -97,7 +97,7 @@ public class ByteArrayPool
     private int getSizeIndex(int size)
     {
         int idx = Arrays.binarySearch(sizes, size);
-        return idx < 0 ? 1 - idx : idx;
+        return idx < 0 ? -1 - idx : idx;
     }
 
     private void trim()

@@ -15,7 +15,7 @@ package com.facebook.presto.spi;
 
 public class AriaFlags
 {
-    static final int repartition = 1;
-    static final int hashJoin = 2;
-    static final int orcBufferReuse = 4;
+    public static final int repartition = 1;
+    public static final int hashJoin = 2;
+    public static final int orcBufferReuse = 4;
 }

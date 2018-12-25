@@ -28,9 +28,11 @@ import com.facebook.presto.orc.metadata.statistics.StripeStatistics;
 import com.facebook.presto.orc.reader.StreamReader;
 import com.facebook.presto.orc.reader.StreamReaders;
 import com.facebook.presto.orc.stream.InputStreamSources;
+import com.facebook.presto.spi.AriaFlags;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageSourceOptions;
 import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.memory.Caches;
 import com.facebook.presto.spi.type.Type;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
@@ -752,6 +754,9 @@ public class OrcRecordReader
 
     public boolean pushdownFilterAndProjection(PageSourceOptions options, int[] channelColumns)
     {
+        if ((options.getAriaFlags() & AriaFlags.orcBufferReuse) != 0) {
+            orcDataSource.setCache(Caches.getByteArrayPoolCacheAdapter());
+        }
         Map<Integer, Filter> filters = predicate.getFilters(includedColumns);
         if (filters == null) {
             // Null means filters are not supported for pushdown, empty map means no filters.

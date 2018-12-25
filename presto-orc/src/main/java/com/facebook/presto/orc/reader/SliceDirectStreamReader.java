@@ -332,6 +332,9 @@ public class SliceDirectStreamReader
     @Override
     public int getResultSizeInBytes()
     {
+        if (numValues == 0) {
+            return 0;
+        }
         return 4 * numValues + resultOffsets[numValues];
     }
 
@@ -387,15 +390,15 @@ public class SliceDirectStreamReader
     public void scan()
             throws IOException
     {
-        if (resultOffsets == null) {
+        if (resultOffsets == null && outputChannel != -1) {
             resultOffsets = new int[10001];
             bytes = new byte[100000];
             numValues = 0;
             resultOffsets[0] = 0;
             resultOffsets[1] = 0;
-            if (filter != null && outputQualifyingSet == null) {
-                outputQualifyingSet = new QualifyingSet();
-            }
+        }
+        if (filter != null && outputQualifyingSet == null) {
+            outputQualifyingSet = new QualifyingSet();
         }
         if (!rowGroupOpen) {
             throw new IllegalArgumentException("Row group must be open before variable length scan()");
@@ -506,7 +509,9 @@ public class SliceDirectStreamReader
         if (output != null) {
             output.setPositionCount(numResults);
         }
-        numValues += numResults;
+        if (outputChannel != -1) {
+            numValues += numResults;
+        }
         if (block != null) {
             block.setPositionCount(numValues);
         }

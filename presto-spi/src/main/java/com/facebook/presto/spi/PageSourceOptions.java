@@ -76,4 +76,9 @@ public class PageSourceOptions
     {
         return targetBytes;
     }
+
+    public int getAriaFlags()
+    {
+        return ariaFlags;
+    }
 }
