@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.execution.buffer;
 
+import com.facebook.presto.spi.memory.ByteArrayPool;
+
 import io.airlift.slice.Slice;
 import org.openjdk.jol.info.ClassLayout;
 
@@ -31,6 +33,7 @@ public class SerializedPage
     private final PageCompression compression;
     private final int positionCount;
     private final int uncompressedSizeInBytes;
+    private ByteArrayPool pool;
 
     public SerializedPage(Slice slice, PageCompression compression, int positionCount, int uncompressedSizeInBytes)
     {
@@ -41,6 +44,11 @@ public class SerializedPage
         checkArgument(compression == UNCOMPRESSED || uncompressedSizeInBytes > slice.length(), "compressed size must be smaller than uncompressed size when compressed");
         checkArgument(compression == COMPRESSED || uncompressedSizeInBytes == slice.length(), "uncompressed size must be equal to slice length when uncompressed");
         this.uncompressedSizeInBytes = uncompressedSizeInBytes;
+    }
+
+    public void setByteArrayPool(ByteArrayPool pool)
+    {
+        this.pool = pool;
     }
 
     public int getSizeInBytes()
@@ -71,6 +79,13 @@ public class SerializedPage
     public PageCompression getCompression()
     {
         return compression;
+    }
+
+    void dereferenced()
+    {
+        if (pool != null) {
+            pool.release((byte[]) slice.getBase());
+        }
     }
 
     @Override
