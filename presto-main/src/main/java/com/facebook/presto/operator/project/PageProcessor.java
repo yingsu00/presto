@@ -170,7 +170,7 @@ public class PageProcessor
         }
 
         if (!filterPushedDown && filter.isPresent()) {
-            SelectedPositions selectedPositions = filter.get().filterExprContext(session, filter.get().getInputChannels().getInputChannels(page));
+            SelectedPositions selectedPositions = filter.get().filter(session, filter.get().getInputChannels().getInputChannels(page));
             if (selectedPositions.isEmpty()) {
                 return WorkProcessor.of();
             }

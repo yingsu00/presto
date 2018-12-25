@@ -235,7 +235,7 @@ public class ScanFilterAndProjectOperator
         @Override
         public int filter(Page page, int[] outputRows)
         {
-            SelectedPositions positions = filter.filterExprContext(session, page);
+            SelectedPositions positions = filter.filter(session, page);
 
             int offset = positions.getOffset();
             int size = positions.size();
