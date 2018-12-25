@@ -21,7 +21,6 @@ import com.facebook.presto.operator.project.CursorProcessorOutput;
 import com.facebook.presto.operator.project.MergingPageOutput;
 import com.facebook.presto.operator.project.PageFilter;
 import com.facebook.presto.operator.project.PageProcessor;
-import com.facebook.presto.operator.project.PageProcessorOutput;
 import com.facebook.presto.operator.project.SelectedPositions;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPageSource;
@@ -48,11 +47,13 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
+import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static com.google.common.base.Preconditions.checkState;
 import static io.airlift.concurrent.MoreFutures.toListenableFuture;
 import static java.util.Objects.requireNonNull;
@@ -68,7 +69,8 @@ public class ScanFilterAndProjectOperator
     private final CursorProcessor cursorProcessor;
     private final PageProcessor pageProcessor;
     private final LocalMemoryContext pageSourceMemoryContext;
-    private final LocalMemoryContext pageBuilderMemoryContext;
+    private final LocalMemoryContext pageProcessorMemoryContext;
+    private final LocalMemoryContext outputMemoryContext;
     private final SettableFuture<?> blocked = SettableFuture.create();
     private final MergingPageOutput mergingOutput;
 
@@ -102,7 +104,8 @@ public class ScanFilterAndProjectOperator
         this.pageSourceProvider = requireNonNull(pageSourceProvider, "pageSourceProvider is null");
         this.columns = ImmutableList.copyOf(requireNonNull(columns, "columns is null"));
         this.pageSourceMemoryContext = operatorContext.newLocalSystemMemoryContext(ScanFilterAndProjectOperator.class.getSimpleName());
-        this.pageBuilderMemoryContext = operatorContext.newLocalSystemMemoryContext(ScanFilterAndProjectOperator.class.getSimpleName());
+        this.pageProcessorMemoryContext = newSimpleAggregatedMemoryContext().newLocalMemoryContext(ScanFilterAndProjectOperator.class.getSimpleName());
+        this.outputMemoryContext = operatorContext.newLocalSystemMemoryContext(ScanFilterAndProjectOperator.class.getSimpleName());
         this.mergingOutput = requireNonNull(mergingOutput, "mergingOutput is null");
 
         this.pageBuilder = new PageBuilder(ImmutableList.copyOf(requireNonNull(types, "types is null")));
@@ -232,7 +235,7 @@ public class ScanFilterAndProjectOperator
         @Override
         public int filter(Page page, int[] outputRows)
         {
-            SelectedPositions positions = filter.filterExprContext(session, page);
+            SelectedPositions positions = filter.filter(session, page);
 
             int offset = positions.getOffset();
             int size = positions.size();
@@ -333,7 +336,7 @@ public class ScanFilterAndProjectOperator
             page = pageBuilder.build();
             pageBuilder.reset();
         }
-        pageBuilderMemoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());
+        outputMemoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());
         return page;
     }
 
@@ -358,7 +361,8 @@ public class ScanFilterAndProjectOperator
                 if (filterAndProjectPushedDown) {
                     return page;
                 }
-                PageProcessorOutput output = pageProcessor.process(operatorContext.getSession().toConnectorSession(), yieldSignal, page);
+
+                Iterator<Optional<Page>> output = pageProcessor.process(operatorContext.getSession().toConnectorSession(), yieldSignal, pageProcessorMemoryContext, page);
                 mergingOutput.addInput(output);
             }
 
@@ -368,7 +372,7 @@ public class ScanFilterAndProjectOperator
         }
 
         Page result = mergingOutput.getOutput();
-        pageBuilderMemoryContext.setBytes(mergingOutput.getRetainedSizeInBytes());
+        outputMemoryContext.setBytes(mergingOutput.getRetainedSizeInBytes() + pageProcessorMemoryContext.getBytes());
         return result;
     }
 

@@ -181,7 +181,7 @@ public class TestDictionaryAwarePageFilter
 
     private static void testFilter(DictionaryAwarePageFilter filter, Block block, boolean filterRange)
     {
-        IntSet actualSelectedPositions = toSet(filter.filterExprContext(null, new Page(block)));
+        IntSet actualSelectedPositions = toSet(filter.filter(null, new Page(block)));
 
         block = block.getLoadedBlock();
 
@@ -263,7 +263,7 @@ public class TestDictionaryAwarePageFilter
         }
 
         @Override
-        public SelectedPositions filterExprContext(ConnectorSession session, Page page)
+        public SelectedPositions filter(ConnectorSession session, Page page)
         {
             assertEquals(page.getChannelCount(), 1);
             Block block = page.getBlock(0);
