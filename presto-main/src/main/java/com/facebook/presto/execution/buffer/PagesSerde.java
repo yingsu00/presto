@@ -15,6 +15,7 @@ package com.facebook.presto.execution.buffer;
 
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.BlockEncodingSerde;
+import com.facebook.presto.spi.block.ConcatenatedByteArrayInputStream;
 import io.airlift.compress.Compressor;
 import io.airlift.compress.Decompressor;
 import io.airlift.slice.DynamicSliceOutput;
@@ -109,9 +110,20 @@ public class PagesSerde
 
     public Page deserialize(SerializedPage serializedPage)
     {
+        return deserialize(serializedPage, null);
+    }
+
+    public Page deserialize(SerializedPage serializedPage, Page pageForReuse)
+    {
         checkArgument(serializedPage != null, "serializedPage is null");
 
         if (!decompressor.isPresent() || serializedPage.getCompression() == UNCOMPRESSED) {
+            ConcatenatedByteArrayInputStream stream = serializedPage.getStream();
+            if (stream != null) {
+                stream.setPosition(serializedPage.getPosition());
+                return readRawPage(serializedPage.getPositionCount(), stream, blockEncodingSerde);
+
+            }
             return readRawPage(serializedPage.getPositionCount(), serializedPage.getSlice().getInput(), blockEncodingSerde);
         }
 

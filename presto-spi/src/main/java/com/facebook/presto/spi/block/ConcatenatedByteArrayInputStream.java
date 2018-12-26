@@ -36,6 +36,11 @@ import static java.util.Objects.requireNonNull;
 public final class ConcatenatedByteArrayInputStream
         extends FixedLengthSliceInput
 {
+    public interface Allocator
+    {
+        void free(byte[] bytes);
+    }
+
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(ConcatenatedByteArrayInputStream.class).instanceSize();
 
     private ArrayList<byte[]> buffers;
@@ -44,12 +49,12 @@ public final class ConcatenatedByteArrayInputStream
     private long currentSize;
     private long position;
     private long totalSize;
-    private ByteArrayAllocator allocator;
+    private Allocator allocator;
     private boolean freeAfterRead;
     byte[] tempBytes = new byte[SIZE_OF_LONG];
     long previousBuffersSize;
 
-    public ConcatenatedByteArrayInputStream(List<byte[]> buffers, long size, ByteArrayAllocator allocator)
+    public ConcatenatedByteArrayInputStream(List<byte[]> buffers, long size, Allocator allocator)
     {
         requireNonNull(buffers);
         this.buffers = new ArrayList(buffers);
@@ -62,7 +67,11 @@ public final class ConcatenatedByteArrayInputStream
         currentIdx = -1;
         nextBuffer(0);
     }
-
+    public void setFreeAfterRead()
+    {
+        freeAfterRead = true;
+    }
+    
     private void nextBuffer(int dataSize)
     {
         int numInCurrent = 0;

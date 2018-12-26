@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.execution.buffer;
 
+import com.facebook.presto.spi.block.ConcatenatedByteArrayInputStream;
 import com.facebook.presto.spi.memory.ByteArrayPool;
 
 import io.airlift.slice.Slice;
@@ -34,7 +35,9 @@ public class SerializedPage
     private final int positionCount;
     private final int uncompressedSizeInBytes;
     private ByteArrayPool pool;
-
+    private final ConcatenatedByteArrayInputStream stream;
+    private final long position;
+    
     public SerializedPage(Slice slice, PageCompression compression, int positionCount, int uncompressedSizeInBytes)
     {
         this.slice = requireNonNull(slice, "slice is null");
@@ -44,8 +47,24 @@ public class SerializedPage
         checkArgument(compression == UNCOMPRESSED || uncompressedSizeInBytes > slice.length(), "compressed size must be smaller than uncompressed size when compressed");
         checkArgument(compression == COMPRESSED || uncompressedSizeInBytes == slice.length(), "uncompressed size must be equal to slice length when uncompressed");
         this.uncompressedSizeInBytes = uncompressedSizeInBytes;
+        stream = null;
+        position = 0;
     }
 
+    public SerializedPage(ConcatenatedByteArrayInputStream stream, long position, PageCompression compression, int positionCount, int uncompressedSizeInBytes)
+    {
+        this.stream = stream;
+        this.position = position;
+        this.slice = null;
+        this.compression = requireNonNull(compression, "compression is null");
+        this.positionCount = positionCount;
+        checkArgument(uncompressedSizeInBytes >= 0, "uncompressedSizeInBytes is negative");
+        checkArgument(compression == UNCOMPRESSED || uncompressedSizeInBytes > stream.length(), "compressed size must be smaller than uncompressed size when compressed");
+        checkArgument(compression == COMPRESSED || uncompressedSizeInBytes == stream.length(), "uncompressed size must be equal to stream length when uncompressed");
+        this.uncompressedSizeInBytes = uncompressedSizeInBytes;
+    }
+
+    
     public void setByteArrayPool(ByteArrayPool pool)
     {
         this.pool = pool;
@@ -86,6 +105,16 @@ public class SerializedPage
         if (pool != null) {
             pool.release((byte[]) slice.getBase());
         }
+    }
+
+    ConcatenatedByteArrayInputStream getStream()
+    {
+        return stream;
+    }
+
+    long getPosition()
+    {
+        return position;
     }
 
     @Override
