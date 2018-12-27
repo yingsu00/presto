@@ -159,6 +159,16 @@ public class QualifyingSet
         return positionCount;
     }
 
+    public int getTotalPositionCount()
+    {
+        return positionCount;
+    }
+
+    public int getTruncationPosition()
+    {
+        return truncationPosition;
+    }
+
     public void setPositionCount(int positionCount)
     {
         this.positionCount = positionCount;
@@ -176,7 +186,7 @@ public class QualifyingSet
 
     public void setTruncationPosition(int position)
     {
-        checkArgument(truncationPosition < positionCount && truncationPosition > 0, "truncationPosition  must be between 1 and positionCount - 1");
+        checkArgument(position < positionCount && position > 0, "truncationPosition  must be between 1 and positionCount - 1");
         truncationPosition = position;
     }
 

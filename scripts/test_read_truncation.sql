@@ -7,11 +7,9 @@ create table hive.tpch.strings as select
                             concat(cast(quantity as varchar), comment) as s4
                             from hive.tpch.lineitem_s where orderkey < 100000;
 
-select orderkey, lineitem, s1, s2, s3, s4 from strings where
+select orderkey, linenumber, s1, s2, s3, s4 from hive.tpch.strings where
  s1 > 'f'
  and s2 > '1'
  and s3 > '1'
  and s4 > '2';
-
-
-
+ 

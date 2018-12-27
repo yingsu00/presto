@@ -133,9 +133,9 @@ public class SliceStreamReader
     }
 
     @Override
-    public Block getBlock(boolean mayReuse)
+    public Block getBlock(int numFirstRows, boolean mayReuse)
     {
-        return currentReader.getBlock(mayReuse);
+        return currentReader.getBlock(numFirstRows, mayReuse);
     }
 
     @Override
@@ -160,12 +160,24 @@ public class SliceStreamReader
     }
 
     @Override
+    public int getTruncationRow()
+    {
+        return currentReader.getTruncationRow();
+    }
+
+    @Override
     public int getResultSizeInBytes()
     {
         if (currentReader == null) {
             return 0;
         }
         return currentReader.getResultSizeInBytes();
+    }
+
+        @Override
+    public int getAverageResultSize()
+    {
+        return currentReader.getAverageResultSize();
     }
 
     @Override

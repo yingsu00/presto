@@ -62,9 +62,13 @@ public interface StreamReader
         return -1;
     }
 
-    default Block getBlock(boolean mayReuse)
+    // Returns the 'numFirstRows first values accumulated into
+    // this. If mayReuse is false, this will not keep any reference to
+    // the returned memory. Otherwise a subsequent methods of this may
+    // alter the Blocks contents.
+    default Block getBlock(int numFirstRows, boolean mayReuse)
     {
-        return null;
+        throw new UnsupportedOperationException();
     }
 
     default Filter getFilter()

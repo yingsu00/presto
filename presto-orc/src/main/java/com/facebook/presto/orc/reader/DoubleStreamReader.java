@@ -390,22 +390,21 @@ public class DoubleStreamReader
     }
 
     @Override
-    public Block getBlock(boolean mayReuse)
+    public Block getBlock(int numFirstRows, boolean mayReuse)
     {
-        if (block == null) {
-            if (values == null) {
-                values = new long[numValues];
-            }
-            block = new LongArrayBlock(numValues, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull), values);
+        if (mayReuse) {
+            return new LongArrayBlock(numFirstRows, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull), values);
         }
-        Block oldBlock = block;
-        if (!mayReuse) {
-            values = null;
-            valueIsNull = null;
-            block = null;
-            numValues = 0;
+        if (numFirstRows < numValues || values.length > (int) (numFirstRows * 1.2)) {
+            return new LongArrayBlock(numFirstRows,
+                                      valueIsNull == null ? Optional.empty() : Optional.of(Arrays.copyOf(valueIsNull, numFirstRows)),
+                                      Arrays.copyOf(values, numFirstRows));
         }
-        return oldBlock;
+        Block block = new LongArrayBlock(numFirstRows, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull), values);
+        values = null;
+        valueIsNull = null;
+        numValues = 0;
+        return block;
     }
 
     @Override

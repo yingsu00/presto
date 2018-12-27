@@ -512,13 +512,11 @@ public class SliceDirectStreamReader
         if (outputChannel != -1) {
             numValues += numResults;
         }
-        if (block != null) {
-            block.setPositionCount(numValues);
-        }
-        if (output != null) {
-            output.setEnd(end);
-        }
         posInRowGroup = truncationRow != -1 ? truncationRow : end;
+        if (output != null) {
+            output.setEnd(posInRowGroup);
+        }
+
     }
 
     void addNullResult(int row, int activeIdx)
@@ -584,24 +582,24 @@ public class SliceDirectStreamReader
     }
 
     @Override
-    public Block getBlock(boolean mayReuse)
+    public Block getBlock(int numFirstRows, boolean mayReuse)
     {
-        if (block == null) {
-            if (bytes == null) {
-                // We must be skipping over whole row groups. Make a small bytes to start with.
-                bytes = new byte[1024];
-            }
-            block = new VariableWidthBlock(numValues, Slices.wrappedBuffer(bytes), resultOffsets, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull));
+        if (mayReuse) {
+return             new VariableWidthBlock(numFirstRows, Slices.wrappedBuffer(bytes), resultOffsets, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull));
         }
-        Block oldBlock = block;
-        if (!mayReuse) {
+        if (numFirstRows < numValues || bytes.length > (int) (resultOffsets[numFirstRows] * 1.2)) {
+            int numBytes = resultOffsets[numFirstRows];
+            return             new VariableWidthBlock(numFirstRows,
+                                                      Slices.wrappedBuffer(Arrays.copyOf(bytes, numBytes)),
+                                                      Arrays.copyOf(resultOffsets, numFirstRows + 1),
+                                                      valueIsNull == null ? Optional.empty() : Optional.of(Arrays.copyOf(valueIsNull, numFirstRows)));
+        }
+        Block block = new VariableWidthBlock(numFirstRows, Slices.wrappedBuffer(bytes), resultOffsets, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull));
             numValues = 0;
             resultOffsets = null;
             valueIsNull = null;
             bytes = null;
-            block = null;
-        }
-        return oldBlock;
+            return block;
     }
 
     @Override

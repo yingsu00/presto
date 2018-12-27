@@ -125,9 +125,9 @@ public class LongStreamReader
     }
 
     @Override
-    public Block getBlock(boolean mayReuse)
+    public Block getBlock(int numFirstRows, boolean mayReuse)
     {
-        return currentReader.getBlock(mayReuse);
+        return currentReader.getBlock(numFirstRows, mayReuse);
     }
 
     @Override
@@ -155,6 +155,12 @@ public class LongStreamReader
     public void compactValues(int[] positions, int base, int numPositions)
     {
         currentReader.compactValues(positions, base, numPositions);
+    }
+
+    @Override
+    public int getTruncationRow()
+    {
+        return currentReader.getTruncationRow();
     }
 
     @Override

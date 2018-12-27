@@ -315,12 +315,6 @@ public abstract class AbstractOrcDataSource
         void close()
         {
         }
-
-        @Override
-        protected void finalize()
-        {
-            close();
-        }
     }
     
     private final class LazyMergedSliceLoader
