@@ -81,7 +81,7 @@ public class ReferencePath
             if (field != null) {
                 return field;
             }
-            return new Integer(subscript).toString();
+            return String.valueOf(subscript);
         }
     }
 
