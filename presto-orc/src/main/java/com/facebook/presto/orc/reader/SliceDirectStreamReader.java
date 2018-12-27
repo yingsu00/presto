@@ -285,8 +285,8 @@ public class SliceDirectStreamReader
         if (end == 0 || bytes == null) {
             return;
         }
-        if (end == numResults) {
-            numResults = 0;
+        if (end == numValues) {
+            numValues = 0;
             resultOffsets[0] = 0;
             resultOffsets[1] = 0;
             return;
@@ -376,8 +376,12 @@ public class SliceDirectStreamReader
                 }
             }
         }
+        if (neededLengths <= numLengths) {
+            return;
+        }
+        neededLengths -= numLengths;
         if (lengths == null) {
-            lengths = new int[neededLengths];
+            lengths = new int[neededLengths + numLengths];
         }
         else if (lengths.length < numLengths + neededLengths) {
             lengths = Arrays.copyOf(lengths, numLengths + neededLengths + 100);
