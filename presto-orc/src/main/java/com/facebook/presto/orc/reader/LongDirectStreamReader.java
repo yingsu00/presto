@@ -64,8 +64,6 @@ public class LongDirectStreamReader
     @Nullable
     private LongInputStream dataStream;
 
-    private boolean rowGroupOpen;
-
     private LocalMemoryContext systemMemoryContext;
 
     private long[] values;
@@ -131,13 +129,14 @@ public class LongDirectStreamReader
         return builder.build();
     }
 
-    private void openRowGroup()
+    @Override
+    void openRowGroup()
             throws IOException
     {
         presentStream = presentStreamSource.openStream();
         dataStream = dataStreamSource.openStream();
-
         rowGroupOpen = true;
+        super.openRowGroup();
     }
 
     @Override

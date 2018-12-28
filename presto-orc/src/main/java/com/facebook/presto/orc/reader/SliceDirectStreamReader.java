@@ -79,10 +79,6 @@ public class SliceDirectStreamReader
     @Nullable
     private ByteArrayInputStream dataStream;
 
-    private boolean rowGroupOpen;
-
-    // Number of result rows added  by current scan() so far.
-    private int numResults;
     // Content bytes to be returned in Block.
     private byte[] bytes;
     // Start offsets for use in returned Block.
@@ -91,14 +87,6 @@ public class SliceDirectStreamReader
     boolean[] valueIsNull;
     // Temp space for extracting values to filter when a value straddles buffers.
     private byte[] tempBytes;
-    // Lengths for the rows of the input QualifyingSet.
-    private int[] lengths;
-    // Number of elements in lengths.
-    int numLengths;
-    //Present flag for each row in the range of input QualifyingSet.
-    boolean[] present;
-    // position of first element of lengths from the start of RowGroup.
-    int posInRowGroup;
     // Result arrays from outputQualifyingSet.
     int[] outputRows;
     int[] resultInputNumbers;
@@ -234,15 +222,14 @@ public class SliceDirectStreamReader
         return new VariableWidthBlock(currentBatchSize, slice, offsetVector, Optional.ofNullable(isNullVector));
     }
 
-    private void openRowGroup()
+    @Override
+    void openRowGroup()
             throws IOException
     {
         presentStream = presentStreamSource.openStream();
         lengthStream = lengthStreamSource.openStream();
         dataStream = dataByteSource.openStream();
-        posInRowGroup = 0;
-        numLengths = 0;
-        rowGroupOpen = true;
+        super.openRowGroup();
     }
 
     @Override
@@ -349,45 +336,9 @@ public class SliceDirectStreamReader
 
     @Override
     public void scanLengths()
-            throws IOException
+        throws IOException
     {
-        if (!rowGroupOpen) {
-            openRowGroup();
-        }
-        numResults = 0;
-        truncationRow = -1;
-        QualifyingSet input = inputQualifyingSet;
-        QualifyingSet output = outputQualifyingSet;
-        int numInput = input.getPositionCount();
-        int end = input.getEnd();
-        int rowsInRange = end - posInRowGroup;
-        int neededLengths = 0;
-        if (presentStream == null) {
-            neededLengths = rowsInRange;
-        }
-        else {
-            if (present == null || present.length < rowsInRange) {
-                present = new boolean[rowsInRange];
-            }
-            presentStream.getSetBits(rowsInRange, present);
-            for (int i = 0; i < rowsInRange; i++) {
-                if (present[i]) {
-                    neededLengths++;
-                }
-            }
-        }
-        if (neededLengths <= numLengths) {
-            return;
-        }
-        neededLengths -= numLengths;
-        if (lengths == null) {
-            lengths = new int[neededLengths + numLengths];
-        }
-        else if (lengths.length < numLengths + neededLengths) {
-            lengths = Arrays.copyOf(lengths, numLengths + neededLengths + 100);
-        }
-        lengthStream.nextIntVector(neededLengths, lengths, numLengths);
-        numLengths += neededLengths;
+        beginScan(presentStream, lengthStream);
     }
 
     @Override
@@ -400,9 +351,6 @@ public class SliceDirectStreamReader
             numValues = 0;
             resultOffsets[0] = 0;
             resultOffsets[1] = 0;
-        }
-        if (filter != null && outputQualifyingSet == null) {
-            outputQualifyingSet = new QualifyingSet();
         }
         if (!rowGroupOpen) {
             throw new IllegalArgumentException("Row group must be open before variable length scan()");
@@ -493,7 +441,7 @@ public class SliceDirectStreamReader
             }
             else {
                 // The row is notg in the input qualifying set. Add length to skip if non-null.
-                if (present == null || present[i]) {
+                if (presentStream == null || present[i]) {
                     toSkip += lengths[lengthIdx++];
                 }
             }
@@ -501,26 +449,7 @@ public class SliceDirectStreamReader
         if (toSkip > 0) {
             dataStream.skip(toSkip);
         }
-        // The reader is positioned at inputQualifyingSet.end() or truncationRow.
-            // If truncation, consume present flags and lengths.
-        if (i != rowsInRange && present != null) {
-            System.arraycopy(present, i, present, 0, rowsInRange - i);
-        }
-        if (lengthIdx < numLengths) {
-            System.arraycopy(lengths, lengthIdx, lengths, 0, numLengths - lengthIdx);
-        }
-        numLengths -= lengthIdx;
-        if (output != null) {
-            output.setPositionCount(numResults);
-        }
-        if (outputChannel != -1) {
-            numValues += numResults;
-        }
-        posInRowGroup = truncationRow != -1 ? truncationRow : end;
-        if (output != null) {
-            output.setEnd(posInRowGroup);
-        }
-
+        endScan();
     }
 
     void addNullResult(int row, int activeIdx)

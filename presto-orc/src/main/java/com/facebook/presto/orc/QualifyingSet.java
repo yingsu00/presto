@@ -196,17 +196,18 @@ public class QualifyingSet
     }
 
     // Erases qulifying rows and corresponding input numbers below position.
-    public void eraseBelowPosition(int position)
+    public void eraseBelowRow(int row)
     {
         if (positions != ownedPositions) {
-            throw new UnsupportedOperationException("QualifyingSet must own its positions in eraseBelowPosition");
+            ownedPositions = Arrays.copyOf(positions, positionCount);
+            positions = ownedPositions;
         }
-        if (positions[positionCount - 1] < position) {
+        if (positions[positionCount - 1] < row) {
             positionCount = 0;
             return;
         }
         for (int i = positionCount - 1; i >= 0; i--) {
-            if (positions[i] < position) {
+            if (positions[i] < row) {
                 // Found first position below the cutoff. Erase this and all below it.
                 int numErasedInputs = inputNumbers[i];
                 for (int i1 = i; i1 < positionCount; i1++) {

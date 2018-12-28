@@ -113,9 +113,9 @@ public class LongStreamReader
     }
 
     @Override
-    public void setFilterAndChannel(Filter filter, int channel, int columnIndex)
+    public void setFilterAndChannel(Filter filter, int channel, int columnIndex, Type type)
     {
-        directReader.setFilterAndChannel(filter, channel, columnIndex);
+        directReader.setFilterAndChannel(filter, channel, columnIndex, type);
     }
 
     @Override

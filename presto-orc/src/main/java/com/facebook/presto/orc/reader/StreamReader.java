@@ -44,7 +44,7 @@ public interface StreamReader
      * applying filter to the rows in the input QualifyingSet. If
      * channel is not -1, appends the values in the post-filter rows
      * to a Block. The Block can be retrieved by getBlock(). */
-    default void setFilterAndChannel(Filter filter, int channel, int columnIndex)
+    default void setFilterAndChannel(Filter filter, int channel, int columnIndex, Type type)
     {
         throw new UnsupportedOperationException();
     }
@@ -139,6 +139,11 @@ public interface StreamReader
             return fixed;
         }
         throw new UnsupportedOperationException();
+    }
+
+    // Reconsiders filter order for embedded struct readers
+    default void maybeReorderFilters()
+    {
     }
 
     Block readBlock(Type type)
