@@ -73,6 +73,9 @@ public class StructStreamReader
     ColumnGroupReader reader;
     int[] fieldBlockOffset;
     boolean[] valueIsNull;
+    // Number of rows in field blocks. This is < numValues if there
+    // are null structs in the result.
+    int fieldBlockSize;
     int[] fieldSurviving;
     QualifyingSet fieldQualifyingSet;
     // Passing rows of field filters are returned here, null if no field filters.
@@ -82,7 +85,9 @@ public class StructStreamReader
     StreamReader[] streamReaders;
     // For each position in fieldQualifyingSet, the corresponding position in inputQualifyingSet.
     int[] innerToOuter;
-
+    int[] orgFieldRows;
+    int numFieldRows;
+    
     StructStreamReader(StreamDescriptor streamDescriptor, DateTimeZone hiveStorageTimeZone, AggregatedMemoryContext systemMemoryContext)
     {
         this.streamDescriptor = requireNonNull(streamDescriptor, "stream is null");
@@ -299,11 +304,12 @@ public class StructStreamReader
                                        fieldColumns,
                                        filters,
                                        true,
-                                       true);
+                                       true,
+                                       0);
     }
 
     @Override
-    public void setResultSizeBudget(int bytes)
+    public void setResultSizeBudget(long bytes)
     {
         if (reader == null) {
             setupForScan();
@@ -315,6 +321,16 @@ public class StructStreamReader
     public void erase(int end)
     {
         if (reader != null) {
+            if (valueIsNull != null) {
+                int fieldEnd = 0;
+                for (int i = 0; i < end; i++) {
+                    if (!valueIsNull[i]) {
+                        fieldEnd++;
+                    }
+                }
+                end = fieldEnd;
+            }
+            fieldBlockSize -= end;
             reader.newBatch(end);
         }
     }
@@ -379,17 +395,24 @@ public class StructStreamReader
     public void scan()
         throws IOException
     {
+        if (!rowGroupOpen) {
+            openRowGroup();
+        }
         beginScan(presentStream, null);
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
-        // 
-        IntArrayList nullResults = null;
+        if (fieldBlockOffset == null) {
+            fieldQualifyingSet = new QualifyingSet();
+            if (filter != null) {
+                fieldOutputQualifyingSet = new QualifyingSet();
+            }
+        }
         int numInput = input.getPositionCount();
         int[] inputRows = input.getPositions();
         int end = input.getEnd();
         int rowsInRange = end - posInRowGroup;
         int[] fieldRows = fieldQualifyingSet.getMutablePositions(numInput);
-        int numFieldRows = 0;
+        numFieldRows = 0;
         if (innerToOuter == null || innerToOuter.length < numInput) {
             innerToOuter = new int [numInput + 100];
         }
@@ -397,28 +420,22 @@ public class StructStreamReader
         int prevRow = posInRowGroup;
         for (int i = 0; i < numInput; i++) {
             int activeRow = inputRows[i]; 
-            if (presentStream != null && !present[activeRow - posInRowGroup]) {
-                // The struct is null.
-                if (filter != null) {
-                    if (filter.testNull()) {
-                        nullResults.add(activeRow);
-                    }
-                }
-            }
-            else {
+            if (presentStream == null || present[activeRow - posInRowGroup]) {
                 int numSkip = innerDistance(prevRow, activeRow);
                 fieldRows[numFieldRows] = prevFieldRow + numSkip;
-                innerToOuter[numFieldRows] = activeRow;
+                innerToOuter[numFieldRows] = i;
                 numFieldRows++;
                 prevFieldRow += numSkip;
-                fieldRows[numFieldRows] = posInFields + numFieldRows;
             }
             prevRow = activeRow;
         }
         int skip = innerDistance(prevRow, end);
         fieldQualifyingSet.setEnd(skip + prevFieldRow);
         fieldQualifyingSet.setPositionCount(numFieldRows);
-
+        if (orgFieldRows == null || orgFieldRows.length < numFieldRows) {
+            orgFieldRows = new int[numFieldRows];
+        }
+        System.arraycopy(orgFieldRows, 0, fieldRows, 0, numFieldRows);
         reader.setQualifyingSets(fieldQualifyingSet, fieldOutputQualifyingSet);
         reader.advance();
         int truncated = reader.getTruncationRow();
@@ -426,21 +443,85 @@ public class StructStreamReader
             posInFields = truncated;
             truncationRow = innerToOuterRow(truncated);
         }
-        QualifyingSet inner = fieldOutputQualifyingSet;
+        int[] resultRows = null;
+        int[] inputNumbers = null;
+        if (output != null) {
+            resultRows = output.getMutablePositions(numInput);
+            inputNumbers = output.getMutableInputNumbers(numInput);
+        }
+        QualifyingSet structQualified = fieldOutputQualifyingSet;
+        int[] fieldQualifyingRows = null;
+        if (structQualified != null) {
+            fieldQualifyingRows = structQualified.getPositions();
+        }
+        ensureOutput(numInput);
+        int lastFieldQualified = 0;
+        for (int i = 0; i < numInput; i++) {
+            if (presentStream != null && !present[i]) {
+                if (filter == null || filter.testNull()) {
+                    valueIsNull[numValues] = true;
+                    fieldBlockOffset[numValues] = numValues + numResults > 0 ? fieldBlockOffset[numValues + numResults - 1] : 0;
+                    if (resultRows != null) {
+                        resultRows[numResults] = inputRows[i];
+                        inputNumbers[numResults] = i;
+                    }
+                    numResults++;
+                }
+            }
+            else {
+                // A non null struct in the input qualifying set.
+                if (filter != null) {
+                    if (fieldQualifyingRows[lastFieldQualified] == orgFieldRows[i]) {
+                        lastFieldQualified++;
+                        resultRows[numResults] = inputRows[i];
+                        inputNumbers[numResults] = i;
+                        addStructResult();
+                    }
+                }
+                else {
+                    addStructResult();
+                }
+            }
+        }
+        endScan();
     }
 
+    void addStructResult()
+    {
+        fieldBlockOffset[numValues + numResults] = fieldBlockSize;
+        if (valueIsNull != null) {
+            valueIsNull[numValues + numResults] = false;
+        }
+        fieldBlockSize++;
+        numResults++;
+    }
+    
     int innerToOuterRow(int inner)
     {
-        int numInner = fieldQualifyingSet.getPositionCount();
-        int[] rows = fieldQualifyingSet.getPositions();
-        for (int i = 0; i < numInner; i++) {
-            if (inner == rows[i]) {
+        for (int i = 0; i < numFieldRows; i++) {
+            if (inner == orgFieldRows[i]) {
                 return innerToOuter[i];
             }
         }
         throw new IllegalArgumentException("Can't translate from struct truncation row to enclosing truncation row");
     }
 
+    void ensureOutput(int numAdded)
+    {
+        int newSize = numValues + numAdded * 2;
+        if (presentStream != null && valueIsNull == null) {
+            valueIsNull = new boolean[newSize];
+        }
+        if (valueIsNull != null && valueIsNull.length < numValues + numAdded) {
+            valueIsNull = Arrays.copyOf(valueIsNull, newSize);
+        }
+        if (fieldBlockOffset == null) {
+            fieldBlockOffset = new int[newSize];
+        } else if (fieldBlockOffset.length < numValues + numAdded) {
+            fieldBlockOffset = Arrays.copyOf(fieldBlockOffset, newSize);
+        }
+    }
+    
     @Override
     public void maybeReorderFilters()
     {

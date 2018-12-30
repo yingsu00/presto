@@ -19,4 +19,5 @@ public class AriaFlags
     public static final int hashJoin = 2;
     public static final int orcBufferReuse = 4;
     public static final int exchangeReuse = 8;
+    public static final int noReaderBudget = 16;
 }

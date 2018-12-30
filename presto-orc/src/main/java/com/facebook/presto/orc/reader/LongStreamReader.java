@@ -173,7 +173,7 @@ public class LongStreamReader
     }
 
     @Override
-    public void setResultSizeBudget(int bytes)
+    public void setResultSizeBudget(long bytes)
     {
         currentReader.setResultSizeBudget(bytes);
     }

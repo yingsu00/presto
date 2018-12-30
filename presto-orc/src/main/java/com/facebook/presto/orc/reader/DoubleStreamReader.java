@@ -209,6 +209,9 @@ public class DoubleStreamReader
     public void scan()
             throws IOException
     {
+        if (!rowGroupOpen) {
+            openRowGroup();
+        }
         beginScan(presentStream, null);
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;

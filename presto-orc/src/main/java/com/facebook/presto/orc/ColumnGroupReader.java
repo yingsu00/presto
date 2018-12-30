@@ -74,26 +74,27 @@ import static java.util.Objects.requireNonNull;
 public class ColumnGroupReader
 {
     // Number of complete rows in result Blocks in StreamReaders.
-    int numRowsInResult;
+    private int numRowsInResult;
 
-    StreamReader[] streamOrder;
+    private StreamReader[] streamOrder;
 
-    QualifyingSet inputQualifyingSet;
-    QualifyingSet outputQualifyingSet;
+    private QualifyingSet inputQualifyingSet;
+    private QualifyingSet outputQualifyingSet;
 
-    boolean reuseBlocks;
-    boolean reorderFilters;
-    Block[] reusedPageBlocks;
+    private boolean reuseBlocks;
+    private boolean reorderFilters;
+    private Block[] reusedPageBlocks;
 
-    int lastTruncatedStreamIdx = -1;
-    int maxOutputChannel = -1;
-    int targetResultBytes;
+    private int lastTruncatedStreamIdx = -1;
+    private int maxOutputChannel = -1;
+    private int targetResultBytes;
     // The number of leading elements in streamOredr that is subject to reordering.
-    int numFilters;
+    private int numFilters;
     // Temporary array for compacting results that have been decimated
     // by subsequent filters.
-    int[] survivingRows;
-    int[] readerBudget;
+    private int[] survivingRows;
+    private int[] readerBudget;
+    private int ariaFlags;
 
     public ColumnGroupReader(StreamReader[] streamReaders,
                       Set<Integer> presentColumns,
@@ -102,10 +103,12 @@ public class ColumnGroupReader
                       int[] targetChannels,
                       Map<Integer, Filter> filters,
                       boolean reuseBlocks,
-                      boolean reorderFilters)
+                             boolean reorderFilters,
+                             int ariaFlags)
     {
         this.reuseBlocks = reuseBlocks;
         this.reorderFilters = reorderFilters;
+        this.ariaFlags = ariaFlags;
         for (int i = 0; i < channelColumns.length; i++) {
             int columnIndex = channelColumns[i];
             if (presentColumns != null && !presentColumns.contains(columnIndex)) {
@@ -129,9 +132,9 @@ public class ColumnGroupReader
         outputQualifyingSet = output;
     }
 
-    public void setResultSizeBudget(int bytes)
+    public void setResultSizeBudget(long bytes)
     {
-        targetResultBytes = bytes;
+        targetResultBytes = (int)bytes;
     }
     
     static int compareReaders(StreamReader a, StreamReader b)
@@ -213,6 +216,16 @@ public class ColumnGroupReader
         int bytesSoFar = 0;
         double selectivity = 1;
         int totalAsk = 0;
+        if ((ariaFlags & AriaFlags.noReaderBudget) != 0) {
+            for (int i = firstStreamIdx; i < streamOrder.length; i++) {
+                StreamReader reader = streamOrder[i];
+                if (reader.getChannel() != -1) {
+                    // Arbitrarily large but no Long overflow
+                    reader.setResultSizeBudget(1L << 48);
+                }
+            }
+            return false;
+        }
         for (int i = 0; i < streamOrder.length; i++) {
             StreamReader reader = streamOrder[i];
             bytesSoFar += reader.getResultSizeInBytes();
@@ -318,7 +331,7 @@ public class ColumnGroupReader
             qualifyingSet = reader.getInputQualifyingSet();
             qualifyingSet.clearTruncationPosition();
             makeResultBudget(firstStreamIdx, qualifyingSet.getPositionCount(), false);
-        }
+            }
         int numStreams = streamOrder.length;
         for (int streamIdx = firstStreamIdx; streamIdx < numStreams; ++streamIdx) {
             long startTime = 0;
@@ -328,9 +341,6 @@ public class ColumnGroupReader
             if (reorderFilters && filter != null) {
                 startTime = System.nanoTime();
             }
-            if (reader.getFixedWidth() == -1) {
-                reader.scanLengths();
-            }
             reader.scan();
             if (filter != null) {
                 QualifyingSet input = qualifyingSet;
@@ -339,7 +349,7 @@ public class ColumnGroupReader
                     filter.updateStats(input.getPositionCount(), qualifyingSet.getPositionCount(), System.nanoTime() - startTime);
                 }
                 if (qualifyingSet.isEmpty()) {
-                    discardBatchSoFar(streamIdx);
+                    alignResultsAndRemoveFromQualifyingSet(0, streamIdx);
                     return;
                 }
             }
@@ -347,36 +357,24 @@ public class ColumnGroupReader
         int lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
         // Numbor of rows surviving all truncations/filters.
         int numAdded = qualifyingSet.getPositionCount();
-        alignResultsAndRemoveFromQualifyingSet(numAdded);
+    alignResultsAndRemoveFromQualifyingSet(numAdded, streamOrder.length - 1);
         numRowsInResult += numAdded;
-    }
-
-    private void discardBatchSoFar(int streamIdx)
-    {
-        for (int i = 0; i < streamIdx; i++) {
-            streamOrder[i].compactValues(null, numRowsInResult, 0);
-        }
     }
 
     /* Compacts Blocks that contain values on rows that subsequent
          * filters have dropped. lastStreamIdx is the position in
          * streamOrder for the rightmost stream that has values for
          * this batch. */
-    private void alignResultsAndRemoveFromQualifyingSet(int numAdded)
+private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStreamIdx)
     {
         boolean needCompact = false;
         int numSurviving = numAdded;
         int lastTruncation = -1;
-        int lastStreamIdx = streamOrder.length - 1;
         for (int streamIdx = lastStreamIdx; streamIdx >= 0; --streamIdx) {
             StreamReader reader = streamOrder[streamIdx];
             if (needCompact) {
                 reader.compactValues(survivingRows, numRowsInResult, numSurviving);
             }
-            if (streamIdx == 0) {
-                break;
-            }
-
             QualifyingSet output = reader.getOutputQualifyingSet();
             QualifyingSet input = reader.getInputQualifyingSet();
             int truncationRow = reader.getTruncationRow();
@@ -386,6 +384,9 @@ public class ColumnGroupReader
             }
             if (lastTruncation  == -1 && truncationRow != -1) {
                 lastTruncation = truncationRow;
+            }
+            if (streamIdx == 0) {
+                break;
             }
             if (reader.getFilter() != null) {
                 if (!needCompact) {
@@ -410,7 +411,6 @@ public class ColumnGroupReader
             }
         }
         if (outputQualifyingSet != null) {
-            
             int[] rows = outputQualifyingSet.getMutablePositions(numAdded);
             int[] inputs = outputQualifyingSet.getMutableInputNumbers(numAdded);
             int[] inputRows = inputQualifyingSet.getPositions();
@@ -441,7 +441,12 @@ public class ColumnGroupReader
                 numPositions -= numAdded;
                 int truncationPosition = output.getTruncationPosition();
                 if (truncationPosition != -1) {
-                    output.setTruncationPosition(truncationPosition - numAdded);
+                    if (numAdded == truncationPosition) {
+                        output.clearTruncationPosition();
+                    }
+                    else {
+                        output.setTruncationPosition(truncationPosition - numAdded);
+                    }
                 }
                 output.setPositionCount(numPositions);
                 for (int i = 0; i < numPositions; i++) {
@@ -481,7 +486,7 @@ private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
         throw new IllegalArgumentException("Truncation row was not in the input QualifyingSet");
     }
 
-int findLastTruncatedStreamIdx()
+    int findLastTruncatedStreamIdx()
     {
         for (int i = streamOrder.length - 1; i >= 0; i--) {
             if (streamOrder[i].getTruncationRow() != -1) {
@@ -514,5 +519,3 @@ int findLastTruncatedStreamIdx()
         return numRowsInResult;
     }
 }
-
-

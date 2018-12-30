@@ -754,7 +754,8 @@ public class OrcRecordReader
                                        targetChannels,
                                        filters,
                                        options.getReusePages(),
-                                       reorderFilters);
+                                       reorderFilters,
+                                       options.getAriaFlags());
         targetResultBytes = options.getTargetBytes();
         reader.setResultSizeBudget(targetResultBytes);
         return true;

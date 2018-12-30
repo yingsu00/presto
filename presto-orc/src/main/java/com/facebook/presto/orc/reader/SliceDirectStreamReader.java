@@ -275,7 +275,6 @@ public class SliceDirectStreamReader
         if (end == numValues) {
             numValues = 0;
             resultOffsets[0] = 0;
-            resultOffsets[1] = 0;
             return;
         }
         int firstOffset = resultOffsets[end];
@@ -335,16 +334,13 @@ public class SliceDirectStreamReader
     }
 
     @Override
-    public void scanLengths()
-        throws IOException
-    {
-        beginScan(presentStream, lengthStream);
-    }
-
-    @Override
     public void scan()
             throws IOException
     {
+                if (!rowGroupOpen) {
+            openRowGroup();
+        }
+                beginScan(presentStream, lengthStream);
         if (resultOffsets == null && outputChannel != -1) {
             resultOffsets = new int[10001];
             bytes = new byte[100000];
@@ -473,9 +469,9 @@ public class SliceDirectStreamReader
     {
         ensureResultBytes(length);
         ensureResultRows();
-        int endOffset = resultOffsets[numValues + numResults + 1];
+        int endOffset = resultOffsets[numValues + numResults];
         System.arraycopy(buffer, pos, bytes, endOffset, length);
-        resultOffsets[numValues + numResults + 2] = endOffset + length;
+        resultOffsets[numValues + numResults + 1] = endOffset + length;
         if (valueIsNull != null) {
             valueIsNull[numValues + numResults] = false;
         }
@@ -486,9 +482,9 @@ public class SliceDirectStreamReader
     {
         ensureResultBytes(length);
         ensureResultRows();
-        int endOffset = resultOffsets[numValues + numResults + 1];
+        int endOffset = resultOffsets[numValues + numResults];
         dataStream.next(bytes, endOffset, length);
-        resultOffsets[numValues + numResults + 2] = endOffset + length;
+        resultOffsets[numValues + numResults + 1] = endOffset + length;
         if (valueIsNull != null) {
             valueIsNull[numValues + numResults] = false;
         }
@@ -496,10 +492,9 @@ public class SliceDirectStreamReader
 
     void ensureResultBytes(int length)
     {
-        int offset = resultOffsets[numResults + numValues + 1];
+        int offset = resultOffsets[numResults + numValues];
         if (bytes.length < length + offset) {
             bytes = Arrays.copyOf(bytes, Math.max(bytes.length * 2, bytes.length + length));
-            block = null;
         }
     }
 
@@ -510,7 +505,6 @@ public class SliceDirectStreamReader
             if (valueIsNull != null) {
                 valueIsNull = Arrays.copyOf(valueIsNull, resultOffsets.length);
             }
-            block = null;
         }
     }
 

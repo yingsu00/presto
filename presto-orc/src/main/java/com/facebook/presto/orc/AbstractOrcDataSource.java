@@ -216,7 +216,11 @@ public abstract class AbstractOrcDataSource
         for (Entry<K, DiskRange> entry : diskRanges.entrySet()) {
             DiskRange diskRange = entry.getValue();
             int bufferSize = toIntExact(streamBufferSize.toBytes());
-            FixedLengthSliceInput sliceInput = new LazySliceInput(diskRange.getLength(), new LazyChunkedSliceLoader(diskRange, bufferSize));
+            LazyChunkedSliceLoader loader = new LazyChunkedSliceLoader(diskRange, bufferSize);
+                            if (cache != null) {
+                    cachingLoaders.add(loader);
+                            }
+                            FixedLengthSliceInput sliceInput = new LazySliceInput(diskRange.getLength(), loader);
             slices.put(entry.getKey(), new OrcDataSourceInput(sliceInput, bufferSize));
         }
         return slices.build();
@@ -308,13 +312,9 @@ public abstract class AbstractOrcDataSource
     }
 
     public abstract class Loader
+        extends CachingLoader
     {
         abstract FixedLengthSliceInput get();
-
-        // Allows unpinning possibly held resources rom caches or pools.
-        void close()
-        {
-        }
     }
     
     private final class LazyMergedSliceLoader
@@ -343,7 +343,7 @@ public abstract class AbstractOrcDataSource
     }
 
     private class ChunkedSliceLoader
-            implements SliceLoader<SliceBufferReference>
+        implements SliceLoader<SliceBufferReference>
     {
         private final DiskRange diskRange;
 
@@ -393,6 +393,12 @@ public abstract class AbstractOrcDataSource
             this.slice = Slices.wrappedBuffer(buffer);
         }
 
+        public SliceBufferReference(byte[] buffer)
+        {
+            this.buffer = buffer;
+            this.slice = Slices.wrappedBuffer(buffer);
+        }
+
         public byte[] getBuffer()
         {
             return buffer;
@@ -422,6 +428,10 @@ public abstract class AbstractOrcDataSource
         public FixedLengthSliceInput get()
         {
             return new ChunkedSliceInput(new ChunkedSliceLoader(diskRange), bufferSize);
+        }
+
+        public void close()
+        {
         }
     }
 }

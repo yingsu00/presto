@@ -181,16 +181,9 @@ public class SliceStreamReader
     }
 
     @Override
-    public void setResultSizeBudget(int bytes)
+    public void setResultSizeBudget(long bytes)
     {
         currentReader.setResultSizeBudget(bytes);
-    }
-
-    @Override
-    public void scanLengths()
-            throws IOException
-    {
-        currentReader.scanLengths();
     }
 
     @Override

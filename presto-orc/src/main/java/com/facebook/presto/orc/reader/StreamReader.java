@@ -84,7 +84,7 @@ public interface StreamReader
     // Sets the number of additional result bytes a scan() is allowed
     // to accumulate before truncating the result. A scan, even with
     // truncation, will add at least one row.
-    default void setResultSizeBudget(int bytes)
+    default void setResultSizeBudget(long bytes)
     {
         throw new UnsupportedOperationException();
     }
@@ -110,12 +110,6 @@ public interface StreamReader
 
     // Returns an approximation of the size of the Block to be returned from getBlock().
     default int getResultSizeInBytes()
-    {
-        throw new UnsupportedOperationException();
-    }
-    // Reads lengths for the rows in the input QualifyingSet.
-    default void scanLengths()
-            throws IOException
     {
         throw new UnsupportedOperationException();
     }

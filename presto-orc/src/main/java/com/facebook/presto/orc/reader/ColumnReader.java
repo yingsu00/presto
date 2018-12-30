@@ -62,7 +62,7 @@ abstract class ColumnReader
     int numResults;
 
     // Number of bytes the next scan() may add to the result.
-    int resultSizeBudget = 8 * 10000;
+    long resultSizeBudget = 8 * 10000;
 
     public QualifyingSet getInputQualifyingSet()
     {
@@ -106,7 +106,7 @@ abstract class ColumnReader
     }
 
     @Override
-    public void setResultSizeBudget(int bytes)
+    public void setResultSizeBudget(long bytes)
     {
         resultSizeBudget = bytes;
     }

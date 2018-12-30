@@ -135,7 +135,6 @@ public class LongDirectStreamReader
     {
         presentStream = presentStreamSource.openStream();
         dataStream = dataStreamSource.openStream();
-        rowGroupOpen = true;
         super.openRowGroup();
     }
 
@@ -203,27 +202,22 @@ public class LongDirectStreamReader
     public void scan()
             throws IOException
     {
-        if (!rowGroupOpen) {
-            openRowGroup();
-        }
+        beginScan(presentStream, null);
         if (presentStream != null) {
             throw new UnsupportedOperationException("scan() does not support nulls");
         }
-
-        truncationRow = -1;
         if (outputChannel != -1) {
             ensureValuesSize();
         }
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
         int numInput = input.getPositionCount();
-        int numOut;
         if (filter != null) {
             if (outputQualifyingSet == null) {
                 outputQualifyingSet = new QualifyingSet();
                 output = outputQualifyingSet;
             }
-            numOut = dataStream.scan(filter,
+            numResults = dataStream.scan(filter,
                                      input.getPositions(),
                                      numInput,
                                      input.getEnd(),
@@ -236,7 +230,7 @@ public class LongDirectStreamReader
             output.setEnd(input.getEnd());
         }
         else {
-            numOut = dataStream.scan(null,
+            numResults = dataStream.scan(null,
                                      input.getPositions(),
                                      numInput,
                                      input.getEnd(),
@@ -247,13 +241,7 @@ public class LongDirectStreamReader
                                      values,
                                      numValues);
         }
-        if (output != null) {
-            output.setPositionCount(numOut);
-        }
-        numValues += numOut;
-        if (block != null) {
-            block.setPositionCount(numValues);
-        }
+        endScan();
     }
 
     @Override

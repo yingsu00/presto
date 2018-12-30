@@ -112,7 +112,13 @@ public class QualifyingSet
     {
         if (ownedPositions == null || ownedPositions.length < minSize) {
             minSize = (int) (minSize * 1.2);
-            ownedPositions = new int[minSize];
+            if (positions != null) {
+                ownedPositions = Arrays.copyOf(positions, minSize);
+            }
+            else {
+
+                ownedPositions = new int[minSize];
+            }
         }
         positions = ownedPositions;
         return positions;
@@ -122,7 +128,12 @@ public class QualifyingSet
     {
         if (ownedInputNumbers == null || ownedInputNumbers.length < minSize) {
             minSize = (int) (minSize * 1.2);
-            ownedInputNumbers = new int[minSize];
+            if (inputNumbers != null) {
+                ownedInputNumbers = Arrays.copyOf(inputNumbers, minSize);
+            }
+            else {
+                ownedInputNumbers = new int[minSize];
+            }
         }
         inputNumbers = ownedInputNumbers;
         return inputNumbers;
@@ -198,10 +209,8 @@ public class QualifyingSet
     // Erases qulifying rows and corresponding input numbers below position.
     public void eraseBelowRow(int row)
     {
-        if (positions != ownedPositions) {
-            ownedPositions = Arrays.copyOf(positions, positionCount);
-            positions = ownedPositions;
-        }
+        positions = getMutablePositions(positionCount);
+        inputNumbers = getMutableInputNumbers(positionCount);
         if (positions[positionCount - 1] < row) {
             positionCount = 0;
             return;
@@ -216,6 +225,27 @@ public class QualifyingSet
                 }
                 positionCount -= i;
             }
+        }
+    }
+
+    void copyFrom(QualifyingSet other)
+    {
+        positionCount = other.positionCount;
+        if (ownedPositions != null && ownedPositions.length <= other.positionCount) {
+            positions = ownedPositions;
+            System.arraycopy(other.positions, 0, positions, 0, positionCount);
+        }
+        else {
+            ownedPositions = Arrays.copyOf(other.positions, positionCount);
+            positions = ownedPositions;
+        }
+        if (ownedInputNumbers != null && ownedInputNumbers.length <= positionCount) {
+            inputNumbers = ownedInputNumbers;
+            System.arraycopy(other.inputNumbers, 0, inputNumbers, 0, positionCount);
+        }
+        else {
+            inputNumbers = Arrays.copyOf(other.inputNumbers, positionCount);
+            ownedInputNumbers = inputNumbers;
         }
     }
 }
