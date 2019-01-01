@@ -177,6 +177,9 @@ public class SliceStreamReader
         @Override
     public int getAverageResultSize()
     {
+        if (currentReader == null) {
+            return 16;
+        }
         return currentReader.getAverageResultSize();
     }
 

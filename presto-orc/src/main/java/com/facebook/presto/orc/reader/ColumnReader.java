@@ -190,13 +190,13 @@ abstract class ColumnReader
         numLengths += neededLengths;
     }
 
-    void endScan()
+    void endScan(BooleanInputStream presentStream)
     {
         // The reader is positioned at inputQualifyingSet.end() or truncationRow.
-        int end = inputQualifyingSet.getEnd();
+        int end = inputQualifyingSet.getNonTruncatedEnd();
         posInRowGroup = truncationRow != -1 ? truncationRow : end;
 
-        if (present != null) {
+        if (presentStream != null) {
             if (posInRowGroup != end) {
                 System.arraycopy(present, posInRowGroup, present, 0, end - posInRowGroup);
             }

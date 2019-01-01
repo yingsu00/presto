@@ -434,20 +434,23 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
             QualifyingSet output = reader.getOutputQualifyingSet();
             if (output != null) {
                 int numPositions = output.getTotalPositionCount();
+                output.clearTruncationPosition();
+
                 // The row numbers for the added rows are no longer needed.
                 int[] rows = output.getMutablePositions(numPositions);
                 System.arraycopy(rows, numAdded, rows, 0, numPositions - numAdded);
                 int[] inputNumbers = output.getMutableInputNumbers(numPositions);
                 numPositions -= numAdded;
-                int truncationPosition = output.getTruncationPosition();
-                if (truncationPosition != -1) {
-                    if (numAdded == truncationPosition) {
-                        output.clearTruncationPosition();
+                /*
+                  int truncationPosition = output.getTruncationPosition();
+                 if (truncationPosition != -1) {
+                 if (numAdded == truncationPosition) {
                     }
                     else {
                         output.setTruncationPosition(truncationPosition - numAdded);
                     }
                 }
+                */
                 output.setPositionCount(numPositions);
                 for (int i = 0; i < numPositions; i++) {
                     inputNumbers[i] = i;
@@ -472,7 +475,7 @@ private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
         // this and all above this to surviving.
         for (int i = 0; i < numIn; i++) {
             if (rows[i] == truncationRow) {
-                int last = survivingRows[numSurviving - 1];
+                int last = numSurviving == 0 ? -1 : survivingRows[numSurviving - 1];
                 int numAdded = numIn - i;
                 if (survivingRows.length < numSurviving + numAdded) {
                     survivingRows = Arrays.copyOf(survivingRows, numSurviving + numAdded + 100);
@@ -517,5 +520,19 @@ private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
     public int getNumResults()
     {
         return numRowsInResult;
+    }
+
+    public String toString()
+    {
+        StringBuilder builder = new StringBuilder("CGR: rows:").append(numRowsInResult).append(" bytes: ")
+            .append(getResultSizeInBytes());
+        for (StreamReader reader : streamOrder) {
+            builder.append("C ").append(reader.getColumnIndex());
+            int row = reader.getTruncationRow();
+            if (row != -1) {
+                builder.append("trunc: ").append(row);
+            }
+        }
+        return builder.toString();
     }
 }

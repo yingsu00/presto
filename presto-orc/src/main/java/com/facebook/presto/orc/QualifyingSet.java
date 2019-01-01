@@ -110,23 +110,26 @@ public class QualifyingSet
 
     public int[] getMutablePositions(int minSize)
     {
-        if (ownedPositions == null || ownedPositions.length < minSize) {
+        if (positions == null || ownedPositions == null || ownedPositions.length < minSize) {
             minSize = (int) (minSize * 1.2);
             if (positions != null) {
                 ownedPositions = Arrays.copyOf(positions, minSize);
             }
             else {
-
                 ownedPositions = new int[minSize];
             }
+            positions = ownedPositions;
         }
-        positions = ownedPositions;
+        else {
+            System.arraycopy(positions, 0, ownedPositions, 0, positionCount);
+            positions = ownedPositions;
+        }
         return positions;
     }
 
     public int[] getMutableInputNumbers(int minSize)
     {
-        if (ownedInputNumbers == null || ownedInputNumbers.length < minSize) {
+        if (inputNumbers == null || ownedInputNumbers == null || ownedInputNumbers.length < minSize) {
             minSize = (int) (minSize * 1.2);
             if (inputNumbers != null) {
                 ownedInputNumbers = Arrays.copyOf(inputNumbers, minSize);
@@ -134,8 +137,12 @@ public class QualifyingSet
             else {
                 ownedInputNumbers = new int[minSize];
             }
+            inputNumbers = ownedInputNumbers;
         }
-        inputNumbers = ownedInputNumbers;
+        else {
+            System.arraycopy(inputNumbers, 0, ownedInputNumbers, 0, positionCount);
+            inputNumbers = ownedInputNumbers;
+        }
         return inputNumbers;
     }
 
@@ -157,6 +164,11 @@ public class QualifyingSet
         return end;
     }
 
+    public int getNonTruncatedEnd()
+    {
+        return end;
+    }
+    
     public void setEnd(int end)
     {
         this.end = end;
@@ -197,8 +209,10 @@ public class QualifyingSet
 
     public void setTruncationPosition(int position)
     {
-        checkArgument(position < positionCount && position > 0, "truncationPosition  must be between 1 and positionCount - 1");
-        truncationPosition = position;
+        if (position >= positionCount || position <= 0) {
+            throw new IllegalArgumentException();
+        }
+            truncationPosition = position;
     }
 
     public void clearTruncationPosition()
@@ -215,15 +229,17 @@ public class QualifyingSet
             positionCount = 0;
             return;
         }
-        for (int i = positionCount - 1; i >= 0; i--) {
+        for (int i = positionCount - 2; i >= 0; i--) {
             if (positions[i] < row) {
                 // Found first position below the cutoff. Erase this and all below it.
-                int numErasedInputs = inputNumbers[i];
-                for (int i1 = i; i1 < positionCount; i1++) {
-                    positions[i1 - i] = positions[i1];
-                    inputNumbers[i1 - i] = inputNumbers[i] - numErasedInputs;
+                int surviving = i + 1;
+                int lowestSurvivingInput = inputNumbers[surviving];
+                for (int i1 = surviving; i1 < positionCount; i1++) {
+                    positions[i1 - surviving] = positions[i1];
+                    inputNumbers[i1 - surviving] = inputNumbers[i] - lowestSurvivingInput;
                 }
-                positionCount -= i;
+                positionCount -= surviving;
+                return;
             }
         }
     }

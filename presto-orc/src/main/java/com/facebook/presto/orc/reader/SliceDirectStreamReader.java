@@ -282,7 +282,7 @@ public class SliceDirectStreamReader
         for (int i = 0; i <= numValues; i++) {
             resultOffsets[i] = resultOffsets[end + i] - firstOffset;
         }
-        System.arraycopy(bytes, 0, bytes, firstOffset, resultOffsets[numValues + end] - firstOffset);
+        System.arraycopy(bytes, firstOffset, bytes, 0, resultOffsets[numValues + end] - firstOffset);
         if (valueIsNull != null) {
             System.arraycopy(valueIsNull, end, valueIsNull, 0, numValues);
         }
@@ -298,6 +298,7 @@ public class SliceDirectStreamReader
                 int len = resultOffsets[fromPosition + 1] - resultOffsets[fromPosition];
                 System.arraycopy(bytes, resultOffsets[fromPosition], bytes, toOffset, len);
                 toOffset += len;
+                resultOffsets[base + i + 1] = toOffset;
             }
             if (valueIsNull != null) {
                 for (int i = 0; i < numPositions; i++) {
@@ -362,7 +363,7 @@ public class SliceDirectStreamReader
         resultInputNumbers = filter != null ? output.getMutableInputNumbers(rowsInRange) : null;
         int toOffset = 0;
         int[] inputPositions = input.getPositions();
-        int lengthIdx = 0;
+        lengthIdx = 0;
         int nextActive = inputPositions[0];
         int activeIdx = 0;
         int numActive = input.getPositionCount();
@@ -373,7 +374,7 @@ public class SliceDirectStreamReader
                 if (truncationRow == nextActive) {
                     break;
                 }
-                if (present != null && !present[i]) {
+                if (presentStream != null && !present[i]) {
                     if (filter == null || filter.testNull()) {
                         addNullResult(i + posInRowGroup, activeIdx);
                     }
@@ -420,8 +421,11 @@ public class SliceDirectStreamReader
                     lengthIdx++;
                 }
                 if (++activeIdx == numActive) {
-                    for (int i2 = lengthIdx; i2 < numLengths; i2++) {
-                        toSkip += lengths[i2];
+                    if (numLengths < end) {
+                        throw new OrcCorruptionException(streamDescriptor.getOrcDataSourceId(), "lengths do not cover the range of the qualifying set");
+                    }
+                    while (lengthIdx < end) {
+                        toSkip += lengths[lengthIdx++];
                     }
                     break;
                 }
@@ -445,7 +449,7 @@ public class SliceDirectStreamReader
         if (toSkip > 0) {
             dataStream.skip(toSkip);
         }
-        endScan();
+        endScan(presentStream);
     }
 
     void addNullResult(int row, int activeIdx)
@@ -483,7 +487,10 @@ public class SliceDirectStreamReader
         ensureResultBytes(length);
         ensureResultRows();
         int endOffset = resultOffsets[numValues + numResults];
-        dataStream.next(bytes, endOffset, length);
+        // This is an unaccountable perversion and a violation of
+        // every principle of consistent design: The argument of next()called
+        // length is in fact an end offset into the buffer.
+        dataStream.next(bytes, endOffset, endOffset + length);
         resultOffsets[numValues + numResults + 1] = endOffset + length;
         if (valueIsNull != null) {
             valueIsNull[numValues + numResults] = false;

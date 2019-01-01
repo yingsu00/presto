@@ -241,7 +241,7 @@ public class LongDirectStreamReader
                                      values,
                                      numValues);
         }
-        endScan();
+        endScan(presentStream);
     }
 
     @Override

@@ -483,7 +483,7 @@ public class StructStreamReader
                 }
             }
         }
-        endScan();
+        endScan(presentStream);
     }
 
     void addStructResult()

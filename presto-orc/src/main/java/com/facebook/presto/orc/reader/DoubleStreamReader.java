@@ -318,7 +318,7 @@ public class DoubleStreamReader
         if (toSkip > 0 || inputOffset != offsetInStream) {
             orcDataStream.skipFully(toSkip * SIZE_OF_DOUBLE + (inputOffset - offsetInStream));
         }
-        endScan();
+        endScan(presentStream);
     }
 
     void addNullResult(int row, int activeIdx)
