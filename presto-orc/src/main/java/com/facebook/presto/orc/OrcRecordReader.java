@@ -768,7 +768,7 @@ public class OrcRecordReader
         numResults = 0;
         nextRowGroup:
         for (; ; ) {
-            if (currentRowGroup == -1 || qualifyingSet == null || qualifyingSet.isEmpty()) {
+            if (currentRowGroup == -1 || qualifyingSet == null || (qualifyingSet.isEmpty() && !reader.hasUnfetchedRows())) {
                 if (currentPosition == totalRowCount) {
                     return null;
                 }

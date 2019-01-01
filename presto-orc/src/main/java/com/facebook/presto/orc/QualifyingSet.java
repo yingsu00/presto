@@ -220,28 +220,50 @@ public class QualifyingSet
         truncationPosition = -1;
     }
 
+    public void setTruncationRow(int row)
+    {
+        if (row == -1) {
+            clearTruncationPosition();
+            return;
+        }
+        int pos = findPositionAtOrAbove(row);
+        if (pos == positionCount) {
+            clearTruncationPosition();
+        }
+        else {
+            setTruncationPosition(pos);
+        }
+    }
+
+    public int findPositionAtOrAbove(int row)
+    {
+        int pos = Arrays.binarySearch(positions, 0, positionCount, row);
+        return pos < 0 ? -1 - pos : pos;
+    }
+    
     // Erases qulifying rows and corresponding input numbers below position.
     public void eraseBelowRow(int row)
     {
-        positions = getMutablePositions(positionCount);
-        inputNumbers = getMutableInputNumbers(positionCount);
-        if (positions[positionCount - 1] < row) {
+        if (positionCount == 0 || positions[positionCount - 1] < row) {
             positionCount = 0;
             return;
         }
-        for (int i = positionCount - 2; i >= 0; i--) {
-            if (positions[i] < row) {
-                // Found first position below the cutoff. Erase this and all below it.
-                int surviving = i + 1;
-                int lowestSurvivingInput = inputNumbers[surviving];
-                for (int i1 = surviving; i1 < positionCount; i1++) {
-                    positions[i1 - surviving] = positions[i1];
-                    inputNumbers[i1 - surviving] = inputNumbers[i] - lowestSurvivingInput;
-                }
-                positionCount -= surviving;
-                return;
-            }
+        int surviving = findPositionAtOrAbove(row);
+        if (surviving == positionCount) {
+            positionCount = 0;
+            return;
         }
+        if (surviving == 0) {
+            return;
+        }
+        positions = getMutablePositions(positionCount);
+        inputNumbers = getMutableInputNumbers(positionCount);
+        int lowestSurvivingInput = inputNumbers[surviving];
+        for (int i = surviving; i < positionCount; i++) {
+            positions[i - surviving] = positions[i];
+            inputNumbers[i - surviving] = inputNumbers[i] - lowestSurvivingInput;
+        }
+        positionCount -= surviving;
     }
 
     void copyFrom(QualifyingSet other)

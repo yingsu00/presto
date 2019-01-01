@@ -308,6 +308,10 @@ public class ColumnGroupReader
         }
     }
 
+    public boolean hasUnfetchedRows()
+    {
+        return findLastTruncatedStreamIdx() != -1;
+    }
 
     public void advance()
             throws IOException
@@ -329,7 +333,7 @@ public class ColumnGroupReader
             // qualifyingSet that we resume is set to reflect that so
             // we do not read past a truncate of a previous column.
             qualifyingSet = reader.getInputQualifyingSet();
-            qualifyingSet.clearTruncationPosition();
+            setNewTruncation(firstStreamIdx, qualifyingSet);
             makeResultBudget(firstStreamIdx, qualifyingSet.getPositionCount(), false);
             }
         int numStreams = streamOrder.length;
@@ -361,6 +365,29 @@ public class ColumnGroupReader
         numRowsInResult += numAdded;
     }
 
+    private void setNewTruncation(int streamIdx, QualifyingSet set)
+    {
+        // Do not read past the end of a column to the left. The new truncation is the end of the closest truncated to the left or the closest filter.
+        int newEnd = -1;
+        for (int i = streamIdx - 1; i >= 0; i--) {
+            StreamReader reader = streamOrder[i];
+            if (hasFilter(i)) {
+                break;
+            }
+            int row = reader.getTruncationRow();
+            if (row != -1) {
+                newEnd = row;
+                break;
+            }
+        }
+        set.setTruncationRow(newEnd);
+    }
+
+    private boolean hasFilter(int i)
+    {
+        return streamOrder[i].getFilter() != null;
+    }
+    
     /* Compacts Blocks that contain values on rows that subsequent
          * filters have dropped. lastStreamIdx is the position in
          * streamOrder for the rightmost stream that has values for
@@ -410,6 +437,7 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
                 }
             }
         }
+        // Record the input rows that made it into the output qualifying set.
         if (outputQualifyingSet != null) {
             int[] rows = outputQualifyingSet.getMutablePositions(numAdded);
             int[] inputs = outputQualifyingSet.getMutableInputNumbers(numAdded);
@@ -428,43 +456,28 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
             }
             outputQualifyingSet.setPositionCount(numAdded);
         }
-        // Now all QulifyingSets are compact.  A leading one does not have an element that would be dropped by a trailing one. Thus all the sets have input numbers {0, ... numPositions - 1}.
+
+        StreamReader lastReader = streamOrder[lastStreamIdx];
+        int endRow = getCurrentRow(lastReader);
         for (int streamIdx = lastStreamIdx - 1; streamIdx >= 0; --streamIdx) {
             StreamReader reader = streamOrder[streamIdx];
-            QualifyingSet output = reader.getOutputQualifyingSet();
-            if (output != null) {
-                int numPositions = output.getTotalPositionCount();
-                output.clearTruncationPosition();
-
-                // The row numbers for the added rows are no longer needed.
-                int[] rows = output.getMutablePositions(numPositions);
-                System.arraycopy(rows, numAdded, rows, 0, numPositions - numAdded);
-                int[] inputNumbers = output.getMutableInputNumbers(numPositions);
-                numPositions -= numAdded;
-                /*
-                  int truncationPosition = output.getTruncationPosition();
-                 if (truncationPosition != -1) {
-                 if (numAdded == truncationPosition) {
-                    }
-                    else {
-                        output.setTruncationPosition(truncationPosition - numAdded);
-                    }
-                }
-                */
-                output.setPositionCount(numPositions);
-                for (int i = 0; i < numPositions; i++) {
-                    inputNumbers[i] = i;
-                }
+            if (hasFilter(streamIdx)) {
+                reader.getOutputQualifyingSet().eraseBelowRow(endRow);
+                endRow = getCurrentRow(reader);
             }
         }
-        if (lastTruncation == -1) {
-            inputQualifyingSet.setPositionCount(0);
-        }
-        else {
-            inputQualifyingSet.eraseBelowRow(lastTruncation); 
-        }
+        inputQualifyingSet.eraseBelowRow(endRow);
     }
 
+    private static int getCurrentRow(StreamReader reader)
+    {
+        int row = reader.getTruncationRow();
+        if (row != -1) {
+            return row;
+        }
+        return reader.getInputQualifyingSet().getNonTruncatedEnd();
+    }
+    
 private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
     {
         int truncationRow = reader.getTruncationRow();
@@ -475,13 +488,12 @@ private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
         // this and all above this to surviving.
         for (int i = 0; i < numIn; i++) {
             if (rows[i] == truncationRow) {
-                int last = numSurviving == 0 ? -1 : survivingRows[numSurviving - 1];
                 int numAdded = numIn - i;
                 if (survivingRows.length < numSurviving + numAdded) {
                     survivingRows = Arrays.copyOf(survivingRows, numSurviving + numAdded + 100);
                 }
                 for (int counter = 0; counter < numAdded; counter++) {
-                    survivingRows[numSurviving + counter] = last + 1 + counter;
+                    survivingRows[numSurviving + counter] = i + counter;
                 }
                 return numSurviving + numAdded;
             }
