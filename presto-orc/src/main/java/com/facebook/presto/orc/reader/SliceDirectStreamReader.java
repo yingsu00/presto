@@ -421,10 +421,10 @@ public class SliceDirectStreamReader
                     lengthIdx++;
                 }
                 if (++activeIdx == numActive) {
-                    if (numLengths < end) {
+                    if (posInRowGroup + numLengths < end) {
                         throw new OrcCorruptionException(streamDescriptor.getOrcDataSourceId(), "lengths do not cover the range of the qualifying set");
                     }
-                    while (lengthIdx < end) {
+                    while (posInRowGroup + lengthIdx < end) {
                         toSkip += lengths[lengthIdx++];
                     }
                     break;
