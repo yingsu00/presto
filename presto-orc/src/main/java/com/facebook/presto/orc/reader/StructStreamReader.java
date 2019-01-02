@@ -69,7 +69,7 @@ public class StructStreamReader
     private InputStreamSource<BooleanInputStream> presentStreamSource = missingStreamSource(BooleanInputStream.class);
     @Nullable
     private BooleanInputStream presentStream;
-
+    
     ColumnGroupReader reader;
     int[] fieldBlockOffset;
     boolean[] valueIsNull;
@@ -83,7 +83,8 @@ public class StructStreamReader
     // Position in row group of first unprocessed field row.
     int posInFields;
     StreamReader[] streamReaders;
-    // For each position in fieldQualifyingSet, the corresponding position in inputQualifyingSet.
+    // For each position in fieldQualifyingSet, the corresponding
+    // position in inputQualifyingSet.
     int[] innerToOuter;
     int[] orgFieldRows;
     int numFieldRows;
@@ -377,7 +378,15 @@ public class StructStreamReader
         return reader.getResultSizeInBytes();
     }
 
-    int innerDistance(int from, int to)
+    public int getAverageResultSize()
+    {
+        if (reader == null) {
+            return 10 * structFields.size();
+        }
+        return reader.getAverageResultSize();
+    }
+    
+    private int innerDistance(int from, int to)
     {
         if (presentStream == null) {
             return to - from;
@@ -416,32 +425,42 @@ public class StructStreamReader
         if (innerToOuter == null || innerToOuter.length < numInput) {
             innerToOuter = new int [numInput + 100];
         }
-        int prevFieldRow = posInFields;
-        int prevRow = posInRowGroup;
-        for (int i = 0; i < numInput; i++) {
-            int activeRow = inputRows[i]; 
-            if (presentStream == null || present[activeRow - posInRowGroup]) {
-                int numSkip = innerDistance(prevRow, activeRow);
-                fieldRows[numFieldRows] = prevFieldRow + numSkip;
-                innerToOuter[numFieldRows] = i;
-                numFieldRows++;
-                prevFieldRow += numSkip;
+        int initialFieldResults = reader.getNumResults();
+        if (reader.hasUnfetchedRows()) {
+            reader.advance();
+            int newTruncation = reader.getTruncationRow();
+            if (newTruncation != -1) {
+                truncationRow = innerToOuterRow(newTruncation);
             }
-            prevRow = activeRow;
         }
-        int skip = innerDistance(prevRow, end);
-        fieldQualifyingSet.setEnd(skip + prevFieldRow);
-        fieldQualifyingSet.setPositionCount(numFieldRows);
-        if (orgFieldRows == null || orgFieldRows.length < numFieldRows) {
-            orgFieldRows = new int[numFieldRows];
-        }
-        System.arraycopy(orgFieldRows, 0, fieldRows, 0, numFieldRows);
-        reader.setQualifyingSets(fieldQualifyingSet, fieldOutputQualifyingSet);
-        reader.advance();
-        int truncated = reader.getTruncationRow();
-        if (truncated != -1) {
-            posInFields = truncated;
-            truncationRow = innerToOuterRow(truncated);
+        else {
+            int prevFieldRow = posInFields;
+            int prevRow = posInRowGroup;
+            for (int i = 0; i < numInput; i++) {
+                int activeRow = inputRows[i]; 
+                if (presentStream == null || present[activeRow - posInRowGroup]) {
+                    int numSkip = innerDistance(prevRow, activeRow);
+                    fieldRows[numFieldRows] = prevFieldRow + numSkip;
+                    innerToOuter[numFieldRows] = i;
+                    numFieldRows++;
+                    prevFieldRow += numSkip;
+                }
+                prevRow = activeRow;
+            }
+            int skip = innerDistance(prevRow, end);
+            fieldQualifyingSet.setEnd(skip + prevFieldRow);
+            fieldQualifyingSet.setPositionCount(numFieldRows);
+            if (orgFieldRows == null || orgFieldRows.length < numFieldRows) {
+                orgFieldRows = new int[numFieldRows];
+            }
+            System.arraycopy(fieldRows, 0, orgFieldRows, 0, numFieldRows);
+            reader.setQualifyingSets(fieldQualifyingSet, fieldOutputQualifyingSet);
+            reader.advance();
+            int truncated = reader.getTruncationRow();
+            if (truncated != -1) {
+                posInFields = truncated;
+                truncationRow = innerToOuterRow(truncated);
+            }
         }
         int[] resultRows = null;
         int[] inputNumbers = null;
@@ -456,6 +475,7 @@ public class StructStreamReader
         }
         ensureOutput(numInput);
         int lastFieldQualified = 0;
+        int numFieldResults = reader.getNumResults() - initialFieldResults;
         for (int i = 0; i < numInput; i++) {
             if (presentStream != null && !present[i]) {
                 if (filter == null || filter.testNull()) {
@@ -480,6 +500,9 @@ public class StructStreamReader
                 }
                 else {
                     addStructResult();
+                    if (--numFieldResults == 0) {
+                        break;
+                    }
                 }
             }
         }
@@ -489,6 +512,7 @@ public class StructStreamReader
     void addStructResult()
     {
         fieldBlockOffset[numValues + numResults] = fieldBlockSize;
+        fieldBlockOffset[numValues + numResults + 1] = fieldBlockSize + 1;
         if (valueIsNull != null) {
             valueIsNull[numValues + numResults] = false;
         }
@@ -517,9 +541,25 @@ public class StructStreamReader
         }
         if (fieldBlockOffset == null) {
             fieldBlockOffset = new int[newSize];
-        } else if (fieldBlockOffset.length < numValues + numAdded) {
+        } else if (fieldBlockOffset.length < numValues + numAdded + 1) {
             fieldBlockOffset = Arrays.copyOf(fieldBlockOffset, newSize);
         }
+    }
+
+    @Override
+    public Block getBlock(int numFirstRows, boolean mayReuse)
+    {
+        int innerFirstRows = 0;
+        for (int i = 0; i < numFirstRows; i++) {
+            if (valueIsNull == null || !valueIsNull[i]) {
+                innerFirstRows++;
+            }
+            }
+        if (innerFirstRows == 0) {
+            return getNullBlock(type, numFirstRows);
+        }
+        Block[] blocks = reader.getBlocks(innerFirstRows, mayReuse, true);
+        return new RowBlock(0, numValues, valueIsNull, fieldBlockOffset, blocks);
     }
     
     @Override

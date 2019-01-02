@@ -125,6 +125,7 @@ public class OrcRecordReader
     private int targetResultBytes;
     private int targetResultRows = 30000;
     private boolean reorderFilters;
+    private boolean reuseBlocks;
 
     public OrcRecordReader(
             Map<Integer, Type> includedColumns,
@@ -746,6 +747,7 @@ public class OrcRecordReader
             return false;
         }
         int[] targetChannels = options.getOutputChannels();
+        reuseBlocks = options.getReusePages();
         reorderFilters = options.getReorderFilters();
         reader = new ColumnGroupReader(streamReaders,
                                        presentColumns,
@@ -753,7 +755,7 @@ public class OrcRecordReader
                                        types,
                                        targetChannels,
                                        filters,
-                                       options.getReusePages(),
+                                       reuseBlocks,
                                        reorderFilters,
                                        options.getAriaFlags());
         targetResultBytes = options.getTargetBytes();
@@ -801,6 +803,6 @@ public class OrcRecordReader
         if (numResults == 0) {
             return null;
         }
-        return new Page(numResults, reader.getBlocks(false));
+        return new Page(numResults, reader.getBlocks(numResults, reuseBlocks, false));
     }
 }

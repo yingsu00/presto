@@ -266,9 +266,9 @@ public class ColumnGroupReader
         return false;
     }
 
-    public Block[] getBlocks(boolean fillAbsentWithNulls)
+    public Block[] getBlocks(int numFirstRows, boolean reuseBlocks, boolean fillAbsentWithNulls)
     {
-        if (numRowsInResult == 0) {
+        if (numFirstRows == 0) {
             return null;
         }
         if (reuseBlocks) {
@@ -280,7 +280,7 @@ public class ColumnGroupReader
             for (StreamReader reader : streamOrder) {
                 int channel = reader.getChannel();
                 if (channel != -1) {
-                    blocks[channel] = reader.getBlock(numRowsInResult, true);
+                    blocks[channel] = reader.getBlock(numFirstRows, true);
                 }
             }
             return blocks;
@@ -290,7 +290,7 @@ public class ColumnGroupReader
             for (StreamReader reader : streamOrder) {
                 int channel = reader.getChannel();
                 if (channel != -1) {
-                    blocks[channel] = reader.getBlock(numRowsInResult, false);
+                    blocks[channel] = reader.getBlock(numFirstRows, false);
                 }
             }
             return blocks;
@@ -396,7 +396,6 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
     {
         boolean needCompact = false;
         int numSurviving = numAdded;
-        int lastTruncation = -1;
         for (int streamIdx = lastStreamIdx; streamIdx >= 0; --streamIdx) {
             StreamReader reader = streamOrder[streamIdx];
             if (needCompact) {
@@ -409,13 +408,10 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
                     (output == null || output.getPositionCount() == input.getPositionCount())) {
                 continue;
             }
-            if (lastTruncation  == -1 && truncationRow != -1) {
-                lastTruncation = truncationRow;
-            }
-            if (streamIdx == 0) {
+            if (streamIdx == 0 && outputQualifyingSet == null) {
                 break;
             }
-            if (reader.getFilter() != null) {
+            if (hasFilter(streamIdx)) {
                 if (!needCompact) {
                     int[] rows = output.getInputNumbers();
                     if (survivingRows == null || survivingRows.length < numSurviving) {
@@ -439,24 +435,15 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
         }
         // Record the input rows that made it into the output qualifying set.
         if (outputQualifyingSet != null) {
+            int[] inputRows = inputQualifyingSet.getPositions();
             int[] rows = outputQualifyingSet.getMutablePositions(numAdded);
             int[] inputs = outputQualifyingSet.getMutableInputNumbers(numAdded);
-            int[] inputRows = inputQualifyingSet.getPositions();
-            if (!needCompact) {
-                System.arraycopy(inputRows, 0, rows, 0, numAdded);
-                for (int i = 0; i < numAdded; i++) {
-                    inputs[i] = i;
-                }
-            }
-            else {
-                for (int i = 0; i < numAdded; i++) {
-                    inputs[i] = survivingRows[i];
-                    rows[i] = inputRows[survivingRows[i]];
-                }
+            for (int i = 0; i < numAdded; i++) {
+                inputs[i] = survivingRows[i];
+                rows[i] = inputRows[survivingRows[i]];
             }
             outputQualifyingSet.setPositionCount(numAdded);
         }
-
         StreamReader lastReader = streamOrder[lastStreamIdx];
         int endRow = getCurrentRow(lastReader);
         for (int streamIdx = lastStreamIdx - 1; streamIdx >= 0; --streamIdx) {
@@ -534,6 +521,15 @@ private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
         return numRowsInResult;
     }
 
+    public int getAverageResultSize()
+    {
+        int sum = 0;
+        for (StreamReader reader : streamOrder) {
+            sum += reader.getAverageResultSize();
+        }
+        return sum;
+    }
+    
     public String toString()
     {
         StringBuilder builder = new StringBuilder("CGR: rows:").append(numRowsInResult).append(" bytes: ")
