@@ -33,6 +33,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 
 import static java.lang.Math.max;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -153,12 +154,6 @@ public class PageProcessor
     {
         filterPushedDown = true;
     }
-    
-    public PageProcessorOutput process(ConnectorSession session, DriverYieldSignal yieldSignal, Page page)
-    {
-        LocalMemoryContext memoryContext = newSimpleAggregatedMemoryContext().newLocalMemoryContext(PAGE_PROCESSOR_SIMPLE_CLASS_NAME);
-        return new PageProcessorOutput(memoryContext::getBytes, process(session, yieldSignal, memoryContext, page));
-    }
 
     public Iterator<Optional<Page>> process(ConnectorSession session, DriverYieldSignal yieldSignal, LocalMemoryContext memoryContext, Page page)
     {
@@ -194,53 +189,8 @@ public class PageProcessor
         return WorkProcessor.create(new ProjectSelectedPositions(session, yieldSignal, memoryContext, page, positionsRange(0, page.getPositionCount())));
     }
 
-    // Returns the channel numbers of the PageSource in the order they
-    // are in the result Page. If this is non-null the projection is
-    // pushed down into the PageSource.
-    public int[] getIdentityInputToOutputChannel()
-    {
-        return inputToOutputChannel;
-    }
-
-    // Returns the channels of the PageSource that need to have a
-    // Block for use in projection. Channels that only serve for
-    // pushed down filters are not included.
-    public int[] getOutputChannels()
-    {
-        HashSet<Integer> channels = new HashSet();
-        for (PageProjection projection : projections) {
-            for (Integer channel : projection.getInputChannels().getInputChannels()) {
-                channels.add(channel);
-            }
-        }
-        return channels.stream().mapToInt(Integer::intValue).toArray();
-    }
-
-    @VisibleForTesting
-    public List<PageProjection> getProjections()
-    {
-        return projections;
-    }
-
-    private static boolean isNotLoadedLazyBlock(Block block)
-    {
-        return (block instanceof LazyBlock) && !((LazyBlock) block).isLoaded();
-    }
-
-    private static long calculateRetainedSizeWithoutLoading(Page page)
-    {
-        long retainedSizeInBytes = Page.INSTANCE_SIZE + SizeOf.sizeOfObjectArray(page.getChannelCount());
-        for (int channel = 0; channel < page.getChannelCount(); channel++) {
-            Block block = page.getBlock(channel);
-            if (!isUnloadedLazyBlock(block)) {
-                retainedSizeInBytes += block.getRetainedSizeInBytes();
-            }
-        }
-        return retainedSizeInBytes;
-    }
-
-    private class PositionsPageProcessorIterator
-            extends AbstractIterator<Optional<Page>>
+    private class ProjectSelectedPositions
+            implements WorkProcessor.Process<Page>
     {
         private final ConnectorSession session;
         private final DriverYieldSignal yieldSignal;
@@ -413,6 +363,45 @@ public class PageProcessor
             }
             return ProcessBatchResult.processBatchSuccess(new Page(positionsBatch.size(), blocks));
         }
+    }
+
+    // Returns the channel numbers of the PageSource in the order they
+    // are in the result Page. If this is non-null the projection is
+    // pushed down into the PageSource.
+    public int[] getIdentityInputToOutputChannel()
+    {
+        return inputToOutputChannel;
+    }
+
+    // Returns the channels of the PageSource that need to have a
+    // Block for use in projection. Channels that only serve for
+    // pushed down filters are not included.
+    public int[] getOutputChannels()
+    {
+        HashSet<Integer> channels = new HashSet();
+        for (PageProjection projection : projections) {
+            for (Integer channel : projection.getInputChannels().getInputChannels()) {
+                channels.add(channel);
+            }
+        }
+        return channels.stream().mapToInt(Integer::intValue).toArray();
+    }
+
+    private static boolean isNotLoadedLazyBlock(Block block)
+    {
+        return (block instanceof LazyBlock) && !((LazyBlock) block).isLoaded();
+    }
+
+    private static long calculateRetainedSizeWithoutLoading(Page page)
+    {
+        long retainedSizeInBytes = Page.INSTANCE_SIZE + SizeOf.sizeOfObjectArray(page.getChannelCount());
+        for (int channel = 0; channel < page.getChannelCount(); channel++) {
+            Block block = page.getBlock(channel);
+            if (!isUnloadedLazyBlock(block)) {
+                retainedSizeInBytes += block.getRetainedSizeInBytes();
+            }
+        }
+        return retainedSizeInBytes;
     }
 
     @VisibleForTesting
