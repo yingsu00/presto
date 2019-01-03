@@ -24,7 +24,14 @@ select orderkey, linenumber, s1, s2, s3, s4 from hive.tpch.strings where
  and s2 > '1'
  and s3 > '1'
  and s4 > '2';
- 
+
+select orderkey, linenumber, s1.s1, s1.s2, s3.s3, s4.s4 from hive.tpch.strings2 where
+ s1.s1 > 'f'
+ and s1.s2 > '1'
+ and s3.s3 > '1'
+ and s3.s4 > '2';
+
+
 
 
 -- Example of filter reorder gains, from 58s cpu to 42s cpu

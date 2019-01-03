@@ -217,7 +217,7 @@ abstract class ColumnReader
         }
     }
 
-    void openRowGroup()
+    protected void openRowGroup()
         throws IOException
     {
         posInRowGroup = 0;

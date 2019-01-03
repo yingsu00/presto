@@ -223,7 +223,7 @@ public class SliceDirectStreamReader
     }
 
     @Override
-    void openRowGroup()
+    protected void openRowGroup()
             throws IOException
     {
         presentStream = presentStreamSource.openStream();
@@ -349,9 +349,6 @@ public class SliceDirectStreamReader
             resultOffsets[0] = 0;
             resultOffsets[1] = 0;
         }
-        if (!rowGroupOpen) {
-            throw new IllegalArgumentException("Row group must be open before variable length scan()");
-        }
         long bytesToGo = resultSizeBudget;
         numResults = 0;
         QualifyingSet input = inputQualifyingSet;
@@ -448,6 +445,10 @@ public class SliceDirectStreamReader
         }
         if (toSkip > 0) {
             dataStream.skip(toSkip);
+        }
+        if (outputChannel != -1) {
+            totalRows += numResults;
+            totalBytes += resultOffsets[numValues + numResults] - resultOffsets[numValues];
         }
         endScan(presentStream);
     }

@@ -349,9 +349,7 @@ public class ColumnGroupReader
             if (filter != null) {
                 QualifyingSet input = qualifyingSet;
                 qualifyingSet = reader.getOutputQualifyingSet();
-                if (reorderFilters) {
-                    filter.updateStats(input.getPositionCount(), qualifyingSet.getPositionCount(), System.nanoTime() - startTime);
-                }
+                filter.updateStats(input.getPositionCount(), qualifyingSet.getPositionCount(), reorderFilters ? System.nanoTime() - startTime : 100);
                 if (qualifyingSet.isEmpty()) {
                     alignResultsAndRemoveFromQualifyingSet(0, streamIdx);
                     return;
@@ -428,7 +426,7 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
                         survivingRows[i] = inputs[survivingRows[i]];
                     }
                 }
-                if (truncationRow != -1) {
+                if (truncationRow != -1 && streamIdx > 0) {
                     numSurviving = addUnusedInputToSurviving(reader, numSurviving);
                 }
             }
@@ -446,11 +444,12 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
         }
         StreamReader lastReader = streamOrder[lastStreamIdx];
         int endRow = getCurrentRow(lastReader);
+        lastReader.getInputQualifyingSet().clearTruncationPosition();
         for (int streamIdx = lastStreamIdx - 1; streamIdx >= 0; --streamIdx) {
             StreamReader reader = streamOrder[streamIdx];
             if (hasFilter(streamIdx)) {
+                reader.getOutputQualifyingSet().clearTruncationPosition();
                 reader.getOutputQualifyingSet().eraseBelowRow(endRow);
-                endRow = getCurrentRow(reader);
             }
         }
         inputQualifyingSet.eraseBelowRow(endRow);

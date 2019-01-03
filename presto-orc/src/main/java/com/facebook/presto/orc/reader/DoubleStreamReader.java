@@ -135,7 +135,7 @@ public class DoubleStreamReader
     }
 
     @Override
-    void openRowGroup()
+    protected void openRowGroup()
             throws IOException
     {
         presentStream = presentStreamSource.openStream();

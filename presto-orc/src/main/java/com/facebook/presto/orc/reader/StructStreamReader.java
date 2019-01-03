@@ -80,6 +80,9 @@ public class StructStreamReader
     QualifyingSet fieldQualifyingSet;
     // Passing rows of field filters are returned here, null if no field filters.
     QualifyingSet fieldOutputQualifyingSet;
+    // Copy of inputQualifyingSet. Needed when continuing after
+    // truncation since the original input may have been changed.
+    QualifyingSet inputCopy;
     // Position in row group of first unprocessed field row.
     int posInFields;
     StreamReader[] streamReaders;
@@ -158,7 +161,7 @@ public class StructStreamReader
     }
 
     @Override
-    void openRowGroup()
+    protected void openRowGroup()
             throws IOException
     {
         presentStream = presentStreamSource.openStream();
@@ -411,19 +414,11 @@ public class StructStreamReader
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
         if (fieldBlockOffset == null) {
+            inputCopy = new QualifyingSet();
             fieldQualifyingSet = new QualifyingSet();
             if (filter != null) {
                 fieldOutputQualifyingSet = new QualifyingSet();
             }
-        }
-        int numInput = input.getPositionCount();
-        int[] inputRows = input.getPositions();
-        int end = input.getEnd();
-        int rowsInRange = end - posInRowGroup;
-        int[] fieldRows = fieldQualifyingSet.getMutablePositions(numInput);
-        numFieldRows = 0;
-        if (innerToOuter == null || innerToOuter.length < numInput) {
-            innerToOuter = new int [numInput + 100];
         }
         int initialFieldResults = reader.getNumResults();
         if (reader.hasUnfetchedRows()) {
@@ -431,11 +426,22 @@ public class StructStreamReader
             int newTruncation = reader.getTruncationRow();
             if (newTruncation != -1) {
                 truncationRow = innerToOuterRow(newTruncation);
+                inputQualifyingSet.setTruncationRow(truncationRow);
             }
         }
         else {
+            inputCopy.copyFrom(inputQualifyingSet);
+            int numInput = input.getPositionCount();
+            int[] inputRows = input.getPositions();
+            int end = input.getEnd();
+            int rowsInRange = end - posInRowGroup;
+            int[] fieldRows = fieldQualifyingSet.getMutablePositions(numInput);
             int prevFieldRow = posInFields;
             int prevRow = posInRowGroup;
+            numFieldRows = 0;
+            if (innerToOuter == null || innerToOuter.length < numInput) {
+                innerToOuter = new int [numInput + 100];
+            }
             for (int i = 0; i < numInput; i++) {
                 int activeRow = inputRows[i]; 
                 if (presentStream == null || present[activeRow - posInRowGroup]) {
@@ -460,10 +466,17 @@ public class StructStreamReader
             if (truncated != -1) {
                 posInFields = truncated;
                 truncationRow = innerToOuterRow(truncated);
+                inputQualifyingSet.setTruncationRow(truncationRow);
+            }
+            else {
+                truncationRow = -1;
+                posInFields = fieldQualifyingSet.getEnd();
             }
         }
         int[] resultRows = null;
         int[] inputNumbers = null;
+        int[] inputRows = inputCopy.getPositions();
+        int numInput = inputCopy.getPositionCount();
         if (output != null) {
             resultRows = output.getMutablePositions(numInput);
             inputNumbers = output.getMutableInputNumbers(numInput);
@@ -520,11 +533,12 @@ public class StructStreamReader
         numResults++;
     }
     
+    // Returns the enclosing row number for a field column row number.
     int innerToOuterRow(int inner)
     {
         for (int i = 0; i < numFieldRows; i++) {
             if (inner == orgFieldRows[i]) {
-                return innerToOuter[i];
+                return inputCopy.getPositions()[innerToOuter[i]];
             }
         }
         throw new IllegalArgumentException("Can't translate from struct truncation row to enclosing truncation row");
@@ -559,7 +573,10 @@ public class StructStreamReader
             return getNullBlock(type, numFirstRows);
         }
         Block[] blocks = reader.getBlocks(innerFirstRows, mayReuse, true);
-        return new RowBlock(0, numValues, valueIsNull, fieldBlockOffset, blocks);
+        int[] offsets = mayReuse ? fieldBlockOffset : Arrays.copyOf(fieldBlockOffset, numFirstRows + 1);
+        boolean[] nulls = valueIsNull == null ? null
+            : mayReuse ? valueIsNull : Arrays.copyOf(valueIsNull, numFirstRows);
+        return new RowBlock(0, numFirstRows, nulls, offsets, blocks);
     }
     
     @Override

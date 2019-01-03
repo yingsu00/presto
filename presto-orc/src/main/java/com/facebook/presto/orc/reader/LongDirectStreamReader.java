@@ -130,7 +130,7 @@ public class LongDirectStreamReader
     }
 
     @Override
-    void openRowGroup()
+    protected void openRowGroup()
             throws IOException
     {
         presentStream = presentStreamSource.openStream();

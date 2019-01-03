@@ -266,7 +266,7 @@ public class QualifyingSet
         positionCount -= surviving;
     }
 
-    void copyFrom(QualifyingSet other)
+    public void copyFrom(QualifyingSet other)
     {
         positionCount = other.positionCount;
         if (ownedPositions != null && ownedPositions.length <= other.positionCount) {
