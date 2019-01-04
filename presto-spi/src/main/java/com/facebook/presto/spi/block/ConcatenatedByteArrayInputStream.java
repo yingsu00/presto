@@ -33,6 +33,10 @@ import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
 import static io.airlift.slice.SizeOf.SIZE_OF_SHORT;
 import static java.util.Objects.requireNonNull;
 
+// Implements a seekable SliceInput over a list of byte[]. When
+// freeAfterRead is set, when a read reaches or skips past the end of
+// a byte array, the the reference of the array is dropped and it is
+// returned to an allocator.
 public final class ConcatenatedByteArrayInputStream
         extends FixedLengthSliceInput
 {
@@ -48,8 +52,8 @@ public final class ConcatenatedByteArrayInputStream
     private int currentIdx;
     private long currentSize;
     private long position;
-    private long totalSize;
-    private Allocator allocator;
+    private final long totalSize;
+    private final Allocator allocator;
     private boolean freeAfterRead;
     byte[] tempBytes = new byte[SIZE_OF_LONG];
     long previousBuffersSize;
@@ -58,7 +62,7 @@ public final class ConcatenatedByteArrayInputStream
     {
         requireNonNull(buffers);
         long buffersSize = 0;
-        this.buffers = new ArrayList(buffers);
+        this.buffers = new ArrayList();
         for (byte[] buffer : buffers) {
             this.buffers.add(buffer);
             buffersSize += buffer.length;
@@ -72,6 +76,7 @@ public final class ConcatenatedByteArrayInputStream
         currentIdx = -1;
         nextBuffer(0);
     }
+
     public void setFreeAfterRead()
     {
         freeAfterRead = true;
@@ -85,8 +90,10 @@ public final class ConcatenatedByteArrayInputStream
             System.arraycopy(current, (int) position, tempBytes, 0, numInCurrent);
         }
         if (currentIdx >= 0 && freeAfterRead) {
-            allocator.free(buffers.get(currentIdx));
-            buffers.set(currentIdx, null);
+            if (allocator != null) {
+                allocator.free(buffers.get(currentIdx));
+            }
+                buffers.set(currentIdx, null);
         }
         previousBuffersSize += currentSize;
         currentIdx++;
@@ -111,7 +118,6 @@ public final class ConcatenatedByteArrayInputStream
             position = dataSize - numInCurrent;
         }
     }
-
     @Override
     public long length()
     {
@@ -127,14 +133,15 @@ public final class ConcatenatedByteArrayInputStream
     @Override
     public void setPosition(long position)
     {
-        if (freeAfterRead && position < previousBuffersSize || position > totalSize) {
+        boolean isFinalRead = freeAfterRead && buffers.get(0) == null;
+        if ((isFinalRead && position < previousBuffersSize) || position > totalSize) {
             throw new IndexOutOfBoundsException();
         }
         if (position > previousBuffersSize && position - previousBuffersSize < currentSize) {
             this.position = position - previousBuffersSize;
             return;
         }
-        if (!freeAfterRead) {
+        if (!isFinalRead) {
             previousBuffersSize = 0;
         }
         for (int i = 0; i < buffers.size(); i++) {
@@ -143,16 +150,15 @@ public final class ConcatenatedByteArrayInputStream
                 continue;
             }
             currentIdx = i;
+            current = buffer;
             currentSize = buffer.length;
-            nextBuffer(0);
             if (position >= previousBuffersSize && position < previousBuffersSize + currentSize) {
                 this.position = position - previousBuffersSize;
                 return;
             }
+            nextBuffer(0);
         }
-        if (position > totalSize) {
-            throw new IndexOutOfBoundsException();
-        }
+        throw new IndexOutOfBoundsException();
     }
 
     @Override

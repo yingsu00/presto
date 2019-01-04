@@ -30,7 +30,7 @@ public class SerializedPage
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(SerializedPage.class).instanceSize();
     private static final int PAGE_COMPRESSION_SIZE = ClassLayout.parseClass(PageCompression.class).instanceSize();
 
-    private final Slice slice;
+    private Slice slice;
     private final PageCompression compression;
     private final int positionCount;
     private final int uncompressedSizeInBytes;
@@ -70,7 +70,7 @@ public class SerializedPage
 
     public int getSizeInBytes()
     {
-        return slice.length();
+        return slice != null ? slice.length() : uncompressedSizeInBytes;
     }
 
     public int getUncompressedSizeInBytes()
@@ -80,7 +80,7 @@ public class SerializedPage
 
     public long getRetainedSizeInBytes()
     {
-        return INSTANCE_SIZE + slice.getRetainedSize() + PAGE_COMPRESSION_SIZE;
+        return INSTANCE_SIZE + (slice != null ? slice.getRetainedSize() : uncompressedSizeInBytes) + PAGE_COMPRESSION_SIZE;
     }
 
     public int getPositionCount()
@@ -102,6 +102,7 @@ public class SerializedPage
     {
         if (pool != null) {
             pool.release((byte[]) slice.getBase());
+            slice = null;
         }
     }
 

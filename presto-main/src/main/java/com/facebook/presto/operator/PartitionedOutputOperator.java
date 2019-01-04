@@ -446,7 +446,7 @@ public class PartitionedOutputOperator
 
         void prepareBuffer(BlockDecoder[] contents, PagesSerde serde)
         {
-            int targetBytes = DEFAULT_MAX_PAGE_SIZE_IN_BYTES;
+            int targetBytes = Math.max(64 * 1024, DEFAULT_MAX_PAGE_SIZE_IN_BYTES)- contents.length * 20;
             int size = 0;
             if (encodings == null) {
                 encodings = new BlockEncoding[contents.length];

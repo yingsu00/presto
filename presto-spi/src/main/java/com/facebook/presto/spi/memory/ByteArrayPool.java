@@ -51,7 +51,7 @@ public class ByteArrayPool
         }
     }
     
-    public byte[] getBytes(int size)
+    public synchronized byte[] getBytes(int size)
     {
         int idx = getSizeIndex(size);
         if (idx >= sizes.length) {
@@ -70,13 +70,14 @@ public class ByteArrayPool
         if (data != null) {
             totalSize.getAndAdd(-sizes[idx]);
             hits[idx]++;
+            Arrays.fill(data, (byte) 0);
             return data;
         }
         misses[idx]++;
         return new byte[sizes[idx]];
     }
 
-    public void release(byte[] data)
+    public synchronized void release(byte[] data)
     {
         int idx = getSizeIndex(data.length);
         if (idx < sizes.length) {
@@ -84,7 +85,15 @@ public class ByteArrayPool
             long now = System.nanoTime();
             ArrayList<byte[]> list = contents[idx];
             long newSize = totalSize.getAndAdd(addedSize);
+            if (sizes[idx] != data.length) {
+                throw new IllegalArgumentException("Wrongf size for ByteArrayPool release");
+            }
             synchronized (list) {
+                for (byte[] existing : list) {
+                    if (existing == data) {
+                        throw new IllegalArgumentException("Duplicate release in ByteArrayPool");
+                    }
+                }
                 list.add(data);
                 times[idx].add(now);
             }

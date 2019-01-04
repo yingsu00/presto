@@ -610,7 +610,7 @@ public final class HttpPageBufferClient
                     InputStream responseStream = response.getInputStream();
                     SliceInput input;
                     if (allocator != null && response.supportsGetBuffers()) {
-                        input = makeConcatenatedInputStream(response.getBuffers(), response.getTotalBytes(), allocator);
+                        input = makeConcatenatedInputStream(response.getBuffers(), response.getTotalBytes(), null /*allocator*/);
                     }
                     else {
                         input = new InputStreamSliceInput(responseStream);
