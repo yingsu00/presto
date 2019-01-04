@@ -59,8 +59,6 @@ public class SerializedPage
         this.compression = requireNonNull(compression, "compression is null");
         this.positionCount = positionCount;
         checkArgument(uncompressedSizeInBytes >= 0, "uncompressedSizeInBytes is negative");
-        checkArgument(compression == UNCOMPRESSED || uncompressedSizeInBytes > stream.length(), "compressed size must be smaller than uncompressed size when compressed");
-        checkArgument(compression == COMPRESSED || uncompressedSizeInBytes == stream.length(), "uncompressed size must be equal to stream length when uncompressed");
         this.uncompressedSizeInBytes = uncompressedSizeInBytes;
     }
 

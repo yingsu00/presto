@@ -609,8 +609,8 @@ public final class HttpPageBufferClient
                 try {
                     InputStream responseStream = response.getInputStream();
                     SliceInput input;
-                    if (allocator != null && responseStream instanceof GatheringByteArrayInputStream) {
-                        input = makeConcatenatedInputStream((GatheringByteArrayInputStream) responseStream, allocator);
+                    if (allocator != null && response.supportsGetBuffers()) {
+                        input = makeConcatenatedInputStream(response.getBuffers(), response.getTotalBytes(), allocator);
                     }
                     else {
                         input = new InputStreamSliceInput(responseStream);
@@ -631,13 +631,13 @@ public final class HttpPageBufferClient
             }
         }
 
-        ConcatenatedByteArrayInputStream makeConcatenatedInputStream(GatheringByteArrayInputStream input, ExchangeClientByteArrayAllocator allocator)
+        ConcatenatedByteArrayInputStream makeConcatenatedInputStream(List<byte[]> buffers, long totalBytes, ExchangeClientByteArrayAllocator allocator)
         {
             ArrayList<byte[]> pieces = new ArrayList();
-            for (byte[] piece : input.get()) {
+            for (byte[] piece : buffers) {
                 pieces.add(piece);
             }
-            return new ConcatenatedByteArrayInputStream(pieces, input.getTotalBytes(), allocator.toPrestoAllocator());
+            return new ConcatenatedByteArrayInputStream(pieces, totalBytes, allocator.toPrestoAllocator());
         }
 
         private static String getTaskInstanceId(Response response)

@@ -57,12 +57,17 @@ public final class ConcatenatedByteArrayInputStream
     public ConcatenatedByteArrayInputStream(List<byte[]> buffers, long size, Allocator allocator)
     {
         requireNonNull(buffers);
+        long buffersSize = 0;
         this.buffers = new ArrayList(buffers);
         for (byte[] buffer : buffers) {
             this.buffers.add(buffer);
+            buffersSize += buffer.length;
         }
         totalSize = size;
         this.allocator = allocator;
+        if (totalSize <= buffersSize - buffers.get(buffers.size()  - 1).length || totalSize > buffersSize) {
+            throw new IllegalArgumentException("totalSize does not fall within the last buffer");
+        }
         position = 0;
         currentIdx = -1;
         nextBuffer(0);
@@ -159,7 +164,11 @@ public final class ConcatenatedByteArrayInputStream
     @Override
     public int available()
     {
-        return (int) (totalSize - previousBuffersSize - position);
+        int avail = (int) (totalSize - previousBuffersSize - position);
+        if (avail < 0) {
+            throw new IllegalArgumentException("Reading past end");
+        }
+        return avail;
     }
 
     public int contiguousAvailable()
