@@ -135,7 +135,7 @@ public class PageProcessor
         else {
             inputToOutputChannel = null;
         }
-        this.projectBatchSize = initialBatchSize.orElse(1);
+        this.projectBatchSize = initialBatchSize.orElse(10000);
         this.expressionProfiler = requireNonNull(expressionProfiler, "expressionProfiler is null");
     }
 

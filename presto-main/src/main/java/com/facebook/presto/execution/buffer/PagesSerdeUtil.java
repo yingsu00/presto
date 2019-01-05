@@ -73,7 +73,9 @@ public class PagesSerdeUtil
         int sizeInBytes = sliceInput.readInt();
         if (sliceInput instanceof ConcatenatedByteArrayInputStream) {
             ConcatenatedByteArrayInputStream castInput = (ConcatenatedByteArrayInputStream) sliceInput;
-            SerializedPage result = new SerializedPage(castInput, castInput.position(), lookupCodecFromMarker(codecMarker), positionCount, uncompressedSizeInBytes);
+            ConcatenatedByteArrayInputStream substream = castInput.getSubstream(castInput.position() + uncompressedSizeInBytes);
+            substream.setFreeAfterRead();
+            SerializedPage result = new SerializedPage(substream, castInput.position(), lookupCodecFromMarker(codecMarker), positionCount, uncompressedSizeInBytes);
             castInput.skip(toIntExact((sizeInBytes)));
             return result;
         }

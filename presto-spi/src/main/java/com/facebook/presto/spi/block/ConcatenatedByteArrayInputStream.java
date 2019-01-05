@@ -52,12 +52,15 @@ public final class ConcatenatedByteArrayInputStream
     private int currentIdx;
     private long currentSize;
     private long position;
-    private final long totalSize;
+    private long totalSize;
     private final Allocator allocator;
     private boolean freeAfterRead;
-    byte[] tempBytes = new byte[SIZE_OF_LONG];
-    long previousBuffersSize;
-
+    private boolean freeAfterSubstreamsFinish;
+    private byte[] tempBytes = new byte[SIZE_OF_LONG];
+    private long previousBuffersSize;
+    private ConcatenatedByteArrayInputStream parent;
+    private int substreamCount;
+    
     public ConcatenatedByteArrayInputStream(List<byte[]> buffers, long size, Allocator allocator)
     {
         requireNonNull(buffers);
@@ -77,9 +80,43 @@ public final class ConcatenatedByteArrayInputStream
         nextBuffer(0);
     }
 
+    private ConcatenatedByteArrayInputStream(ConcatenatedByteArrayInputStream parent, long size)
+    {
+        long buffersSize = 0;
+        this.parent = parent;
+        allocator = null;
+        this.buffers = new ArrayList();
+        for (byte[] buffer : parent.buffers) {
+            this.buffers.add(buffer);
+            buffersSize += buffer.length;
+            if (buffersSize >= size) {
+                break;
+            }
+        }
+        totalSize = size;
+        position = 0;
+        currentIdx = -1;
+        nextBuffer(0);
+    }
+
+    // Returns a stream giving access to the contents of this. The same set of buffers may be accessed from multiple threads via different substreams.
+    public ConcatenatedByteArrayInputStream getSubstream(long end)
+    {
+        if (parent != null) {
+            throw new IllegalArgumentException("Only one level of substreams is supported");
+        }
+        substreamCount++;
+        return new ConcatenatedByteArrayInputStream(this, end);
+    }
+
     public void setFreeAfterRead()
     {
         freeAfterRead = true;
+    }
+
+    public void setFreeAfterSubstreamsFinish()
+    {
+        freeAfterSubstreamsFinish = true;
     }
     
     private void nextBuffer(int dataSize)
@@ -90,7 +127,7 @@ public final class ConcatenatedByteArrayInputStream
             System.arraycopy(current, (int) position, tempBytes, 0, numInCurrent);
         }
         if (currentIdx >= 0 && freeAfterRead) {
-            if (allocator != null) {
+            if (allocator != null && substreamCount == 0 && parent == null) {
                 allocator.free(buffers.get(currentIdx));
             }
                 buffers.set(currentIdx, null);
@@ -100,6 +137,9 @@ public final class ConcatenatedByteArrayInputStream
         if (currentIdx >= buffers.size()) {
             if (dataSize - numInCurrent > 0) {
                 throw new IndexOutOfBoundsException();
+            }
+            if (parent != null) {
+                parent.substreamFinished();
             }
             current = null;
             currentSize = 0;
@@ -118,6 +158,23 @@ public final class ConcatenatedByteArrayInputStream
             position = dataSize - numInCurrent;
         }
     }
+
+    private void substreamFinished()
+    {
+        boolean finished;
+        synchronized (this) {
+            finished = --substreamCount == 0;
+        }
+        if (finished) {
+            if (allocator != null) {
+                for (byte[] buffer : buffers) {
+                    allocator.free(buffer);
+                }
+            }
+            buffers = null;
+        }
+    }
+
     @Override
     public long length()
     {
