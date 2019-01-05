@@ -467,7 +467,14 @@ public class ScanFilterAndProjectOperator
         }
     }
 
-    public void enableReuseOutputPages()
+    @Override
+    public boolean retainsInputPages()
+    {
+        return false;
+    }
+
+    @Override
+    public void enableOutputPageReuse()
     {
         reusePages = true;
     }

@@ -32,6 +32,16 @@ public interface BlockEncoding
      */
     Block readBlock(BlockEncodingSerde blockEncodingSerde, SliceInput input);
 
+    default Block readBlockReusing(BlockEncodingSerde blockEncodingSerde, SliceInput input, Block block)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    default boolean supportsReadBlockReusing()
+    {
+        return false;
+    }
+    
     /**
      * Write the specified block to the specified output
      */

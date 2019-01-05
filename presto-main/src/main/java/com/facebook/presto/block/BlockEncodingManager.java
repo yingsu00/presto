@@ -104,6 +104,26 @@ public final class BlockEncodingManager
     }
 
     @Override
+    public Block readBlockReusing(SliceInput input, Block block)
+    {
+        // read the encoding name
+        String encodingName = readLengthPrefixedString(input);
+
+        // look up the encoding factory
+        BlockEncoding blockEncoding = blockEncodings.get(encodingName);
+        checkArgument(blockEncoding != null, "Unknown block encoding %s", encodingName);
+
+        // load read the encoding factory from the output stream
+        if (blockEncoding.supportsReadBlockReusing()) {
+        return blockEncoding.readBlockReusing(this, input, block);
+        }
+        else {
+            return blockEncoding.readBlock(this, input);
+        }
+        }
+
+    
+    @Override
     public void writeBlock(SliceOutput output, Block block)
     {
         while (true) {

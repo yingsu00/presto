@@ -205,6 +205,12 @@ public class ExchangeOperator
     }
 
     @Override
+    public boolean retainsInputPages()
+    {
+        return false;
+    }
+
+    @Override
     public void enableOutputPageReuse()
     {
         enablePageReuse = true;
