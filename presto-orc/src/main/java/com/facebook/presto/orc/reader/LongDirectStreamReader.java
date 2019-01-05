@@ -64,8 +64,6 @@ public class LongDirectStreamReader
     @Nullable
     private LongInputStream dataStream;
 
-    private boolean rowGroupOpen;
-
     private LocalMemoryContext systemMemoryContext;
 
     private long[] values;
@@ -131,13 +129,13 @@ public class LongDirectStreamReader
         return builder.build();
     }
 
-    private void openRowGroup()
+    @Override
+    protected void openRowGroup()
             throws IOException
     {
         presentStream = presentStreamSource.openStream();
         dataStream = dataStreamSource.openStream();
-
-        rowGroupOpen = true;
+        super.openRowGroup();
     }
 
     @Override
@@ -204,27 +202,22 @@ public class LongDirectStreamReader
     public void scan()
             throws IOException
     {
-        if (!rowGroupOpen) {
-            openRowGroup();
-        }
+        beginScan(presentStream, null);
         if (presentStream != null) {
             throw new UnsupportedOperationException("scan() does not support nulls");
         }
-
-        truncationRow = -1;
         if (outputChannel != -1) {
             ensureValuesSize();
         }
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
         int numInput = input.getPositionCount();
-        int numOut;
         if (filter != null) {
             if (outputQualifyingSet == null) {
                 outputQualifyingSet = new QualifyingSet();
                 output = outputQualifyingSet;
             }
-            numOut = dataStream.scan(filter,
+            numResults = dataStream.scan(filter,
                                      input.getPositions(),
                                      numInput,
                                      input.getEnd(),
@@ -237,7 +230,7 @@ public class LongDirectStreamReader
             output.setEnd(input.getEnd());
         }
         else {
-            numOut = dataStream.scan(null,
+            numResults = dataStream.scan(null,
                                      input.getPositions(),
                                      numInput,
                                      input.getEnd(),
@@ -248,30 +241,25 @@ public class LongDirectStreamReader
                                      values,
                                      numValues);
         }
-        if (output != null) {
-            output.setPositionCount(numOut);
-        }
-        numValues += numOut;
-        if (block != null) {
-            block.setPositionCount(numValues);
-        }
+        endScan(presentStream);
     }
 
     @Override
-    public Block getBlock(boolean mayReuse)
+    public Block getBlock(int numFirstRows, boolean mayReuse)
     {
-        if (numValues == 0) {
-            return new LongArrayBlock(0, Optional.empty(), new long[0]);
+        if (mayReuse) {
+            return new LongArrayBlock(numFirstRows, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull), values);
         }
-        Block returnBlock = new LongArrayBlock(numValues, valueIsNull != null ? Optional.of(valueIsNull) : Optional.empty(), values);
-
-        if (!mayReuse) {
-            values = null;
-            valueIsNull = null;
-            numValues = 0;
-            block = null;
+        if (numFirstRows < numValues || values.length > (int) (numFirstRows * 1.2)) {
+            return new LongArrayBlock(numFirstRows,
+                                      valueIsNull == null ? Optional.empty() : Optional.of(Arrays.copyOf(valueIsNull, numFirstRows)),
+                                      Arrays.copyOf(values, numFirstRows));
         }
-        return returnBlock;
+        Block block = new LongArrayBlock(numFirstRows, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull), values);
+        values = null;
+        valueIsNull = null;
+        numValues = 0;
+        return block;
     }
 
     private void ensureValuesSize()

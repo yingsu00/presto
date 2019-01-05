@@ -64,12 +64,6 @@ public class DoubleStreamReader
     private boolean[] nullVector = new boolean[0];
     private boolean[] valueIsNull;
     private long[] values;
-    // Number of result rows in scan() so far.
-    private int numResults;
-    //Present flag for each row in input QualifyingSet.
-    boolean[] present;
-    // position of first element of lengths from the start of RowGroup.
-    int posInRowGroup;
     // Result arrays from outputQualifyingSet.
     int[] outputRows;
     int[] resultInputNumbers;
@@ -77,8 +71,6 @@ public class DoubleStreamReader
     private InputStreamSource<DoubleInputStream> dataStreamSource = missingStreamSource(DoubleInputStream.class);
     @Nullable
     private DoubleInputStream dataStream;
-
-    private boolean rowGroupOpen;
 
     private LocalMemoryContext systemMemoryContext;
 
@@ -142,13 +134,14 @@ public class DoubleStreamReader
         return builder.build();
     }
 
-    private void openRowGroup()
+    @Override
+    protected void openRowGroup()
             throws IOException
     {
         presentStream = presentStreamSource.openStream();
         dataStream = dataStreamSource.openStream();
-        posInRowGroup = 0;
         rowGroupOpen = true;
+        super.openRowGroup();
     }
 
     @Override
@@ -197,13 +190,13 @@ public class DoubleStreamReader
     }
 
     @Override
-    public void compactValues(int[] positions, int base, int numPositions)
+    public void compactValues(int[] surviving, int base, int numSurviving)
     {
         if (outputChannel != -1) {
-            StreamReaders.compactArrays(positions, base, numPositions, values, valueIsNull);
-            numValues = base + numPositions;
+            StreamReaders.compactArrays(surviving, base, numSurviving, values, valueIsNull);
+            numValues = base + numSurviving;
         }
-        compactQualifyingSet(positions, numPositions);
+        compactQualifyingSet(surviving, numSurviving);
     }
 
     @Override
@@ -216,27 +209,16 @@ public class DoubleStreamReader
     public void scan()
             throws IOException
     {
-        if (filter != null && outputQualifyingSet == null) {
-            outputQualifyingSet = new QualifyingSet();
-        }
         if (!rowGroupOpen) {
             openRowGroup();
         }
-        truncationRow = -1;
-        numResults = 0;
-        int numNonNull = 0;
+        beginScan(presentStream, null);
         QualifyingSet input = inputQualifyingSet;
         QualifyingSet output = outputQualifyingSet;
         int numInput = input.getPositionCount();
         int end = input.getEnd();
         int rowsInRange = end - posInRowGroup;
         int valuesSize = end;
-        if (presentStream != null) {
-            if (present == null || present.length < end) {
-                present = new boolean[end];
-            }
-            presentStream.getSetBits(rowsInRange, present);
-        }
         OrcInputStream orcDataStream = dataStream.getInput();
         int available = orcDataStream.available();
         byte[] inputBuffer = orcDataStream.getBuffer(available);
@@ -327,7 +309,7 @@ public class DoubleStreamReader
             }
             else {
                 // The row is notg in the input qualifying set. Add to skip if non-null.
-                if (present == null || present[i]) {
+                if (presentStream == null || present[i]) {
                     toSkip++;
                     valueIdx++;
                 }
@@ -336,17 +318,7 @@ public class DoubleStreamReader
         if (toSkip > 0 || inputOffset != offsetInStream) {
             orcDataStream.skipFully(toSkip * SIZE_OF_DOUBLE + (inputOffset - offsetInStream));
         }
-        if (output != null) {
-            output.setPositionCount(numResults);
-        }
-        numValues += numResults;
-        if (block != null) {
-            block.setPositionCount(numValues);
-        }
-        if (output != null) {
-            output.setEnd(end);
-        }
-        posInRowGroup = end;
+        endScan(presentStream);
     }
 
     void addNullResult(int row, int activeIdx)
@@ -390,22 +362,21 @@ public class DoubleStreamReader
     }
 
     @Override
-    public Block getBlock(boolean mayReuse)
+    public Block getBlock(int numFirstRows, boolean mayReuse)
     {
-        if (block == null) {
-            if (values == null) {
-                values = new long[numValues];
-            }
-            block = new LongArrayBlock(numValues, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull), values);
+        if (mayReuse) {
+            return new LongArrayBlock(numFirstRows, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull), values);
         }
-        Block oldBlock = block;
-        if (!mayReuse) {
-            values = null;
-            valueIsNull = null;
-            block = null;
-            numValues = 0;
+        if (numFirstRows < numValues || values.length > (int) (numFirstRows * 1.2)) {
+            return new LongArrayBlock(numFirstRows,
+                                      valueIsNull == null ? Optional.empty() : Optional.of(Arrays.copyOf(valueIsNull, numFirstRows)),
+                                      Arrays.copyOf(values, numFirstRows));
         }
-        return oldBlock;
+        Block block = new LongArrayBlock(numFirstRows, valueIsNull == null ? Optional.empty() : Optional.of(valueIsNull), values);
+        values = null;
+        valueIsNull = null;
+        numValues = 0;
+        return block;
     }
 
     @Override

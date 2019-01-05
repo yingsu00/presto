@@ -44,7 +44,7 @@ public interface StreamReader
      * applying filter to the rows in the input QualifyingSet. If
      * channel is not -1, appends the values in the post-filter rows
      * to a Block. The Block can be retrieved by getBlock(). */
-    default void setFilterAndChannel(Filter filter, int channel, int columnIndex)
+    default void setFilterAndChannel(Filter filter, int channel, int columnIndex, Type type)
     {
         throw new UnsupportedOperationException();
     }
@@ -62,9 +62,13 @@ public interface StreamReader
         return -1;
     }
 
-    default Block getBlock(boolean mayReuse)
+    // Returns the 'numFirstRows first values accumulated into
+    // this. If mayReuse is false, this will not keep any reference to
+    // the returned memory. Otherwise a subsequent methods of this may
+    // alter the Blocks contents.
+    default Block getBlock(int numFirstRows, boolean mayReuse)
     {
-        return null;
+        throw new UnsupportedOperationException();
     }
 
     default Filter getFilter()
@@ -80,7 +84,7 @@ public interface StreamReader
     // Sets the number of additional result bytes a scan() is allowed
     // to accumulate before truncating the result. A scan, even with
     // truncation, will add at least one row.
-    default void setResultSizeBudget(int bytes)
+    default void setResultSizeBudget(long bytes)
     {
         throw new UnsupportedOperationException();
     }
@@ -109,12 +113,6 @@ public interface StreamReader
     {
         throw new UnsupportedOperationException();
     }
-    // Reads lengths for the rows in the input QualifyingSet.
-    default void scanLengths()
-            throws IOException
-    {
-        throw new UnsupportedOperationException();
-    }
 
     default void scan()
             throws IOException
@@ -135,6 +133,11 @@ public interface StreamReader
             return fixed;
         }
         throw new UnsupportedOperationException();
+    }
+
+    // Reconsiders filter order for embedded struct readers
+    default void maybeReorderFilters()
+    {
     }
 
     Block readBlock(Type type)

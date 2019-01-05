@@ -110,21 +110,39 @@ public class QualifyingSet
 
     public int[] getMutablePositions(int minSize)
     {
-        if (ownedPositions == null || ownedPositions.length < minSize) {
+        if (positions == null || ownedPositions == null || ownedPositions.length < minSize) {
             minSize = (int) (minSize * 1.2);
-            ownedPositions = new int[minSize];
+            if (positions != null) {
+                ownedPositions = Arrays.copyOf(positions, minSize);
+            }
+            else {
+                ownedPositions = new int[minSize];
+            }
+            positions = ownedPositions;
         }
-        positions = ownedPositions;
+        else {
+            System.arraycopy(positions, 0, ownedPositions, 0, positionCount);
+            positions = ownedPositions;
+        }
         return positions;
     }
 
     public int[] getMutableInputNumbers(int minSize)
     {
-        if (ownedInputNumbers == null || ownedInputNumbers.length < minSize) {
+        if (inputNumbers == null || ownedInputNumbers == null || ownedInputNumbers.length < minSize) {
             minSize = (int) (minSize * 1.2);
-            ownedInputNumbers = new int[minSize];
+            if (inputNumbers != null) {
+                ownedInputNumbers = Arrays.copyOf(inputNumbers, minSize);
+            }
+            else {
+                ownedInputNumbers = new int[minSize];
+            }
+            inputNumbers = ownedInputNumbers;
         }
-        inputNumbers = ownedInputNumbers;
+        else {
+            System.arraycopy(inputNumbers, 0, ownedInputNumbers, 0, positionCount);
+            inputNumbers = ownedInputNumbers;
+        }
         return inputNumbers;
     }
 
@@ -146,6 +164,11 @@ public class QualifyingSet
         return end;
     }
 
+    public int getNonTruncatedEnd()
+    {
+        return end;
+    }
+    
     public void setEnd(int end)
     {
         this.end = end;
@@ -157,6 +180,16 @@ public class QualifyingSet
             return truncationPosition;
         }
         return positionCount;
+    }
+
+    public int getTotalPositionCount()
+    {
+        return positionCount;
+    }
+
+    public int getTruncationPosition()
+    {
+        return truncationPosition;
     }
 
     public void setPositionCount(int positionCount)
@@ -176,8 +209,10 @@ public class QualifyingSet
 
     public void setTruncationPosition(int position)
     {
-        checkArgument(truncationPosition < positionCount && truncationPosition > 0, "truncationPosition  must be between 1 and positionCount - 1");
-        truncationPosition = position;
+        if (position >= positionCount || position <= 0) {
+            throw new IllegalArgumentException();
+        }
+            truncationPosition = position;
     }
 
     public void clearTruncationPosition()
@@ -185,26 +220,70 @@ public class QualifyingSet
         truncationPosition = -1;
     }
 
-    // Erases qulifying rows and corresponding input numbers below position.
-    public void eraseBelowPosition(int position)
+    public void setTruncationRow(int row)
     {
-        if (positions != ownedPositions) {
-            throw new UnsupportedOperationException("QualifyingSet must own its positions in eraseBelowPosition");
+        if (row == -1) {
+            clearTruncationPosition();
+            return;
         }
-        if (positions[positionCount - 1] < position) {
+        int pos = findPositionAtOrAbove(row);
+        if (pos == positionCount) {
+            clearTruncationPosition();
+        }
+        else {
+            setTruncationPosition(pos);
+        }
+    }
+
+    public int findPositionAtOrAbove(int row)
+    {
+        int pos = Arrays.binarySearch(positions, 0, positionCount, row);
+        return pos < 0 ? -1 - pos : pos;
+    }
+    
+    // Erases qulifying rows and corresponding input numbers below position.
+    public void eraseBelowRow(int row)
+    {
+        if (positionCount == 0 || positions[positionCount - 1] < row) {
             positionCount = 0;
             return;
         }
-        for (int i = positionCount - 1; i >= 0; i--) {
-            if (positions[i] < position) {
-                // Found first position below the cutoff. Erase this and all below it.
-                int numErasedInputs = inputNumbers[i];
-                for (int i1 = i; i1 < positionCount; i1++) {
-                    positions[i1 - i] = positions[i1];
-                    inputNumbers[i1 - i] = inputNumbers[i] - numErasedInputs;
-                }
-                positionCount -= i;
-            }
+        int surviving = findPositionAtOrAbove(row);
+        if (surviving == positionCount) {
+            positionCount = 0;
+            return;
+        }
+        if (surviving == 0) {
+            return;
+        }
+        positions = getMutablePositions(positionCount);
+        inputNumbers = getMutableInputNumbers(positionCount);
+        int lowestSurvivingInput = inputNumbers[surviving];
+        for (int i = surviving; i < positionCount; i++) {
+            positions[i - surviving] = positions[i];
+            inputNumbers[i - surviving] = inputNumbers[i] - lowestSurvivingInput;
+        }
+        positionCount -= surviving;
+    }
+
+    public void copyFrom(QualifyingSet other)
+    {
+        positionCount = other.positionCount;
+        if (ownedPositions != null && ownedPositions.length <= other.positionCount) {
+            positions = ownedPositions;
+            System.arraycopy(other.positions, 0, positions, 0, positionCount);
+        }
+        else {
+            ownedPositions = Arrays.copyOf(other.positions, positionCount);
+            positions = ownedPositions;
+        }
+        if (ownedInputNumbers != null && ownedInputNumbers.length <= positionCount) {
+            inputNumbers = ownedInputNumbers;
+            System.arraycopy(other.inputNumbers, 0, inputNumbers, 0, positionCount);
+        }
+        else {
+            inputNumbers = Arrays.copyOf(other.inputNumbers, positionCount);
+            ownedInputNumbers = inputNumbers;
         }
     }
 }

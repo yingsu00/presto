@@ -121,9 +121,9 @@ public class SliceStreamReader
     }
 
     @Override
-    public void setFilterAndChannel(Filter filter, int channel, int columnIndex)
+    public void setFilterAndChannel(Filter filter, int channel, int columnIndex, Type type)
     {
-        directReader.setFilterAndChannel(filter, channel, columnIndex);
+        directReader.setFilterAndChannel(filter, channel, columnIndex, type);
     }
 
     @Override
@@ -133,9 +133,9 @@ public class SliceStreamReader
     }
 
     @Override
-    public Block getBlock(boolean mayReuse)
+    public Block getBlock(int numFirstRows, boolean mayReuse)
     {
-        return currentReader.getBlock(mayReuse);
+        return currentReader.getBlock(numFirstRows, mayReuse);
     }
 
     @Override
@@ -160,6 +160,12 @@ public class SliceStreamReader
     }
 
     @Override
+    public int getTruncationRow()
+    {
+        return currentReader.getTruncationRow();
+    }
+
+    @Override
     public int getResultSizeInBytes()
     {
         if (currentReader == null) {
@@ -168,17 +174,19 @@ public class SliceStreamReader
         return currentReader.getResultSizeInBytes();
     }
 
-    @Override
-    public void setResultSizeBudget(int bytes)
+        @Override
+    public int getAverageResultSize()
     {
-        currentReader.setResultSizeBudget(bytes);
+        if (currentReader == null) {
+            return 16;
+        }
+        return currentReader.getAverageResultSize();
     }
 
     @Override
-    public void scanLengths()
-            throws IOException
+    public void setResultSizeBudget(long bytes)
     {
-        currentReader.scanLengths();
+        currentReader.setResultSizeBudget(bytes);
     }
 
     @Override
