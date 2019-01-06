@@ -136,9 +136,9 @@ public class Driver
             else if (operator instanceof DeleteOperator) {
                 checkArgument(!deleteOperator.isPresent(), "There must be at most one DeleteOperator");
                 deleteOperator = Optional.of((DeleteOperator) operator);
-                if (operator.retainsInputPages()) {
-                    recyclePages = false;
-                }
+            }
+            if (operator.retainsInputPages()) {
+                recyclePages = false;
             }
         }
         if (recyclePages) {

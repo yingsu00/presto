@@ -96,6 +96,7 @@ public class ExchangeOperator
     private final PlanNodeId sourceId;
     private final ExchangeClient exchangeClient;
     private final PagesSerde serde;
+    private final int ariaFlags;
     private boolean enablePageReuse;
     private Page pageForReuse;
     private BlockDecoder blockDecoder = new BlockDecoder();
@@ -110,7 +111,7 @@ public class ExchangeOperator
         this.sourceId = requireNonNull(sourceId, "sourceId is null");
         this.exchangeClient = requireNonNull(exchangeClient, "exchangeClient is null");
         this.serde = requireNonNull(serde, "serde is null");
-        int ariaFlags = SystemSessionProperties.ariaFlags(operatorContext.getSession());
+        ariaFlags = SystemSessionProperties.ariaFlags(operatorContext.getSession());
         if ((ariaFlags & AriaFlags.exchangeReuse) != 0) {
             exchangeClient.enableBufferReuse();
         }
@@ -192,7 +193,7 @@ public class ExchangeOperator
         operatorContext.recordRawInput(page.getSizeInBytes());
 
         Page deserializedPage = serde.deserialize(page, pageForReuse, blockDecoder);
-        if (enablePageReuse) {
+        if (enablePageReuse && (ariaFlags & AriaFlags.exchangeReusePages) != 0) {
             pageForReuse = deserializedPage;
         }
         operatorContext.recordProcessedInput(deserializedPage.getSizeInBytes(), page.getPositionCount());
