@@ -20,6 +20,7 @@ import com.facebook.presto.execution.buffer.SerializedPage;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.AriaFlags;
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.block.BlockDecoder;
 import com.facebook.presto.spi.UpdatablePageSource;
 import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.split.RemoteSplit;
@@ -97,6 +98,7 @@ public class ExchangeOperator
     private final PagesSerde serde;
     private boolean enablePageReuse;
     private Page pageForReuse;
+    private BlockDecoder blockDecoder = new BlockDecoder();
 
     public ExchangeOperator(
             OperatorContext operatorContext,
@@ -189,7 +191,7 @@ public class ExchangeOperator
 
         operatorContext.recordRawInput(page.getSizeInBytes());
 
-        Page deserializedPage = serde.deserialize(page, pageForReuse);
+        Page deserializedPage = serde.deserialize(page, pageForReuse, blockDecoder);
         if (enablePageReuse) {
             pageForReuse = deserializedPage;
         }

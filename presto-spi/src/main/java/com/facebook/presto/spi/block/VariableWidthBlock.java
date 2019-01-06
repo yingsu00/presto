@@ -228,44 +228,6 @@ public class VariableWidthBlock
     }
 
     @Override
-    public void compact(int[] positions, int base, int numPositions)
-    {
-        int toOffset = offsets[base];
-        for (int i = 0; i < numPositions; i++) {
-            int fromPosition = base + positions[i];
-            int len = offsets[fromPosition + 1] - offsets[fromPosition];
-            slice.getBytes(toOffset, slice, offsets[fromPosition], len);
-            toOffset += len;
-        }
-        if (valueIsNull != null) {
-            for (int i = 0; i < numPositions; i++) {
-                valueIsNull[base + i] = valueIsNull[base + positions[i]];
-            }
-        }
-        positionCount = base + numPositions;
-        }
-
-    public void erase(int begin, int end)
-    {
-        if (end > positionCount || begin < 0 || begin > end || arrayOffset != 0) {
-            throw new IllegalArgumentException("begin, end not valid");
-        }
-                    int numMove = positionCount - end;
-                    int toOffset = offsets[begin];
-                    
-                    for (int i = end; i < numMove; i++) {
-                        int len = offsets[i + 1] - offsets[i];
-                        offsets[begin + i] = toOffset;
-                        slice.getBytes(toOffset, slice, offsets[i], len);
-                        toOffset += len;
-            if (valueIsNull != null) {
-                valueIsNull[begin + i] = valueIsNull[end + i];
-            }
-        }
-        positionCount -= end - begin;
-    }
-
-    @Override
     public String toString()
     {
         StringBuilder sb = new StringBuilder("VariableWidthBlock{");

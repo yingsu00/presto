@@ -310,19 +310,11 @@ public interface Block
     {
         throw new UnsupportedOperationException(getClass().getName());
     }
-
-    /* Writes the elements at positions to consecutive positions starting at 
-     * base. E.g. value[base] = value[positions[0]]. */
-    default void compact(int[] positions, int offset, int numPositions)
+    default boolean isReusable()
     {
-        throw new UnsupportedOperationException(getClass().getName());
+        return false;
     }
-
-    default void erase(int begin, int end)
-    {
-        throw new UnsupportedOperationException(getClass().getName());
-    }
-
+    
     /* Adds the combined size of elements offsets[i] ... offsets[i +
      * 1] to sizes[i]. offsets can be null, in which case the function
      * works as if offsets were {0, 1, ... positionCount}. This adds

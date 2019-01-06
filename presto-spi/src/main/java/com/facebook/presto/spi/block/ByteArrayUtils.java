@@ -16,7 +16,14 @@ package com.facebook.presto.spi.block;
 import java.lang.reflect.Field;
 import sun.misc.Unsafe;
 
+import static sun.misc.Unsafe.ARRAY_BOOLEAN_INDEX_SCALE;
 import static sun.misc.Unsafe.ARRAY_BYTE_BASE_OFFSET;
+import static sun.misc.Unsafe.ARRAY_DOUBLE_INDEX_SCALE;
+import static sun.misc.Unsafe.ARRAY_FLOAT_INDEX_SCALE;
+import static sun.misc.Unsafe.ARRAY_INT_INDEX_SCALE;
+import static sun.misc.Unsafe.ARRAY_LONG_BASE_OFFSET;
+import static sun.misc.Unsafe.ARRAY_LONG_INDEX_SCALE;
+import static sun.misc.Unsafe.ARRAY_SHORT_INDEX_SCALE;
 
 
 public class ByteArrayUtils
@@ -62,4 +69,29 @@ public class ByteArrayUtils
         return unsafe.getShort(array, ARRAY_BYTE_BASE_OFFSET + offset);
     }
 
+    public static void gather( long[] source, int[] positions, int[] rowNumberMap, int sourceOffset, byte[] target, int targetOffset, int numWords)
+    {
+        if (target.length < targetOffset + numWords * ARRAY_LONG_INDEX_SCALE || targetOffset < 0) {
+            throw new IndexOutOfBoundsException();
+        }
+        int end = sourceOffset + numWords;
+        if (rowNumberMap == null) {
+            for (int i = sourceOffset; i < end; i++) {
+                unsafe.putLong(target, ARRAY_BYTE_BASE_OFFSET + targetOffset + i * ARRAY_LONG_INDEX_SCALE, source[positions[i]]); 
+            }
+        }
+        else {
+                        for (int i = sourceOffset; i < end; i++) {
+                unsafe.putLong(target, ARRAY_BYTE_BASE_OFFSET + targetOffset + i * ARRAY_LONG_INDEX_SCALE, source[rowNumberMap[positions[i]]]); 
+            }
+        }
+    }
+
+    public static void copyToLongs(byte[] source, int sourceOffset, long[] destination, int destinationIndex, int numWords)
+    {
+        if (destination.length < destinationIndex + numWords || destinationIndex < 0 || source.length < sourceOffset + numWords * ARRAY_LONG_INDEX_SCALE || sourceOffset < 0) {
+            throw new IndexOutOfBoundsException();
+        }
+        unsafe.copyMemory(source, ARRAY_BYTE_BASE_OFFSET + sourceOffset, destination, ARRAY_LONG_BASE_OFFSET + destinationIndex * ARRAY_LONG_INDEX_SCALE, numWords * ARRAY_LONG_INDEX_SCALE);
+    }
 }

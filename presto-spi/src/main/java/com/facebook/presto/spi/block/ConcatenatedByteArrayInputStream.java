@@ -426,7 +426,23 @@ public final class ConcatenatedByteArrayInputStream
     @Override
     public void readBytes(Slice destination, int destinationIndex, int length)
     {
-        throw new UnsupportedOperationException();
+        while (length > 0) {
+            int copy = (int) Math.min(length, currentSize - position);
+            if (copy == 0) {
+                nextBuffer(0);
+                if (current == null) {
+                    throw new IndexOutOfBoundsException();
+                }
+                continue;
+            }
+            destination.setBytes(destinationIndex, current, (int) position, copy);
+            position += copy;
+            destinationIndex += copy;
+            length -= copy;
+        }
+        if (position == currentSize) {
+            nextBuffer(0);
+        }
     }
 
     @Override

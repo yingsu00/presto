@@ -14,6 +14,7 @@
 package com.facebook.presto.execution.buffer;
 
 import com.facebook.presto.spi.Page;
+import com.facebook.presto.spi.block.BlockDecoder;
 import com.facebook.presto.spi.block.BlockEncodingSerde;
 import com.facebook.presto.spi.block.ConcatenatedByteArrayInputStream;
 import io.airlift.compress.Compressor;
@@ -110,10 +111,10 @@ public class PagesSerde
 
     public Page deserialize(SerializedPage serializedPage)
     {
-        return deserialize(serializedPage, null);
+        return deserialize(serializedPage, null, null);
     }
 
-    public Page deserialize(SerializedPage serializedPage, Page pageForReuse)
+    public Page deserialize(SerializedPage serializedPage, Page pageForReuse, BlockDecoder blockDecoder)
     {
         checkArgument(serializedPage != null, "serializedPage is null");
 
@@ -121,10 +122,10 @@ public class PagesSerde
             ConcatenatedByteArrayInputStream stream = serializedPage.getStream();
             if (stream != null) {
                 stream.setPosition(serializedPage.getPosition());
-                return readRawPage(serializedPage.getPositionCount(), stream, blockEncodingSerde);
+                return readRawPage(serializedPage.getPositionCount(), stream, blockEncodingSerde, pageForReuse, blockDecoder);
 
             }
-            return readRawPage(serializedPage.getPositionCount(), serializedPage.getSlice().getInput(), blockEncodingSerde);
+            return readRawPage(serializedPage.getPositionCount(), serializedPage.getSlice().getInput(), blockEncodingSerde, pageForReuse, blockDecoder);
         }
 
         int uncompressedSize = serializedPage.getUncompressedSizeInBytes();
@@ -132,6 +133,6 @@ public class PagesSerde
         int actualUncompressedSize = decompressor.get().decompress(serializedPage.getSlice().getBytes(), 0, serializedPage.getSlice().length(), decompressed, 0, uncompressedSize);
         checkState(uncompressedSize == actualUncompressedSize);
 
-        return readRawPage(serializedPage.getPositionCount(), Slices.wrappedBuffer(decompressed, 0, uncompressedSize).getInput(), blockEncodingSerde);
+        return readRawPage(serializedPage.getPositionCount(), Slices.wrappedBuffer(decompressed, 0, uncompressedSize).getInput(), blockEncodingSerde, pageForReuse, blockDecoder);
     }
 }

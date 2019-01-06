@@ -310,32 +310,8 @@ public class LongArrayBlock
     }
 
     @Override
-    public void compact(int[] positions, int base, int numPositions)
+    public boolean isReusable()
     {
-        for (int i = 0; i < numPositions; i++) {
-            values[base + i] = values[base + positions[i]];
-        }
-        if (valueIsNull != null) {
-            for (int i = 0; i < numPositions; i++) {
-                valueIsNull[base + i] = valueIsNull[base + positions[i]];
-            }
-        }
-        positionCount = base + numPositions;
-        }
-
-    @Override
-    public void erase(int begin, int end)
-    {
-        if (end > positionCount || begin < 0 || begin > end || arrayOffset != 0) {
-            throw new IllegalArgumentException("begin, end not valid");
-        }
-                    int numMove = positionCount - end;
-        for (int i = end; i < numMove; i++) {
-            values[begin + i] = values[end + i];
-            if (valueIsNull != null) {
-                valueIsNull[begin + i] = valueIsNull[end + i];
-            }
-        }
-        positionCount -= end - begin;
+        return true;
     }
 }

@@ -32,7 +32,7 @@ public interface BlockEncoding
      */
     Block readBlock(BlockEncodingSerde blockEncodingSerde, SliceInput input);
 
-    default Block readBlockReusing(BlockEncodingSerde blockEncodingSerde, SliceInput input, Block block)
+    default Block readBlockReusing(BlockEncodingSerde blockEncodingSerde, SliceInput input, BlockDecoder toReuse)
     {
         throw new UnsupportedOperationException();
     }

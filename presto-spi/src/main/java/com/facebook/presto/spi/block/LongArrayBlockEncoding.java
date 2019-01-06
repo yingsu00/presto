@@ -20,6 +20,10 @@ import io.airlift.slice.SliceOutput;
 import static com.facebook.presto.spi.block.EncoderUtil.decodeNullBits;
 import static com.facebook.presto.spi.block.EncoderUtil.encodeNullsAsBits;
 
+import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
+import static sun.misc.Unsafe.ARRAY_BYTE_BASE_OFFSET;
+
+
 public class LongArrayBlockEncoding
         implements BlockEncoding
 {
@@ -63,6 +67,70 @@ public class LongArrayBlockEncoding
         return new LongArrayBlock(0, positionCount, valueIsNull, values);
     }
 
+    public Block readBlockReusing(BlockEncodingSerde blockEncodingSerde, SliceInput sliceInput, BlockDecoder toReuse)
+    {
+        int positionCount = sliceInput.readInt();
+        long[] values = toReuse.getLongs();
+        boolean[] valueIsNull = decodeNullBits(sliceInput, positionCount, toReuse != null ? toReuse.getValueIsNull() : null).orElse(null);
+        if (values == null || values.length < positionCount) {
+            values = new long[positionCount];
+        }
+        if (false && sliceInput instanceof ConcatenatedByteArrayInputStream) {
+            ConcatenatedByteArrayInputStream input = (ConcatenatedByteArrayInputStream) sliceInput;
+            int position = 0;
+            newBuffer:
+            while (position < positionCount) {
+                int available = input.contiguousAvailable();
+                int toRead = Math.min(available / SIZE_OF_LONG, positionCount - position);
+                byte[] buffer = input.getBuffer();
+                int offset = input.getOffsetInBuffer();
+                if (valueIsNull == null) {
+                    if (toRead == 0) {
+                        values[position++] = input.readLong();
+                    }
+                    else {
+                        ByteArrayUtils.copyToLongs(buffer, offset, values, position, toRead);
+                        input.skip(toRead * SIZE_OF_LONG);
+                        position += toRead;
+                    }
+                }
+                else {
+                    int bytesRead = 0;
+                    while (position < positionCount) {
+                        if (valueIsNull[position]) {
+                            position++;
+                            continue;
+                        }
+                        else {
+                            if (toRead > 0) {
+                                values[position++] = ByteArrayUtils.getLong(buffer, offset + bytesRead);
+                                toRead--;
+                                bytesRead += SIZE_OF_LONG;
+                            }
+                            else {
+                                input.skip(bytesRead);
+                                values[position++] = input.readLong();
+                                bytesRead = 0;
+                                continue newBuffer;
+                            }
+                        }
+                    }
+                    input.skip(bytesRead);
+                    break;
+                }
+            }
+        }
+        else {
+            for (int position = 0; position < positionCount; position++) {
+                if (valueIsNull == null || !valueIsNull[position]) {
+                    values[position] = sliceInput.readLong();
+                }
+            }
+        }
+
+        return new LongArrayBlock(0, positionCount, valueIsNull, values);
+    }
+    
     @Override
     public int reserveBytesInBuffer(BlockDecoder contents, int numValues, int startInBuffer, EncodingState state)
     {
@@ -81,11 +149,21 @@ public class LongArrayBlockEncoding
     public void addValues(BlockDecoder contents, int[] rows, int firstRow, int numRows, EncodingState state)
     {
                 long[] longs = contents.longs;
-                int[] map = contents.rowNumberMap;
-                int longsOffset = state.valueOffset + 5 + state.numValues * 8;
-                        for (int i = 0; i < numRows; i++) {
-                            state.topLevelBuffer.setLong(longsOffset + i *8, longs[map[rows[i + firstRow]]]);
-                        }
+                int[] map = contents.isIdentityMap ? null : contents.rowNumberMap;
+                int longsOffset = state.valueOffset + 5 + state.numValues * SIZE_OF_LONG + (int) state.topLevelBuffer.getAddress() - ARRAY_BYTE_BASE_OFFSET;
+                byte[] target = (byte[]) state.topLevelBuffer.getBase();
+                if (map == null) {
+                    for (int i = 0; i < numRows; i++) {
+                        state.topLevelBuffer.setLong(longsOffset + i *SIZE_OF_LONG, longs[rows[i + firstRow]]);
+                    }
+
+                }
+                else {
+                    for (int i = 0; i < numRows; i++) {
+                        state.topLevelBuffer.setLong(longsOffset + i *SIZE_OF_LONG, longs[map[rows[i + firstRow]]]);
+                    }
+                }
+                //                ByteArrayUtils.gather(longs, rows, map, firstRow, target, longsOffset, numRows);
                         state.numValues += numRows;
     }
 
@@ -115,5 +193,11 @@ public class LongArrayBlockEncoding
                          (byte[])buffer.getBase(),
                          state.newStartInBuffer,
                          size);
+    }
+
+    @Override
+    public boolean supportsReadBlockReusing()
+    {
+        return true;
     }
 }
