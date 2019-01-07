@@ -337,6 +337,7 @@ public class StructStreamReader
             fieldBlockSize -= end;
             reader.newBatch(end);
         }
+        numValues -= end;
     }
 
     @Override
@@ -422,11 +423,15 @@ public class StructStreamReader
         }
         int initialFieldResults = reader.getNumResults();
         if (reader.hasUnfetchedRows()) {
+            fieldQualifyingSet.clearTruncationPosition();
             reader.advance();
             int newTruncation = reader.getTruncationRow();
             if (newTruncation != -1) {
                 truncationRow = innerToOuterRow(newTruncation);
                 inputQualifyingSet.setTruncationRow(truncationRow);
+            }
+            else {
+                posInFields = fieldQualifyingSet.getEnd();
             }
         }
         else {
@@ -456,6 +461,7 @@ public class StructStreamReader
             int skip = innerDistance(prevRow, end);
             fieldQualifyingSet.setEnd(skip + prevFieldRow);
             fieldQualifyingSet.setPositionCount(numFieldRows);
+            fieldQualifyingSet.clearTruncationPosition();
             if (orgFieldRows == null || orgFieldRows.length < numFieldRows) {
                 orgFieldRows = new int[numFieldRows];
             }
@@ -504,6 +510,9 @@ public class StructStreamReader
             else {
                 // A non null struct in the input qualifying set.
                 if (filter != null) {
+                    if (lastFieldQualified >= numFieldResults) {
+                        break;
+                    }
                     if (fieldQualifyingRows[lastFieldQualified] == orgFieldRows[i]) {
                         lastFieldQualified++;
                         resultRows[numResults] = inputRows[i];

@@ -286,4 +286,17 @@ public class QualifyingSet
             ownedInputNumbers = inputNumbers;
         }
     }
+
+    void check()
+    {
+        for (int i = 0; i < positionCount; i++) {
+            int pos = positions[i];
+            if (pos >= end) {
+                throw new IllegalArgumentException("QualifyingSet contains past end");
+            }
+            if (i > 0 && positions[i - 1] >= pos) {
+                throw new IllegalArgumentException("QualifyingSet contains positions out of order");
+            }
+        }
+    }
 }
