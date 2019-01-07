@@ -99,6 +99,11 @@ public interface StreamReader
         throw new UnsupportedOperationException();
     }
 
+    default int getPosition()
+    {
+        throw new UnsupportedOperationException();
+    }
+
     // Returns the row number of the first unprocessed input in the
     // input QualifyingSet, -1 if the whole input QualifyingSet was
     // processed by scan(). This is set when stopping due to reaching

@@ -302,7 +302,10 @@ public class ColumnGroupReader
     // readers may hold values from last batch.
     public void newBatch(int numValues)
     {
-        numRowsInResult = 0;
+        numRowsInResult -= numValues;
+        if (numRowsInResult < 0) {
+            throw new IllegalArgumentException("Cannot erase more rows than there are");
+        }
         for (int i = streamOrder.length - 1; i >= 0; i--) {
             streamOrder[i].erase(numValues);
         }
@@ -461,7 +464,7 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
         if (row != -1) {
             return row;
         }
-        return reader.getInputQualifyingSet().getNonTruncatedEnd();
+        return reader.getPosition();
     }
     
 private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)

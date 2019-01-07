@@ -269,7 +269,7 @@ public class QualifyingSet
     public void copyFrom(QualifyingSet other)
     {
         positionCount = other.positionCount;
-        if (ownedPositions != null && ownedPositions.length <= other.positionCount) {
+        if (ownedPositions != null && ownedPositions.length >= other.positionCount) {
             positions = ownedPositions;
             System.arraycopy(other.positions, 0, positions, 0, positionCount);
         }
@@ -277,7 +277,7 @@ public class QualifyingSet
             ownedPositions = Arrays.copyOf(other.positions, positionCount);
             positions = ownedPositions;
         }
-        if (ownedInputNumbers != null && ownedInputNumbers.length <= positionCount) {
+        if (ownedInputNumbers != null && ownedInputNumbers.length >= positionCount) {
             inputNumbers = ownedInputNumbers;
             System.arraycopy(other.inputNumbers, 0, inputNumbers, 0, positionCount);
         }

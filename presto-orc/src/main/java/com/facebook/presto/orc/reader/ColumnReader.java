@@ -112,6 +112,12 @@ abstract class ColumnReader
     }
 
     @Override
+    public int getPosition()
+    {
+        return posInRowGroup;
+    }
+
+    @Override
     public int getTruncationRow()
     {
         return truncationRow;
@@ -193,7 +199,7 @@ abstract class ColumnReader
     void endScan(BooleanInputStream presentStream)
     {
         // The reader is positioned at inputQualifyingSet.end() or truncationRow.
-        int end = inputQualifyingSet.getNonTruncatedEnd();
+        int end = inputQualifyingSet.getEnd(); // getNonTruncatedEnd();
         posInRowGroup = truncationRow != -1 ? truncationRow : end;
 
         if (presentStream != null) {

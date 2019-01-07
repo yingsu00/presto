@@ -159,6 +159,12 @@ public class SliceStreamReader
         currentReader.compactValues(positions, base, numPositions);
     }
 
+        @Override
+    public int getPosition()
+    {
+        return currentReader.getPosition();
+    }
+    
     @Override
     public int getTruncationRow()
     {

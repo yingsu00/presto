@@ -157,6 +157,12 @@ public class LongStreamReader
         currentReader.compactValues(positions, base, numPositions);
     }
 
+        @Override
+    public int getPosition()
+    {
+        return currentReader.getPosition();
+    }
+
     @Override
     public int getTruncationRow()
     {
