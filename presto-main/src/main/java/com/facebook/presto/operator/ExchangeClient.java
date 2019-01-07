@@ -97,7 +97,7 @@ public class ExchangeClient
     private final Executor pageBufferClientCallbackExecutor;
     private boolean reuseBuffers;
     private ExchangeClientByteArrayAllocator allocator;
-    
+
     // ExchangeClientStatus.mergeWith assumes all clients have the same bufferCapacity.
     // Please change that method accordingly when this assumption becomes not true.
     public ExchangeClient(

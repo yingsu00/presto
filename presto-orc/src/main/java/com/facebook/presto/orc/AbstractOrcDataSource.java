@@ -78,7 +78,7 @@ public abstract class AbstractOrcDataSource
             cachingLoaders = new ArrayList();
         }
     }
-    
+
     protected abstract void readInternal(long position, byte[] buffer, int bufferOffset, int bufferLength)
             throws IOException;
 
@@ -249,7 +249,7 @@ public abstract class AbstractOrcDataSource
     {
         abstract public void close();
     }
-    
+
     private final class LazyBufferLoader
         extends CachingLoader
     {
@@ -316,7 +316,7 @@ public abstract class AbstractOrcDataSource
     {
         abstract FixedLengthSliceInput get();
     }
-    
+
     private final class LazyMergedSliceLoader
         extends Loader
     {

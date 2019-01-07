@@ -68,7 +68,7 @@ public class MapDirectStreamReader
     private LongInputStream lengthStream;
 
     QualifyingSet keySet;
-    
+
     public MapDirectStreamReader(StreamDescriptor streamDescriptor, DateTimeZone hiveStorageTimeZone, AggregatedMemoryContext systemMemoryContext)
     {
         this.streamDescriptor = requireNonNull(streamDescriptor, "stream is null");

@@ -164,7 +164,7 @@ public class SliceStreamReader
     {
         return currentReader.getPosition();
     }
-    
+
     @Override
     public int getTruncationRow()
     {

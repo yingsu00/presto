@@ -556,7 +556,7 @@ public final class HttpPageBufferClient
         {
             this.allocator = allocator;
         }
-        
+
         @Override
         public PagesResponse handleException(Request request, Exception exception)
         {

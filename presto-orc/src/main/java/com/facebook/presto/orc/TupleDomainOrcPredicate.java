@@ -395,7 +395,7 @@ public class TupleDomainOrcPredicate<C>
                     }
             }
         }
-    }    
+    }
 
     private static Filter BigintRangesToFilter(List<Range> ranges)
     {

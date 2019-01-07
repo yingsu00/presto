@@ -22,12 +22,12 @@ import io.airlift.slice.Slices;
 // over decoded Blocks.
 public class ExprContext
 {
-    
+
     public IntArrayAllocator intArrayAllocator = new IntArrayAllocator();
     boolean[] nullsInReserve;
     public boolean[] nullsInBatch;
 
-    
+
     static void boolArrayOr(boolean[] target, boolean[] source, int[] map, int positionCount) {
       if (map == null) {
 	  int i = 0;
@@ -74,4 +74,4 @@ public class ExprContext
 
 
 }
-    
+

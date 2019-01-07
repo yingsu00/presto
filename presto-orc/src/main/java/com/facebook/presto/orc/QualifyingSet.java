@@ -168,7 +168,7 @@ public class QualifyingSet
     {
         return end;
     }
-    
+
     public void setEnd(int end)
     {
         this.end = end;
@@ -240,7 +240,7 @@ public class QualifyingSet
         int pos = Arrays.binarySearch(positions, 0, positionCount, row);
         return pos < 0 ? -1 - pos : pos;
     }
-    
+
     // Erases qulifying rows and corresponding input numbers below position.
     public void eraseBelowRow(int row)
     {

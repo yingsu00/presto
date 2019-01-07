@@ -571,7 +571,7 @@ public class PartitionedOutputOperator
         {
             return type instanceof VariableWidthType;
         }
-        
+
         public ListenableFuture<?> isFull()
         {
             return outputBuffer.isFull();

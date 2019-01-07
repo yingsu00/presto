@@ -50,7 +50,7 @@ public class ExchangeOperator
         private final PagesSerdeFactory serdeFactory;
         private ExchangeClient exchangeClient;
         private boolean closed;
-        
+
         public ExchangeOperatorFactory(
                 int operatorId,
                 PlanNodeId sourceId,

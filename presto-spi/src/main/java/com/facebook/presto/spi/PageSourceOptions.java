@@ -21,7 +21,7 @@ public class PageSourceOptions
     private final boolean reorderFilters;
     private final int targetBytes;
     private final int ariaFlags;
-    
+
     public static class FilterFunction
     {
         protected int[] inputChannels;

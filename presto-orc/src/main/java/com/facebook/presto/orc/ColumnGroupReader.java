@@ -123,7 +123,7 @@ public class ColumnGroupReader
         setupStreamOrder(streamReaders);
     }
 
-    
+
     // Sets the rows active in the row group. Fully processed rows are
     // removed from this by advance().
     public void setQualifyingSets(QualifyingSet input, QualifyingSet output)
@@ -136,7 +136,7 @@ public class ColumnGroupReader
     {
         targetResultBytes = (int)bytes;
     }
-    
+
     static int compareReaders(StreamReader a, StreamReader b)
     {
         // A stream with filter goes before one without.
@@ -388,7 +388,7 @@ public class ColumnGroupReader
     {
         return streamOrder[i].getFilter() != null;
     }
-    
+
     /* Compacts Blocks that contain values on rows that subsequent
          * filters have dropped. lastStreamIdx is the position in
          * streamOrder for the rightmost stream that has values for
@@ -466,7 +466,7 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
         }
         return reader.getPosition();
     }
-    
+
 private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
     {
         int truncationRow = reader.getTruncationRow();
@@ -507,7 +507,7 @@ private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
             return -1;
         }
         return streamOrder[idx].getTruncationRow();
-    }     
+    }
 
     public int getResultSizeInBytes()
     {
@@ -531,7 +531,7 @@ private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
         }
         return sum;
     }
-    
+
     public String toString()
     {
         StringBuilder builder = new StringBuilder("CGR: rows:").append(numRowsInResult).append(" bytes: ")

@@ -32,7 +32,7 @@ public class ExchangeClientByteArrayAllocator
     {
         return new PrestoByteArrayAllocator();
     }
-    
+
     @Override
     public byte[] allocate(int size)
     {

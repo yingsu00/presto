@@ -60,7 +60,7 @@ public final class ConcatenatedByteArrayInputStream
     private long previousBuffersSize;
     private ConcatenatedByteArrayInputStream parent;
     private int substreamCount;
-    
+
     public ConcatenatedByteArrayInputStream(List<byte[]> buffers, long size, Allocator allocator)
     {
         requireNonNull(buffers);
@@ -118,7 +118,7 @@ public final class ConcatenatedByteArrayInputStream
     {
         freeAfterSubstreamsFinish = true;
     }
-    
+
     private void nextBuffer(int dataSize)
     {
         int numInCurrent = 0;

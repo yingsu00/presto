@@ -130,7 +130,7 @@ public class LongArrayBlockEncoding
 
         return new LongArrayBlock(0, positionCount, valueIsNull, values);
     }
-    
+
     @Override
     public int reserveBytesInBuffer(BlockDecoder contents, int numValues, int startInBuffer, EncodingState state)
     {
@@ -146,7 +146,7 @@ public class LongArrayBlockEncoding
     }
 
     public static boolean useGather = true;
-    
+
     @Override
     public void addValues(BlockDecoder contents, int[] rows, int firstRow, int numRows, EncodingState state)
     {
@@ -182,7 +182,7 @@ public class LongArrayBlockEncoding
     {
         return         8 * state.numValues + (state.valueOffset - state.startInBuffer) + 5;
     }
-    
+
     @Override
     public void finish(EncodingState state, Slice buffer)
     {

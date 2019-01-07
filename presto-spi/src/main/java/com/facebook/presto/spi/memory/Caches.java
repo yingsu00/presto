@@ -17,7 +17,7 @@ public class Caches
 {
     private static ByteArrayPool byteArrayPool;
     private static ByteArrayPoolCacheAdapter byteArrayPoolCacheAdapter;
-    
+
     public static ByteArrayPool getByteArrayPool()
     {
         synchronized (Caches.class) {
@@ -27,7 +27,7 @@ public class Caches
         }
         return byteArrayPool;
     }
-    
+
     public static CacheAdapter getByteArrayPoolCacheAdapter()
     {
         ByteArrayPool pool = getByteArrayPool();
@@ -37,5 +37,5 @@ public class Caches
         }
         return byteArrayPoolCacheAdapter;
                 }
-    }        
+    }
 }

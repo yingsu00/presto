@@ -41,7 +41,7 @@ public interface BlockEncoding
     {
         return false;
     }
-    
+
     /**
      * Write the specified block to the specified output
      */
@@ -54,7 +54,7 @@ public interface BlockEncoding
     {
         return Optional.empty();
     }
-    
+
     default int reserveBytesInBuffer(BlockDecoder contents, int numValues, int startInBuffer, EncodingState state)
     {
         throw new UnsupportedOperationException();

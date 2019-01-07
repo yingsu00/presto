@@ -113,7 +113,7 @@ public class DoubleArrayBlock
     {
         return (Long.BYTES + Byte.BYTES) * (long) countUsedPositions(positions);
     }
-    
+
     @Override
     public long getRetainedSizeInBytes()
     {

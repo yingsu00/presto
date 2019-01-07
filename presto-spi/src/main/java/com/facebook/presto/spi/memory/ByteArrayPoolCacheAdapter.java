@@ -23,9 +23,9 @@ public class ByteArrayPoolCacheAdapter
     {
         this.pool = pool;
     }
-    
+
     public static class ByteArrayCacheEntry
-        implements CacheEntry 
+        implements CacheEntry
     {
         private final byte[] data;
         private final ByteArrayPool pool;
@@ -35,13 +35,13 @@ public class ByteArrayPoolCacheAdapter
             this.pool = pool;
             this.data = data;
         }
-        
+
         @Override
         public byte[] getData()
         {
             return data;
         }
-        
+
         @Override
         public boolean isFetched()
         {

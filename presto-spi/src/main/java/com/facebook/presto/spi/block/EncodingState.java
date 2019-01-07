@@ -38,7 +38,7 @@ public class EncodingState
     {
         return bytesInBuffer;
     }
-    
+
     public void setBuffer(Slice buffer)
     {
         numValues = 0;

@@ -66,7 +66,7 @@ final class EncoderUtil
     {
         return decodeNullBits(sliceInput, positionCount, null);
     }
-    
+
     /**
      * Decode the bit stream created by encodeNullsAsBits.
      */

@@ -60,7 +60,7 @@ public class BlockDecoder
     {
         return offsets;
     }
-    
+
     public Block getLeafBlock()
     {
         return leafBlock;
@@ -70,12 +70,12 @@ public class BlockDecoder
     {
         return rowNumberMap;
     }
-    
+
     public boolean isIdentityMap()
     {
         return this.isIdentityMap;
     }
-    
+
     static int[] getIdentityMap(int size, int start, IntArrayAllocator intArrayAllocator)
     {
         if (start == 0) {
@@ -104,7 +104,7 @@ public class BlockDecoder
         }
         decodeBlock(block, intArrayAllocator);
     }
-    
+
     public void decodeBlock(Block block, IntArrayAllocator intArrayAllocator) {
         int positionCount = block.getPositionCount();
         isMapOwned = false;
@@ -200,7 +200,7 @@ public class BlockDecoder
     {
         release(intArrayAllocator);
     }
-    
+
     public void release(IntArrayAllocator intArrayAllocator) {
         if (isMapOwned) {
             intArrayAllocator.store(rowNumberMap);

@@ -26,7 +26,7 @@ public class ByteArrayPool
     private long[] misses;
     private AtomicLong totalSize = new AtomicLong();
     private long capacity;
-    
+
     public ByteArrayPool(int smallestSize, int largestSize, long capacity)
     {
         int size = smallestSize;
@@ -39,7 +39,7 @@ public class ByteArrayPool
         sizeList.add(largestSize);
 
         this.capacity = capacity;
-        
+
         sizes = sizeList.stream().mapToInt(Integer::intValue).toArray();
         misses = new long[sizes.length];
         hits = new long[sizes.length];
@@ -50,7 +50,7 @@ public class ByteArrayPool
             times[i] = new LongArrayList();
         }
     }
-    
+
     public byte[] getBytes(int size)
     {
         int idx = getSizeIndex(size);

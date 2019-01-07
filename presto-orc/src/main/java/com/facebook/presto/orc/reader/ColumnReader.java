@@ -232,5 +232,5 @@ abstract class ColumnReader
         lengthIdx = 0;
         rowGroupOpen = true;
     }
-    
+
 }

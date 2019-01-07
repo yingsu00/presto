@@ -303,8 +303,8 @@ public interface Block
     /* Initializes @code contents to reference the values of the block.
      * @code contents will point to null indicators, and value arrays or
      * Slice/offsets, depending on the block.
-     * This is defined only for blocks that directly hold data, e.g. are not 
-     * Dictionaries or RunLengthEncodedBlocks. This is used when flattening 
+     * This is defined only for blocks that directly hold data, e.g. are not
+     * Dictionaries or RunLengthEncodedBlocks. This is used when flattening
      * dictionaries and run length encodings. */
     default void getContents(BlockDecoder contents)
     {
@@ -314,7 +314,7 @@ public interface Block
     {
         return false;
     }
-    
+
     /* Adds the combined size of elements offsets[i] ... offsets[i +
      * 1] to sizes[i]. offsets can be null, in which case the function
      * works as if offsets were {0, 1, ... positionCount}. This adds

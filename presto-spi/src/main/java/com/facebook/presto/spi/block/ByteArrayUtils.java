@@ -66,7 +66,7 @@ public class ByteArrayUtils
     {
         return unsafe.getFloat(array, ARRAY_BYTE_BASE_OFFSET + offset);
     }
-    
+
     public static short getShort(byte[] array, int offset)
     {
         return unsafe.getShort(array, ARRAY_BYTE_BASE_OFFSET + offset);
@@ -87,7 +87,7 @@ public class ByteArrayUtils
         }
         else {
             for (int i = sourceOffset; i < end; i++) {
-                unsafe.putLong(target, targetOffset, source[rowNumberMap[positions[i]]]); 
+                unsafe.putLong(target, targetOffset, source[rowNumberMap[positions[i]]]);
                 targetOffset += ARRAY_LONG_INDEX_SCALE;
             }
         }

@@ -198,8 +198,8 @@ public class DictionaryBlock
 
     public long getSizeInBytes()
     {
-        /* We return the size this takes passing through a partitioned output.*/ 
-        
+        /* We return the size this takes passing through a partitioned output.*/
+
         if (sizeInBytes < 0) {
             sizeInBytes = 0;
             for (int i = 0; i < positionCount; i++) {
@@ -211,7 +211,7 @@ public class DictionaryBlock
         }
         return sizeInBytes;
     }
-    
+
     private void calculateCompactSize()
     {
         int uniqueIds = 0;

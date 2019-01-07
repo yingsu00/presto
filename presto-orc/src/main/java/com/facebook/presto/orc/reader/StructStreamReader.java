@@ -69,7 +69,7 @@ public class StructStreamReader
     private InputStreamSource<BooleanInputStream> presentStreamSource = missingStreamSource(BooleanInputStream.class);
     @Nullable
     private BooleanInputStream presentStream;
-    
+
     ColumnGroupReader reader;
     int[] fieldBlockOffset;
     boolean[] valueIsNull;
@@ -91,7 +91,7 @@ public class StructStreamReader
     int[] innerToOuter;
     int[] orgFieldRows;
     int numFieldRows;
-    
+
     StructStreamReader(StreamDescriptor streamDescriptor, DateTimeZone hiveStorageTimeZone, AggregatedMemoryContext systemMemoryContext)
     {
         this.streamDescriptor = requireNonNull(streamDescriptor, "stream is null");
@@ -388,7 +388,7 @@ public class StructStreamReader
         }
         return reader.getAverageResultSize();
     }
-    
+
     private int innerDistance(int from, int to)
     {
         if (presentStream == null) {
@@ -402,7 +402,7 @@ public class StructStreamReader
         }
         return distance;
     }
-    
+
     @Override
     public void scan()
         throws IOException
@@ -443,7 +443,7 @@ public class StructStreamReader
                 innerToOuter = new int [numInput + 100];
             }
             for (int i = 0; i < numInput; i++) {
-                int activeRow = inputRows[i]; 
+                int activeRow = inputRows[i];
                 if (presentStream == null || present[activeRow - posInRowGroup]) {
                     int numSkip = innerDistance(prevRow, activeRow);
                     fieldRows[numFieldRows] = prevFieldRow + numSkip;
@@ -532,7 +532,7 @@ public class StructStreamReader
         fieldBlockSize++;
         numResults++;
     }
-    
+
     // Returns the enclosing row number for a field column row number.
     int innerToOuterRow(int inner)
     {
@@ -578,7 +578,7 @@ public class StructStreamReader
             : mayReuse ? valueIsNull : Arrays.copyOf(valueIsNull, numFirstRows);
         return new RowBlock(0, numFirstRows, nulls, offsets, blocks);
     }
-    
+
     @Override
     public void maybeReorderFilters()
     {
