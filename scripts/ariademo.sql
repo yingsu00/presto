@@ -2,8 +2,8 @@ use hive.tpch;
 
 -- aria enable Aria scan. Works with ORC V2 direct longs, doubles and direct Slices
 set session aria=true;
--- OR of 1: enable repartitioning 2: enable hash join, works only with fixed size data, hash join w 2 longs k=as key and 1 double as payload.
-set session aria_flags = 3;
+-- OR of 1: enable repartitioning 2: enable hash join, works only with fixed size data, hash join w 2 longs k=as key and 1 double as payload. 4 reuse buffers in ORC reader, 8 reuse buffers in exchange, 32 reuse Blocks in exchange. 
+set session aria_flags = 47;
 -- Enables reusing Pages and Blocks between result batches if the pipeline is suitable, e.g. scan - repartition - hash join
 set session aria_reuse_pages = true;
 -- Enables adaptive reorder of single column filters.
@@ -21,6 +21,10 @@ select count(*), sum (extendedprice), sum (quantity) from lineitem_s where  part
 
 -- 1/5
 select sum (partkey) from lineitem_s where quantity < 10;
+
+-- 1/1
+select max (orderkey), max(partkey), max(suppkey) from lineitem_s where suppkey > 0;
+
 
 
 -- 1/5 * 1/10

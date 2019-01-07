@@ -16,6 +16,7 @@ package com.facebook.presto.spi.block;
 import java.lang.reflect.Field;
 import sun.misc.Unsafe;
 
+import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
 import static sun.misc.Unsafe.ARRAY_BOOLEAN_INDEX_SCALE;
 import static sun.misc.Unsafe.ARRAY_BYTE_BASE_OFFSET;
 import static sun.misc.Unsafe.ARRAY_DOUBLE_INDEX_SCALE;
@@ -24,6 +25,8 @@ import static sun.misc.Unsafe.ARRAY_INT_INDEX_SCALE;
 import static sun.misc.Unsafe.ARRAY_LONG_BASE_OFFSET;
 import static sun.misc.Unsafe.ARRAY_LONG_INDEX_SCALE;
 import static sun.misc.Unsafe.ARRAY_SHORT_INDEX_SCALE;
+
+import static java.lang.Math.min;
 
 
 public class ByteArrayUtils
@@ -75,14 +78,17 @@ public class ByteArrayUtils
             throw new IndexOutOfBoundsException();
         }
         int end = sourceOffset + numWords;
+        targetOffset += ARRAY_BYTE_BASE_OFFSET;
         if (rowNumberMap == null) {
             for (int i = sourceOffset; i < end; i++) {
-                unsafe.putLong(target, ARRAY_BYTE_BASE_OFFSET + targetOffset + i * ARRAY_LONG_INDEX_SCALE, source[positions[i]]); 
+                unsafe.putLong(target,  targetOffset, source[positions[i]]);
+                targetOffset += ARRAY_LONG_INDEX_SCALE;
             }
         }
         else {
-                        for (int i = sourceOffset; i < end; i++) {
-                unsafe.putLong(target, ARRAY_BYTE_BASE_OFFSET + targetOffset + i * ARRAY_LONG_INDEX_SCALE, source[rowNumberMap[positions[i]]]); 
+            for (int i = sourceOffset; i < end; i++) {
+                unsafe.putLong(target, targetOffset, source[rowNumberMap[positions[i]]]); 
+                targetOffset += ARRAY_LONG_INDEX_SCALE;
             }
         }
     }
@@ -93,5 +99,60 @@ public class ByteArrayUtils
             throw new IndexOutOfBoundsException();
         }
         unsafe.copyMemory(source, ARRAY_BYTE_BASE_OFFSET + sourceOffset, destination, ARRAY_LONG_BASE_OFFSET + destinationIndex * ARRAY_LONG_INDEX_SCALE, numWords * ARRAY_LONG_INDEX_SCALE);
+    }
+
+    // Modified from io.airlift.slice.Slice.
+    public static int memcmp(byte[] array1, int offset1, int length1, byte[] array2, int offset2, int length2)
+    {
+        long address1 = ARRAY_BYTE_BASE_OFFSET + offset1;
+        long address2 = ARRAY_BYTE_BASE_OFFSET + offset2;
+
+        int compareLength = min(length1, length2);
+        while (compareLength >= SIZE_OF_LONG) {
+            long thisLong = unsafe.getLong(array1, address1);
+            long thatLong = unsafe.getLong(array2, address2);
+
+            if (thisLong != thatLong) {
+                return longBytesToLong(thisLong) < longBytesToLong(thatLong) ? -1 : 1;
+            }
+
+            address1 += SIZE_OF_LONG;
+            address2 += SIZE_OF_LONG;
+            compareLength -= SIZE_OF_LONG;
+        }
+
+        while (compareLength > 0) {
+            byte thisByte = unsafe.getByte(array1, address1);
+            byte thatByte = unsafe.getByte(array2, address2);
+
+            int v = compareUnsignedBytes(thisByte, thatByte);
+            if (v != 0) {
+                return v;
+            }
+            address1++;
+            address2++;
+            compareLength--;
+        }
+        return Integer.compare(length1, length2);
+    }
+
+    private static int compareUnsignedBytes(byte thisByte, byte thatByte)
+    {
+        return unsignedByteToInt(thisByte) - unsignedByteToInt(thatByte);
+    }
+
+    private static int unsignedByteToInt(byte thisByte)
+    {
+        return thisByte & 0xFF;
+    }
+
+    /**
+     * Turns a long representing a sequence of 8 bytes read in little-endian order
+     * into a number that when compared produces the same effect as comparing the
+     * original sequence of bytes lexicographically
+     */
+    private static long longBytesToLong(long bytes)
+    {
+        return Long.reverseBytes(bytes) ^ Long.MIN_VALUE;
     }
 }

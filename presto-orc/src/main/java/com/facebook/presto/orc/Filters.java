@@ -16,6 +16,7 @@ package com.facebook.presto.orc;
 import com.facebook.presto.spi.ReferencePath;
 import java.util.Arrays;
 import java.util.HashMap;
+import static com.facebook.presto.spi.block.ByteArrayUtils.memcmp;;
 
 public class Filters
 {
@@ -144,20 +145,6 @@ public class Filters
                 return upperCmp < 0 || (upperInclusive && upperCmp == 0);
             }
             return true;
-        }
-
-        private int memcmp(byte[] a1, int a1Offset, int a1Length, byte[] a2, int a2Offset, int a2Length)
-        {
-            int length = Math.min(a1Length, a2Length);
-            for (int i = 0; i < length; i++) {
-                if (a1[a1Offset + i] < a2[a2Offset + i]) {
-                    return -1;
-                }
-                if (a1[a1Offset + i] > a2[a2Offset + i]) {
-                    return 1;
-                }
-            }
-            return a1Length == a2Length ? 0 : a1Length < a2Length ? -1 : 1;
         }
 
         @Override

@@ -75,7 +75,7 @@ public class LongArrayBlockEncoding
         if (values == null || values.length < positionCount) {
             values = new long[positionCount];
         }
-        if (false && sliceInput instanceof ConcatenatedByteArrayInputStream) {
+        if (sliceInput instanceof ConcatenatedByteArrayInputStream) {
             ConcatenatedByteArrayInputStream input = (ConcatenatedByteArrayInputStream) sliceInput;
             int position = 0;
             newBuffer:
@@ -145,29 +145,33 @@ public class LongArrayBlockEncoding
         return startInBuffer + size;
     }
 
+    public static boolean useGather = true;
+    
     @Override
     public void addValues(BlockDecoder contents, int[] rows, int firstRow, int numRows, EncodingState state)
     {
-                long[] longs = contents.longs;
-                int[] map = contents.isIdentityMap ? null : contents.rowNumberMap;
-                int longsOffset = state.valueOffset + 5 + state.numValues * SIZE_OF_LONG + (int) state.topLevelBuffer.getAddress() - ARRAY_BYTE_BASE_OFFSET;
-                byte[] target = (byte[]) state.topLevelBuffer.getBase();
-                if (map == null) {
-                    for (int i = 0; i < numRows; i++) {
-                        state.topLevelBuffer.setLong(longsOffset + i *SIZE_OF_LONG, longs[rows[i + firstRow]]);
-                    }
-
+        long[] longs = contents.longs;
+        int[] map = contents.isIdentityMap ? null : contents.rowNumberMap;
+        int longsOffset = state.valueOffset + 5 + state.numValues * SIZE_OF_LONG + (int) state.topLevelBuffer.getAddress() - ARRAY_BYTE_BASE_OFFSET;
+        byte[] target = (byte[]) state.topLevelBuffer.getBase();
+        if (!useGather) {
+            if (map == null) {
+                for (int i = 0; i < numRows; i++) {
+                    state.topLevelBuffer.setLong(longsOffset + i *SIZE_OF_LONG, longs[rows[i + firstRow]]);
                 }
-                else {
-                    for (int i = 0; i < numRows; i++) {
-                        state.topLevelBuffer.setLong(longsOffset + i *SIZE_OF_LONG, longs[map[rows[i + firstRow]]]);
-                    }
+            }
+            else {
+                for (int i = 0; i < numRows; i++) {
+                    state.topLevelBuffer.setLong(longsOffset + i *SIZE_OF_LONG, longs[map[rows[i + firstRow]]]);
                 }
-                //                ByteArrayUtils.gather(longs, rows, map, firstRow, target, longsOffset, numRows);
-                        state.numValues += numRows;
+            }
+        }
+        else {
+            ByteArrayUtils.gather(longs, rows, map, firstRow, target, longsOffset, numRows);
+        }
+        state.numValues += numRows;
     }
 
-    
     @Override
     public int prepareFinish(EncodingState state, int newStartInBuffer)
     {
