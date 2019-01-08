@@ -48,8 +48,10 @@ import com.facebook.presto.sql.tree.IsNullPredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.NodeRef;
 import com.facebook.presto.sql.tree.NotExpression;
+import com.facebook.presto.sql.tree.GenericLiteral;
 import com.facebook.presto.sql.tree.NullLiteral;
 import com.facebook.presto.sql.tree.DereferenceExpression;
+import com.facebook.presto.sql.tree.SubscriptExpression;
 import com.facebook.presto.sql.tree.SymbolReference;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -839,7 +841,7 @@ public final class DomainTranslator
 
     private static boolean isSubfieldPath(Expression expression)
     {
-        return expression instanceof DereferenceExpression;
+        return expression instanceof DereferenceExpression || expression instanceof SubscriptExpression;
     }
 
     private static ReferencePath subfieldToReferencePath(Expression expr)
@@ -855,6 +857,22 @@ public final class DomainTranslator
                 DereferenceExpression dereference = (DereferenceExpression) expr;
                 steps.add(new ReferencePath.PathElement(dereference.getField().getValue(), 0));
                 expr = dereference.getBase();
+            }
+            else if (expr instanceof SubscriptExpression) {
+                SubscriptExpression subscript = (SubscriptExpression) expr;
+                Expression index = subscript.getIndex();
+                if (!(index instanceof GenericLiteral)) {
+                    return null;
+                }
+                GenericLiteral literalIndex = (GenericLiteral) index;
+                String type = literalIndex.getType();
+                if (type.equals("BIGINT")) {
+                    steps.add(new ReferencePath.PathElement(null, new Integer(literalIndex.getValue()).intValue()));
+                }
+                else {
+                    return null;
+                }
+                expr = subscript.getBase();
             }
             else {
                 return null;

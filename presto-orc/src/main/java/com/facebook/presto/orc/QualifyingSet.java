@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.orc;
 
+import com.facebook.presto.spi.PageSourceOptions.ErrorSet;
+
 import java.util.Arrays;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -35,6 +37,7 @@ public class QualifyingSet
 
     private int[] inputNumbers;
     private boolean isRanges;
+    private ErrorSet errorSet;
 
     static volatile int[] wholeRowGroup;
     static volatile int[] allZeros;
@@ -241,6 +244,16 @@ public class QualifyingSet
         return pos < 0 ? -1 - pos : pos;
     }
 
+    public ErrorSet getErrorSet()
+    {
+        return errorSet;
+    }
+    
+    public void setErrorSet(ErrorSet errorSet)
+    {
+        this.errorSet = errorSet;
+    }
+
     // Erases qulifying rows and corresponding input numbers below position.
     public void eraseBelowRow(int row)
     {
@@ -287,7 +300,7 @@ public class QualifyingSet
         }
     }
 
-    void check()
+    public void check()
     {
         for (int i = 0; i < positionCount; i++) {
             int pos = positions[i];

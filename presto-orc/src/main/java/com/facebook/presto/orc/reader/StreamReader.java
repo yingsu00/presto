@@ -40,6 +40,11 @@ public interface StreamReader
         return null;
     }
 
+    default QualifyingSet getOrCreateOutputQualifyingSet()
+    {
+        throw new UnsupportedOperationException();
+    }
+
     /* If filter is non-null, sets the output QualifyingSet by
      * applying filter to the rows in the input QualifyingSet. If
      * channel is not -1, appends the values in the post-filter rows
@@ -79,6 +84,11 @@ public interface StreamReader
     default int getColumnIndex()
     {
         return -1;
+    }
+
+    default int getNumValues()
+    {
+        throw new UnsupportedOperationException();
     }
 
     // Sets the number of additional result bytes a scan() is allowed

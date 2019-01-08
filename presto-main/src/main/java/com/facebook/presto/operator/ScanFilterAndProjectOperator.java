@@ -233,7 +233,7 @@ public class ScanFilterAndProjectOperator
         }
 
         @Override
-        public int filter(Page page, int[] outputRows)
+        public int filter(Page page, int[] outputRows, PageSourceOptions.ErrorSet errorSet)
         {
             SelectedPositions positions = filter.filter(session, page);
 

@@ -31,7 +31,10 @@ import com.facebook.presto.orc.stream.InputStreamSources;
 import com.facebook.presto.spi.AriaFlags;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageSourceOptions;
+import com.facebook.presto.spi.PageSourceOptions.FilterFunction;
+import com.facebook.presto.spi.PageSourceOptions.ErrorSet;
 import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.DictionaryBlock;
 import com.facebook.presto.spi.memory.Caches;
 import com.facebook.presto.spi.type.Type;
 import com.google.common.annotations.VisibleForTesting;
@@ -77,7 +80,10 @@ public class ColumnGroupReader
     private int numRowsInResult;
 
     private StreamReader[] streamOrder;
-
+    // Corresponds pairwise to streamOrder. A FilterFunction is at
+    // index i where i is the index of its last operand in
+    // streamOrder.
+    private FilterFunction[][] filterFunctionOrder;
     private QualifyingSet inputQualifyingSet;
     private QualifyingSet outputQualifyingSet;
 
@@ -90,18 +96,22 @@ public class ColumnGroupReader
     private int targetResultBytes;
     // The number of leading elements in streamOredr that is subject to reordering.
     private int numFilters;
+    private int firstNonFilter;
     // Temporary array for compacting results that have been decimated
     // by subsequent filters.
     private int[] survivingRows;
     private int[] readerBudget;
     private int ariaFlags;
-
+    private FilterFunction[] filterFunctions;
+    private int[] filterResults;
+    
     public ColumnGroupReader(StreamReader[] streamReaders,
                       Set<Integer> presentColumns,
                       int[] channelColumns,
                       List<Type> types,
                       int[] targetChannels,
                       Map<Integer, Filter> filters,
+                             FilterFunction[] filterFunctions,
                       boolean reuseBlocks,
                              boolean reorderFilters,
                              int ariaFlags)
@@ -119,7 +129,7 @@ public class ColumnGroupReader
             streamReaders[columnIndex].setFilterAndChannel(filter, outputChannel, columnIndex, types.get(i));
             maxOutputChannel = Math.max(maxOutputChannel, outputChannel);
         }
-
+        this.filterFunctions = filterFunctions != null ? filterFunctions : new FilterFunction[0];
         setupStreamOrder(streamReaders);
     }
 
@@ -183,9 +193,76 @@ public class ColumnGroupReader
         if (numFilters < 2) {
             reorderFilters = false;
         }
+        setupFilterFunctions();
         readerBudget = new int[streamOrder.length];
     }
 
+    private void installFilterFunction(int idx, FilterFunction function)
+    {
+        if (idx >= filterFunctionOrder.length) {
+            filterFunctionOrder = Arrays.copyOf(filterFunctionOrder, idx + 1);
+        }
+        if (filterFunctionOrder[idx] == null) {
+            filterFunctionOrder[idx] = new FilterFunction[1];
+        }
+        else {
+            FilterFunction[] list = filterFunctionOrder[idx];
+            filterFunctionOrder[idx] = Arrays.copyOf(list, list.length + 1);
+        }
+                    filterFunctionOrder[idx][filterFunctionOrder[idx].length - 1] = function;
+    }
+
+    private static int compareFunctions(FilterFunction f1, FilterFunction f2)
+    {
+        return f1.getTimePerDroppedValue() <= f2.getTimePerDroppedValue() ? -1 : 1;
+    }
+    
+    // Sorts the functions most efficient first. Places the functions
+    // in filterFunctionOrder most efficient first. If the function
+    // depends on non-filter columns, moves the columns right after
+    // the filter columns. the best function and its arguments will
+    // come before the next best.
+    private void setupFilterFunctions()
+    {
+        if (filterFunctions.length == 0) {
+            return;
+        }
+        Arrays.sort(filterFunctions, (FilterFunction a, FilterFunction b) -> compareFunctions(a, b));
+        filterFunctionOrder = new FilterFunction[0][];
+        firstNonFilter = numFilters;
+        for (FilterFunction filter : filterFunctions) {
+            placeFunctionAndOperands(filter);
+        }
+    }
+
+    private void placeFunctionAndOperands(FilterFunction function)
+    {
+        int functionIdx = 0;
+        int[] channels = function.getInputChannels();
+        for (int channel : channels) {
+            int idx = findChannelIdx(channel);
+            if (idx >= firstNonFilter) {
+                // Move this to position firstNonFilter.
+                StreamReader temp = streamOrder[idx];
+                System.arraycopy(streamOrder, firstNonFilter, streamOrder, firstNonFilter + 1, idx - firstNonFilter);
+                streamOrder[firstNonFilter] = temp;
+                idx = firstNonFilter++;
+            }
+            functionIdx = Math.max(functionIdx, idx);
+        }
+        installFilterFunction(functionIdx, function);
+    }
+
+    private int findChannelIdx(int channel)
+    {
+        for (int i = 0; i  < streamOrder.length; i++) {
+            if (streamOrder[i].getChannel() == channel) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException("Channel is not assigned by any reader");
+    }
+    
     public void maybeReorderFilters()
     {
         double time = 0;
@@ -207,6 +284,7 @@ public class ColumnGroupReader
             return;
         }
         Arrays.sort(streamOrder, 0, numFilters, (StreamReader a, StreamReader b) -> compareReaders(a, b));
+        setupFilterFunctions();
     }
 
     // Divides the space available in the result Page between the
@@ -358,12 +436,110 @@ public class ColumnGroupReader
                     return;
                 }
             }
+            if (filterFunctionOrder != null && streamIdx < filterFunctionOrder.length && filterFunctionOrder[streamIdx] != null) {
+                qualifyingSet = evaluateFilterFunction(streamIdx, qualifyingSet);
+                if (qualifyingSet.isEmpty()) {
+                    alignResultsAndRemoveFromQualifyingSet(0, streamIdx);
+                    return;
+                }
+            }
         }
         int lastTruncatedStreamIdx = findLastTruncatedStreamIdx();
         // Numbor of rows surviving all truncations/filters.
         int numAdded = qualifyingSet.getPositionCount();
     alignResultsAndRemoveFromQualifyingSet(numAdded, streamOrder.length - 1);
         numRowsInResult += numAdded;
+    }
+
+    QualifyingSet evaluateFilterFunction(int streamIdx, QualifyingSet qualifyingSet)
+    {
+        boolean isFirstFunction = true;
+        for (FilterFunction function : filterFunctionOrder[streamIdx]) {
+        int[] channels = function.getInputChannels();
+        int[][] rowNumberMaps = function.getChannelRowNumberMaps();
+        Block[] blocks = new Block[channels.length];
+        int numRows = qualifyingSet.getPositionCount();
+        for (int channelIdx = 0; channelIdx < channels.length; channelIdx++) {
+            int channel = channels[channelIdx];
+            boolean needMap = false;
+            boolean mapNeedsInit = false;
+            int[] map = null;
+            for (int operandIdx = streamIdx; operandIdx >= 0; operandIdx--) {
+                StreamReader reader = streamOrder[operandIdx];
+                if (channel == reader.getChannel()) {
+                    blocks[channelIdx] = reader.getBlock(reader.getNumValues(), true);
+                    if (numRowsInResult > 0 && map == null) {
+                        map = getRowNumberMap(rowNumberMaps, channelIdx, numRows);
+                        mapNeedsInit = true;
+                    }
+                    if (mapNeedsInit) {
+                        initMap(numRowsInResult, numRows, map);
+                    }
+                    if (needMap) {
+                        if (numRowsInResult > 0 && !mapNeedsInit) {
+                            // Offset the map to point to values added in this batch.
+                            for (int i = 0; i < numRows; i++) {
+                                map[i] += numRowsInResult;
+                            }
+                        }
+                        blocks[channelIdx] = new DictionaryBlock(numRows, blocks[channelIdx], rowNumberMaps[channelIdx]);
+                    }
+                    break;
+                }
+                if (hasFilter(operandIdx)) {
+                    QualifyingSet filterSet = streamOrder[operandIdx].getOutputQualifyingSet();
+                    int[] inputNumbers = filterSet.getInputNumbers();
+                    if (needMap) {
+                        if (mapNeedsInit) {
+                            initMap(0, numRows, map);
+                        }
+                        for (int i = 0; i < numRows; i++) {
+                            map[i] = inputNumbers[map[i]];
+                        }
+                    }
+                    else {
+                        map = getRowNumberMap(rowNumberMaps, channelIdx, numRows);
+                        mapNeedsInit = true;
+                    }
+                    needMap = true;
+                }
+            }
+            if (blocks[channelIdx] == null) {
+                throw new IllegalArgumentException("Filter operand is not assigned before the filter");
+            }
+        }
+        if (filterResults == null || filterResults.length < numRows) {
+            filterResults = new int[numRows + 100];
+        }
+        StreamReader reader = streamOrder[streamIdx];
+        qualifyingSet = reader.getOrCreateOutputQualifyingSet();
+        int numHits = function.filter(new Page(numRows, blocks), filterResults, null);
+        if (reader.getFilter() == null && isFirstFunction) {
+            qualifyingSet.copyFrom(reader.getInputQualifyingSet());
+        }
+        reader.compactValues(filterResults, numRowsInResult, numHits);
+        if (numHits == 0) {
+            return qualifyingSet;
+        }
+        isFirstFunction = false;
+        }
+        return qualifyingSet;
+    }
+
+    void initMap(int base, int size, int[] map)
+    {
+        for (int i = 0; i < size; i++) {
+            map[i] = i + base;
+        }
+    }
+
+    int[] getRowNumberMap(int[][] maps, int mapIdx, int size)
+    {
+        int[] map = maps[mapIdx];
+        if (map == null || map.length < size) {
+            map = maps[mapIdx] = new int[size + 100];
+        }
+        return map;
     }
 
     private void setNewTruncation(int streamIdx, QualifyingSet set)
@@ -386,14 +562,14 @@ public class ColumnGroupReader
 
     private boolean hasFilter(int i)
     {
-        return streamOrder[i].getFilter() != null;
+        return streamOrder[i].getFilter() != null || (filterFunctionOrder.length > i && filterFunctionOrder[i] != null);
     }
 
     /* Compacts Blocks that contain values on rows that subsequent
-         * filters have dropped. lastStreamIdx is the position in
-         * streamOrder for the rightmost stream that has values for
-         * this batch. */
-private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStreamIdx)
+     * filters have dropped. lastStreamIdx is the position in
+     * streamOrder for the rightmost stream that has values for
+     * this batch. */
+    private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStreamIdx)
     {
         boolean needCompact = false;
         int numSurviving = numAdded;
@@ -406,7 +582,7 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
             QualifyingSet input = reader.getInputQualifyingSet();
             int truncationRow = reader.getTruncationRow();
             if (truncationRow == -1 &&
-                    (output == null || output.getPositionCount() == input.getPositionCount())) {
+                (output == null || output.getPositionCount() == input.getPositionCount())) {
                 continue;
             }
             if (streamIdx == 0 && outputQualifyingSet == null) {
@@ -463,32 +639,32 @@ private void alignResultsAndRemoveFromQualifyingSet(int numAdded, int lastStream
         int row = reader.getTruncationRow();
         if (row != -1) {
             return row;
-        }
+            }
         return reader.getPosition();
     }
 
-private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
-    {
-        int truncationRow = reader.getTruncationRow();
-        QualifyingSet input = reader.getInputQualifyingSet();
-        int numIn = input.getTotalPositionCount();
-        int[] rows = input.getPositions();
-        // Find the place of the truncation row in the input and add
-        // this and all above this to surviving.
-        for (int i = 0; i < numIn; i++) {
-            if (rows[i] == truncationRow) {
-                int numAdded = numIn - i;
-                if (survivingRows.length < numSurviving + numAdded) {
-                    survivingRows = Arrays.copyOf(survivingRows, numSurviving + numAdded + 100);
+    private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
+        {
+            int truncationRow = reader.getTruncationRow();
+            QualifyingSet input = reader.getInputQualifyingSet();
+            int numIn = input.getTotalPositionCount();
+            int[] rows = input.getPositions();
+            // Find the place of the truncation row in the input and add
+            // this and all above this to surviving.
+            for (int i = 0; i < numIn; i++) {
+                if (rows[i] == truncationRow) {
+                    int numAdded = numIn - i;
+                    if (survivingRows.length < numSurviving + numAdded) {
+                        survivingRows = Arrays.copyOf(survivingRows, numSurviving + numAdded + 100);
+                    }
+                    for (int counter = 0; counter < numAdded; counter++) {
+                        survivingRows[numSurviving + counter] = i + counter;
+                    }
+                    return numSurviving + numAdded;
                 }
-                for (int counter = 0; counter < numAdded; counter++) {
-                    survivingRows[numSurviving + counter] = i + counter;
-                }
-                return numSurviving + numAdded;
             }
+            throw new IllegalArgumentException("Truncation row was not in the input QualifyingSet");
         }
-        throw new IllegalArgumentException("Truncation row was not in the input QualifyingSet");
-    }
 
     int findLastTruncatedStreamIdx()
     {
@@ -545,4 +721,4 @@ private int addUnusedInputToSurviving(StreamReader reader, int numSurviving)
         }
         return builder.toString();
     }
-}
+    }

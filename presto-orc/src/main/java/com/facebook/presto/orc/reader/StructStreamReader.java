@@ -307,6 +307,7 @@ public class StructStreamReader
                                        rowType.getTypeParameters(),
                                        fieldColumns,
                                        filters,
+                                       null,
                                        true,
                                        true,
                                        0);

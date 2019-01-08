@@ -79,6 +79,15 @@ abstract class ColumnReader
         return outputQualifyingSet;
     }
 
+    public QualifyingSet getOrCreateOutputQualifyingSet()
+    {
+        if (outputQualifyingSet == null) {
+            outputQualifyingSet = new QualifyingSet();
+        }
+        return outputQualifyingSet;
+    }
+
+    
     @Override
     public void setFilterAndChannel(Filter filter, int channel, int columnIndex, Type type)
     {
@@ -103,6 +112,12 @@ abstract class ColumnReader
     public int getColumnIndex()
     {
         return columnIndex;
+    }
+
+    @Override
+    public int getNumValues()
+    {
+        return numValues;
     }
 
     @Override
@@ -145,7 +160,7 @@ abstract class ColumnReader
         outputQualifyingSet.setPositionCount(numSurviving);
     }
 
-    void beginScan(    BooleanInputStream presentStream, LongInputStream lengthStream)
+    protected void beginScan(    BooleanInputStream presentStream, LongInputStream lengthStream)
             throws IOException
     {
         if (!rowGroupOpen) {
@@ -196,7 +211,7 @@ abstract class ColumnReader
         numLengths += neededLengths;
     }
 
-    void endScan(BooleanInputStream presentStream)
+    protected void endScan(BooleanInputStream presentStream)
     {
         // The reader is positioned at inputQualifyingSet.end() or truncationRow.
         int end = inputQualifyingSet.getEnd(); // getNonTruncatedEnd();

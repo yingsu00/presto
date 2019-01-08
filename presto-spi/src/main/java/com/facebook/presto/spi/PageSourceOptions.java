@@ -22,23 +22,91 @@ public class PageSourceOptions
     private final int targetBytes;
     private final int ariaFlags;
 
-    public static class FilterFunction
+    public static class FilterStats
     {
-        protected int[] inputChannels;
+        protected long nIn;
+        protected long nOut;
+        protected long time;
+
+        public void updateStats(int nIn, int nOut, long time)
+        {
+            this.nIn += nIn;
+            this.nOut += nOut;
+            this.time += time;
+        }
+
+        public double getTimePerDroppedValue()
+        {
+            return (double) time / (1 + nIn - nOut);
+        }
+
+        public double getSelectivity()
+        {
+            if (nIn == 0) {
+                return 1;
+            }
+            return (double) nOut / (double) nIn;
+        }
+
+        public void decayStats()
+        {
+            nIn /= 2;
+            nOut /= 2;
+            time /= 2;
+        }
+    }
+    
+    public static class FilterFunction
+        extends FilterStats
+    {
+        protected final int[] inputChannels;
         protected int initialCost = 1;
+        private int[][] channelRowNumberMaps;
 
         public FilterFunction(int[] inputChannels, int initialCost)
         {
             this.inputChannels = inputChannels;
+            this.channelRowNumberMaps = new int[inputChannels.length][];
             this.initialCost = initialCost;
         }
 
+        public int[] getInputChannels()
+        {
+            return inputChannels;
+        }
+
+        
         /* Sets outputRows to be the list of positions on page for
          * which the filter is true. Returns the number of positions
          * written to outputRows. outputRows is expected to have at
-         * least page.getPositionCount() elements */
-        public int filter(Page page, int[] outputRows) {
+         * least page.getPositionCount() elements. If errorSet is non
+         * null, exceptions are caught and returned in errorSet. These
+         * correspond pairwise to the row numbers in rows. A row that
+         * produces an error is considered as included in the
+         * output. */
+        public int filter(Page page, int[] outputRows, ErrorSet errorSet)
+        {
             return 0;
+        }
+
+        public int[][] getChannelRowNumberMaps()
+        {
+            return channelRowNumberMaps;
+        }
+    }
+
+    public static class ErrorSet
+    {
+        private Throwable[] errors;
+
+        public Throwable[] getErrors()
+        {
+            return errors;
+        }
+
+        void setErrors(Throwable[] errors)
+        {
+            this.errors = errors;
         }
     }
 
@@ -81,4 +149,4 @@ public class PageSourceOptions
     {
         return ariaFlags;
     }
-}
+    }

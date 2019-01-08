@@ -755,6 +755,7 @@ public class OrcRecordReader
                                        types,
                                        targetChannels,
                                        filters,
+                                       options.getFilterFunctions(),
                                        reuseBlocks,
                                        reorderFilters,
                                        options.getAriaFlags());

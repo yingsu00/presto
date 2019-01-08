@@ -13,11 +13,11 @@
  */
 package com.facebook.presto.orc;
 
+import com.facebook.presto.spi.PageSourceOptions;
+
 public class Filter
+    extends PageSourceOptions.FilterStats
 {
-    private long nIn;
-    private long nOut;
-    private long time;
 
     // True if one may call the filter once per distinct value. This
     // is usually true but a counter example is a filter on the data
@@ -46,33 +46,6 @@ public class Filter
     public boolean testNull()
     {
         return false;
-    }
-
-    void updateStats(int nIn, int nOut, long time)
-    {
-        this.nIn += nIn;
-        this.nOut += nOut;
-        this.time += time;
-    }
-
-    double getTimePerDroppedValue()
-    {
-        return (double) time / (1 + nIn - nOut);
-    }
-
-    double getSelectivity()
-    {
-        if (nIn == 0) {
-            return 1;
-        }
-        return (double) nOut / (double) nIn;
-    }
-
-    void decayStats()
-    {
-        nIn /= 2;
-        nOut /= 2;
-        time /= 2;
     }
 
     // If there are no scores, return a number for making initial filter order. Less is better.
