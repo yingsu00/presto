@@ -26,15 +26,23 @@ public class ReferencePath
     public static class PathElement
     {
         private final String field;
-        private final int subscript;
+        private final long subscript;
+        private final boolean isMap;
 
         @JsonCreator
         public PathElement(
                            @JsonProperty("field")String field,
-                           @JsonProperty("subscript") int subscript)
+                           @JsonProperty("subscript") long subscript,
+                           @JsonProperty("isMap") boolean isMap)
         {
             this.field = field;
             this.subscript = subscript;
+            this.isMap = isMap;
+        }
+
+        public PathElement(String field, long subscript)
+        {
+            this(field, subscript, false);
         }
 
         @JsonProperty("field")
@@ -44,9 +52,15 @@ public class ReferencePath
         }
 
         @JsonProperty("subscript")
-        public int getSubscript()
+        public long getSubscript()
         {
             return subscript;
+        }
+
+                @JsonProperty("isMap")
+        public boolean getIsMap()
+        {
+            return isMap;
         }
 
         @Override
@@ -71,7 +85,7 @@ public class ReferencePath
         @Override
         public int hashCode()
         {
-            return field != null ? field.hashCode() : subscript;
+            return field != null ? field.hashCode() : (int) subscript;
         }
 
 
@@ -81,7 +95,7 @@ public class ReferencePath
             if (field != null) {
                 return field;
             }
-            return Integer.valueOf(subscript).toString();
+            return Long.valueOf(subscript).toString();
         }
     }
 

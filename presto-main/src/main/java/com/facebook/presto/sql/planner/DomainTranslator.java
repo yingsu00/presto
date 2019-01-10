@@ -84,7 +84,6 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.collect.Iterators.peekingIterator;
 import static java.util.Collections.emptyList;
-import static java.util.Collections.reverse;
 import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.collectingAndThen;
@@ -471,8 +470,8 @@ public final class DomainTranslator
 
                 return super.visitComparisonExpression(node, complement);
             }
-            else if (includeSubfields && isSubfieldPath(symbolExpression)) {
-                ReferencePath path = subfieldToReferencePath(symbolExpression);
+            else if (includeSubfields && SubfieldUtils.isSubfieldPath(symbolExpression)) {
+                ReferencePath path = SubfieldUtils.subfieldToReferencePath(symbolExpression);
                 if (path == null) {
                     return super.visitComparisonExpression(node, complement);
                 }
@@ -839,49 +838,6 @@ public final class DomainTranslator
         }
     }
 
-    private static boolean isSubfieldPath(Expression expression)
-    {
-        return expression instanceof DereferenceExpression || expression instanceof SubscriptExpression;
-    }
-
-    private static ReferencePath subfieldToReferencePath(Expression expr)
-    {
-        ArrayList<ReferencePath.PathElement> steps = new ArrayList();
-        for (;;) {
-            if (expr instanceof SymbolReference) {
-                SymbolReference symbolReference = (SymbolReference)expr;
-                steps.add(new ReferencePath.PathElement(symbolReference.getName(), 0));
-                break;
-            }
-            else if (expr instanceof DereferenceExpression) {
-                DereferenceExpression dereference = (DereferenceExpression) expr;
-                steps.add(new ReferencePath.PathElement(dereference.getField().getValue(), 0));
-                expr = dereference.getBase();
-            }
-            else if (expr instanceof SubscriptExpression) {
-                SubscriptExpression subscript = (SubscriptExpression) expr;
-                Expression index = subscript.getIndex();
-                if (!(index instanceof GenericLiteral)) {
-                    return null;
-                }
-                GenericLiteral literalIndex = (GenericLiteral) index;
-                String type = literalIndex.getType();
-                if (type.equals("BIGINT")) {
-                    steps.add(new ReferencePath.PathElement(null, new Integer(literalIndex.getValue()).intValue()));
-                }
-                else {
-                    return null;
-                }
-                expr = subscript.getBase();
-            }
-            else {
-                return null;
-            }
-        }
-        reverse(steps);
-        return new ReferencePath(steps);
-    }
-    
     public static class ExtractionResult
     {
         private final TupleDomain<Symbol> tupleDomain;
