@@ -225,6 +225,7 @@ public class ColumnGroupReader
     private void setupFilterFunctions()
     {
         if (filterFunctions.length == 0) {
+            filterFunctionOrder = new FilterFunction[0][];
             return;
         }
         Arrays.sort(filterFunctions, (FilterFunction a, FilterFunction b) -> compareFunctions(a, b));
