@@ -75,7 +75,7 @@ public final class HiveSessionProperties
     private static final String IGNORE_CORRUPTED_STATISTICS = "ignore_corrupted_statistics";
     private static final String COLLECT_COLUMN_STATISTICS_ON_WRITE = "collect_column_statistics_on_write";
     private static final String OPTIMIZE_MISMATCHED_BUCKET_COUNT = "optimize_mismatched_bucket_count";
-    private static final String HIVE_ARIA_FLAGS = "hive_aria_flags";
+    private static final String S3_SELECT_PUSHDOWN_ENABLED = "s3_select_pushdown_enabled";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -291,11 +291,11 @@ public final class HiveSessionProperties
                         OPTIMIZE_MISMATCHED_BUCKET_COUNT,
                         "Experimenal: Enable optimization to avoid shuffle when bucket count is compatible but not the same",
                         hiveClientConfig.isOptimizeMismatchedBucketCount(),
-                        false),
-                                                             integerProperty(
-                        HIVE_ARIA_FLAGS,
-                        "Aria feature flags for Hive",
-                        0,
+                                false),
+                booleanProperty(
+                        S3_SELECT_PUSHDOWN_ENABLED,
+                        "S3 Select pushdown enabled",
+                        hiveClientConfig.isS3SelectPushdownEnabled(),
                         false));
     }
 
@@ -461,6 +461,11 @@ public final class HiveSessionProperties
         return session.getProperty(SORTED_WRITING_ENABLED, Boolean.class);
     }
 
+    public static boolean isS3SelectPushdownEnabled(ConnectorSession session)
+    {
+        return session.getProperty(S3_SELECT_PUSHDOWN_ENABLED, Boolean.class);
+    }
+
     public static boolean isStatisticsEnabled(ConnectorSession session)
     {
         return session.getProperty(STATISTICS_ENABLED, Boolean.class);
@@ -488,11 +493,6 @@ public final class HiveSessionProperties
     public static boolean isOptimizedMismatchedBucketCount(ConnectorSession session)
     {
         return session.getProperty(OPTIMIZE_MISMATCHED_BUCKET_COUNT, Boolean.class);
-    }
-
-        public static int getAriaFlags(ConnectorSession session)
-    {
-        return session.getProperty(HIVE_ARIA_FLAGS, Integer.class);
     }
 
     public static PropertyMetadata<DataSize> dataSizeSessionProperty(String name, String description, DataSize defaultValue, boolean hidden)
