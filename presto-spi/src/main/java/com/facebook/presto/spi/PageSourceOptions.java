@@ -16,6 +16,7 @@ package com.facebook.presto.spi;
 public class PageSourceOptions
 {
     private final boolean reusePages;
+    private final int[] internalChannels;
     private final int[] outputChannels;
     private final FilterFunction[] filterFunctions;
     private final boolean reorderFilters;
@@ -110,8 +111,15 @@ public class PageSourceOptions
         }
     }
 
-    public PageSourceOptions(int[] outputChannels, boolean reusePages, FilterFunction[] filterFunctions, boolean reorderFilters, int targetBytes, int ariaFlags)
+    public PageSourceOptions(int[] internalChannels,
+                             int[] outputChannels,
+                             boolean reusePages,
+                             FilterFunction[] filterFunctions,
+                             boolean reorderFilters,
+                             int targetBytes,
+                             int ariaFlags)
     {
+        this.internalChannels = internalChannels;
         this.outputChannels = outputChannels;
         this.reusePages = reusePages;
         this.filterFunctions = filterFunctions;
@@ -119,6 +127,12 @@ public class PageSourceOptions
         this.targetBytes = targetBytes;
         this.ariaFlags = ariaFlags;
     }
+
+    public int[] getInternalChannels()
+    {
+        return internalChannels;
+    }
+
 
     public int[] getOutputChannels()
     {

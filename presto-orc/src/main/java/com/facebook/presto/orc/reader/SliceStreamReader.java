@@ -121,6 +121,12 @@ public class SliceStreamReader
     }
 
     @Override
+    public QualifyingSet getOrCreateOutputQualifyingSet()
+    {
+        return currentReader.getOrCreateOutputQualifyingSet();
+    }
+
+    @Override
     public void setFilterAndChannel(Filter filter, int channel, int columnIndex, Type type)
     {
         directReader.setFilterAndChannel(filter, channel, columnIndex, type);
@@ -187,6 +193,12 @@ public class SliceStreamReader
             return 16;
         }
         return currentReader.getAverageResultSize();
+    }
+
+    @Override
+        public int getNumValues()
+    {
+        return currentReader.getNumValues();
     }
 
     @Override

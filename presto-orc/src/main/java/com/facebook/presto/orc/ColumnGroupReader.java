@@ -55,6 +55,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -104,12 +105,15 @@ public class ColumnGroupReader
     private int ariaFlags;
     private FilterFunction[] filterFunctions;
     private int[] filterResults;
+    private HashMap<Integer, StreamReader> channelToStreamReader;
+    private int[] targetChannels;
     
     public ColumnGroupReader(StreamReader[] streamReaders,
                       Set<Integer> presentColumns,
                       int[] channelColumns,
                       List<Type> types,
-                      int[] targetChannels,
+                             int[] internalChannels,
+                             int[] targetChannels,
                       Map<Integer, Filter> filters,
                              FilterFunction[] filterFunctions,
                       boolean reuseBlocks,
@@ -119,17 +123,25 @@ public class ColumnGroupReader
         this.reuseBlocks = reuseBlocks;
         this.reorderFilters = reorderFilters;
         this.ariaFlags = ariaFlags;
+        if (targetChannels == null) {
+            targetChannels = internalChannels;
+        }
+        this.targetChannels = targetChannels;
+        channelToStreamReader = new HashMap();
         for (int i = 0; i < channelColumns.length; i++) {
             int columnIndex = channelColumns[i];
             if (presentColumns != null && !presentColumns.contains(columnIndex)) {
                 continue;
             }
-            int outputChannel = i < targetChannels.length ? targetChannels[i] : -1;
+            int internalChannel = i < internalChannels.length ? internalChannels[i] : -1;
             Filter filter = filters.get(columnIndex);
-            streamReaders[columnIndex].setFilterAndChannel(filter, outputChannel, columnIndex, types.get(i));
-            maxOutputChannel = Math.max(maxOutputChannel, outputChannel);
+            streamReaders[columnIndex].setFilterAndChannel(filter, internalChannel, columnIndex, types.get(i));
+            channelToStreamReader.put(internalChannel, streamReaders[columnIndex]);
         }
         this.filterFunctions = filterFunctions != null ? filterFunctions : new FilterFunction[0];
+        for (int i = 0; i < targetChannels.length; i++) {
+            maxOutputChannel = Math.max(maxOutputChannel, targetChannels[i]);
+        }
         setupStreamOrder(streamReaders);
     }
 
@@ -318,6 +330,15 @@ public class ColumnGroupReader
                     int avgSize = reader.getAverageResultSize();
                     readerBudget[i] = Math.max(8000, (int) (numRows * selectivity * avgSize));
                     totalAsk += readerBudget[i];
+                    // A filter function can only be at the position
+                    // of a reader with a channel since they are
+                    // placed at the latest position that reads an
+                    // input.
+                    if (i < filterFunctionOrder.length && filterFunctionOrder[i] != null) {
+                        for (FilterFunction function : filterFunctionOrder[i]) {
+                            selectivity *= function.getSelectivity();
+                        }
+                    }
                 }
                 else {
                     readerBudget[i] = 0;
@@ -356,23 +377,27 @@ public class ColumnGroupReader
                 blocks = new Block[maxOutputChannel + 1];
                 reusedPageBlocks = blocks;
             }
-            for (StreamReader reader : streamOrder) {
-                int channel = reader.getChannel();
-                if (channel != -1) {
-                    blocks[channel] = reader.getBlock(numFirstRows, true);
+            for (int i = 0; i< targetChannels.length; i++) {
+                int channel = targetChannels[i];
+                if (channel == -1) {
+                    continue;
                 }
+                StreamReader reader = channelToStreamReader.get(i);
+                blocks[channel] = reader.getBlock(numFirstRows, true);
             }
             return blocks;
         }
         else {
             Block[] blocks = new Block[maxOutputChannel + 1];
-            for (StreamReader reader : streamOrder) {
-                int channel = reader.getChannel();
-                if (channel != -1) {
-                    blocks[channel] = reader.getBlock(numFirstRows, false);
+                        for (int i = 0; i< targetChannels.length; i++) {
+                int channel = targetChannels[i];
+                if (channel == -1) {
+                    continue;
                 }
+                StreamReader reader = channelToStreamReader.get(i);
+                blocks[channel] = reader.getBlock(numFirstRows, false);
             }
-            return blocks;
+                        return blocks;
         }
     }
 
@@ -457,67 +482,23 @@ public class ColumnGroupReader
         boolean isFirstFunction = true;
         for (FilterFunction function : filterFunctionOrder[streamIdx]) {
         int[] channels = function.getInputChannels();
-        int[][] rowNumberMaps = function.getChannelRowNumberMaps();
         Block[] blocks = new Block[channels.length];
         int numRows = qualifyingSet.getPositionCount();
         for (int channelIdx = 0; channelIdx < channels.length; channelIdx++) {
-            int channel = channels[channelIdx];
-            boolean needMap = false;
-            boolean mapNeedsInit = false;
-            int[] map = null;
-            for (int operandIdx = streamIdx; operandIdx >= 0; operandIdx--) {
-                StreamReader reader = streamOrder[operandIdx];
-                if (channel == reader.getChannel()) {
-                    blocks[channelIdx] = reader.getBlock(reader.getNumValues(), true);
-                    if (numRowsInResult > 0 && map == null) {
-                        map = getRowNumberMap(rowNumberMaps, channelIdx, numRows);
-                        mapNeedsInit = true;
-                    }
-                    if (mapNeedsInit) {
-                        initMap(numRowsInResult, numRows, map);
-                    }
-                    if (needMap) {
-                        if (numRowsInResult > 0 && !mapNeedsInit) {
-                            // Offset the map to point to values added in this batch.
-                            for (int i = 0; i < numRows; i++) {
-                                map[i] += numRowsInResult;
-                            }
-                        }
-                        blocks[channelIdx] = new DictionaryBlock(numRows, blocks[channelIdx], rowNumberMaps[channelIdx]);
-                    }
-                    break;
-                }
-                if (hasFilter(operandIdx)) {
-                    QualifyingSet filterSet = streamOrder[operandIdx].getOutputQualifyingSet();
-                    int[] inputNumbers = filterSet.getInputNumbers();
-                    if (needMap) {
-                        if (mapNeedsInit) {
-                            initMap(0, numRows, map);
-                        }
-                        for (int i = 0; i < numRows; i++) {
-                            map[i] = inputNumbers[map[i]];
-                        }
-                    }
-                    else {
-                        map = getRowNumberMap(rowNumberMaps, channelIdx, numRows);
-                        mapNeedsInit = true;
-                    }
-                    needMap = true;
-                }
-            }
-            if (blocks[channelIdx] == null) {
-                throw new IllegalArgumentException("Filter operand is not assigned before the filter");
-            }
+            blocks[channelIdx] = makeFilterFunctionInputBlock(            channelIdx, streamIdx, numRows, function);
         }
         if (filterResults == null || filterResults.length < numRows) {
             filterResults = new int[numRows + 100];
         }
         StreamReader reader = streamOrder[streamIdx];
         qualifyingSet = reader.getOrCreateOutputQualifyingSet();
+        long start = System.nanoTime();
         int numHits = function.filter(new Page(numRows, blocks), filterResults, null);
+        function.updateStats(numRows, numHits, System.nanoTime() - start);
         if (reader.getFilter() == null && isFirstFunction) {
             qualifyingSet.copyFrom(reader.getInputQualifyingSet());
         }
+        qualifyingSet.compactInputNumbers(filterResults, numHits);
         reader.compactValues(filterResults, numRowsInResult, numHits);
         if (numHits == 0) {
             return qualifyingSet;
@@ -527,6 +508,54 @@ public class ColumnGroupReader
         return qualifyingSet;
     }
 
+    private Block makeFilterFunctionInputBlock(int channelIdx, int streamIdx, int numRows, FilterFunction function)
+    {
+        int channel = function.getInputChannels()[channelIdx];
+        int[][] rowNumberMaps = function.getChannelRowNumberMaps();
+        boolean mustCopyMap = false;
+        int[] map = null;
+        for (int operandIdx = streamIdx; operandIdx >= 0; operandIdx--) {
+            StreamReader reader = streamOrder[operandIdx];
+            if (channel == reader.getChannel()) {
+                Block block = reader.getBlock(reader.getNumValues(), true);
+                if (map == null) {
+                    if (numRowsInResult > 0) {
+                        return block.getRegion(numRowsInResult, block.getPositionCount() - numRowsInResult);
+                    }
+                    return block;
+                }
+                if (numRowsInResult > 0) {
+                    // Offset the map to point to values added in this batch.
+                    if (mustCopyMap) {
+                        map = copyMap(rowNumberMaps, streamIdx, numRows, map);
+                    }
+                    for (int i = 0; i < numRows; i++) {
+                        map[i] += numRowsInResult;
+                    }
+                }
+                return new DictionaryBlock(numRows, block, map);
+            }
+            if (hasFilter(operandIdx)) {
+                QualifyingSet filterSet = streamOrder[operandIdx].getOutputQualifyingSet();
+                int[] inputNumbers = filterSet.getInputNumbers();
+                if (map == null) {
+                    map = inputNumbers;
+                    mustCopyMap = true;
+                }
+                else {
+                    if (mustCopyMap) {
+                        map = copyMap(rowNumberMaps, channelIdx, numRows, map);
+                        mustCopyMap = false;
+                    }
+                    for (int i = 0; i < numRows; i++) {
+                        map[i] = inputNumbers[map[i]];
+                    }
+                }
+            }
+        }
+        throw new IllegalArgumentException("Filter function input channel not found");
+    }
+
     void initMap(int base, int size, int[] map)
     {
         for (int i = 0; i < size; i++) {
@@ -534,7 +563,14 @@ public class ColumnGroupReader
         }
     }
 
-    int[] getRowNumberMap(int[][] maps, int mapIdx, int size)
+    int[] copyMap(int[][] maps, int channelIdx, int numRows, int[] map)
+    {
+        int[] copy = allocRowNumberMap(maps, channelIdx, numRows);
+        System.arraycopy(map, 0, copy, 0, numRows);
+        return copy;
+    }
+
+    int[] allocRowNumberMap(int[][] maps, int mapIdx, int size)
     {
         int[] map = maps[mapIdx];
         if (map == null || map.length < size) {

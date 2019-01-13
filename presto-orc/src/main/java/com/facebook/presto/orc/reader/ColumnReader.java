@@ -79,6 +79,7 @@ abstract class ColumnReader
         return outputQualifyingSet;
     }
 
+    @Override
     public QualifyingSet getOrCreateOutputQualifyingSet()
     {
         if (outputQualifyingSet == null) {
@@ -87,7 +88,6 @@ abstract class ColumnReader
         return outputQualifyingSet;
     }
 
-    
     @Override
     public void setFilterAndChannel(Filter filter, int channel, int columnIndex, Type type)
     {
