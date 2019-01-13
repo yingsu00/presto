@@ -29,6 +29,7 @@ import com.facebook.presto.orc.reader.StreamReader;
 import com.facebook.presto.orc.reader.StreamReaders;
 import com.facebook.presto.orc.stream.InputStreamSources;
 import com.facebook.presto.spi.AriaFlags;
+import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageSourceOptions;
 import com.facebook.presto.spi.block.Block;
@@ -87,6 +88,7 @@ public class OrcRecordReader
     private final Set<Integer> presentColumns;
     private final long maxBlockBytes;
     private final Map<Integer, Type> includedColumns;
+    private final Map<Integer, ColumnHandle> includedColumnHandles;
     private long currentPosition;
     private long currentStripePosition;
     private int currentBatchSize;
@@ -129,6 +131,7 @@ public class OrcRecordReader
 
     public OrcRecordReader(
             Map<Integer, Type> includedColumns,
+            Map<Integer, ColumnHandle> includedColumnHandles,
             OrcPredicate predicate,
             long numberOfRows,
             List<StripeInformation> fileStripes,
@@ -163,6 +166,7 @@ public class OrcRecordReader
         requireNonNull(systemMemoryUsage, "systemMemoryUsage is null");
 
         this.includedColumns = requireNonNull(includedColumns, "includedColumns is null");
+        this.includedColumnHandles = requireNonNull(includedColumnHandles, "includedColumnHandles is null");
         this.writeValidation = requireNonNull(writeValidation, "writeValidation is null");
         this.writeChecksumBuilder = writeValidation.map(validation -> createWriteChecksumBuilder(includedColumns));
         this.rowGroupStatisticsValidation = writeValidation.map(validation -> validation.createWriteStatisticsBuilder(includedColumns));

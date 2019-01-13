@@ -34,5 +34,6 @@ FROM LINEITEM L, ORDERs O, CUSTOMER C, SUPPLIER S, PART P
 WHERE L.ORDERKEY = O.ORDERKEY AND L.PARTKEY = P.PARTKEY AND L.SUPPKEY = S.SUPPKEY AND C.CUSTKEY = O.CUSTKEY 
 AND L.ORDERKEY < 1000000;
 
-select e.license as l from (select export as e from hive.tpch.exportinfo where orderkey < 5));
+
+select l.applydate from (select e.license as l from (select export as e from hive.tpch.exportinfo where orderkey < 5));
 
