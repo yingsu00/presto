@@ -28,7 +28,6 @@ import com.facebook.presto.sql.planner.plan.PlanFragmentId;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.facebook.presto.sql.planner.plan.RemoteSourceNode;
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -46,6 +45,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -181,15 +181,14 @@ public final class SqlStageExecution
     }
 
     /**
-     * Add a listener which is notified when the final stage status is ready.  This notification is
-     * guaranteed to be fired only once.
+     * Add a listener for the final stage info.  This notification is guaranteed to be fired only once.
      * Listener is always notified asynchronously using a dedicated notification thread pool so, care should
      * be taken to avoid leaking {@code this} when adding a listener in a constructor. Additionally, it is
      * possible notifications are observed out of order due to the asynchronous execution.
      */
-    public void addFinalStatusListener(StateChangeListener<BasicStageStats> stateChangeListener)
+    public void addFinalStageInfoListener(StateChangeListener<StageInfo> stateChangeListener)
     {
-        stateMachine.addFinalStatusListener(ignored -> stateChangeListener.stateChanged(getBasicStageStats()));
+        stateMachine.addFinalStageInfoListener(stateChangeListener);
     }
 
     public void addCompletedDriverGroupsChangedListener(Consumer<Set<Lifespan>> newlyCompletedDriverGroupConsumer)
@@ -275,19 +274,19 @@ public final class SqlStageExecution
 
     public BasicStageStats getBasicStageStats()
     {
-        return stateMachine.getBasicStageStats(
-                () -> getAllTasks().stream()
-                        .map(RemoteTask::getTaskInfo)
-                        .collect(toImmutableList()));
+        return stateMachine.getBasicStageStats(this::getAllTaskInfo);
     }
 
     public StageInfo getStageInfo()
     {
-        return stateMachine.getStageInfo(
-                () -> getAllTasks().stream()
-                        .map(RemoteTask::getTaskInfo)
-                        .collect(toImmutableList()),
-                ImmutableList::of);
+        return stateMachine.getStageInfo(this::getAllTaskInfo);
+    }
+
+    private Iterable<TaskInfo> getAllTaskInfo()
+    {
+        return getAllTasks().stream()
+                .map(RemoteTask::getTaskInfo)
+                .collect(toImmutableList());
     }
 
     public synchronized void addExchangeLocations(PlanFragmentId fragmentId, Set<RemoteTask> sourceTasks, boolean noMoreExchangeLocations)
@@ -360,12 +359,15 @@ public final class SqlStageExecution
                 .collect(toImmutableList());
     }
 
-    public synchronized RemoteTask scheduleTask(Node node, int partition, OptionalInt totalPartitions)
+    public synchronized Optional<RemoteTask> scheduleTask(Node node, int partition, OptionalInt totalPartitions)
     {
         requireNonNull(node, "node is null");
 
+        if (stateMachine.getState().isDone()) {
+            return Optional.empty();
+        }
         checkState(!splitsScheduled.get(), "scheduleTask can not be called once splits have been scheduled");
-        return scheduleTask(node, new TaskId(stateMachine.getStageId(), partition), ImmutableMultimap.of(), totalPartitions);
+        return Optional.of(scheduleTask(node, new TaskId(stateMachine.getStageId(), partition), ImmutableMultimap.of(), totalPartitions));
     }
 
     public synchronized Set<RemoteTask> scheduleSplits(Node node, Multimap<PlanNodeId, Split> splits, Multimap<PlanNodeId, Lifespan> noMoreSplitsNotification)
@@ -373,6 +375,9 @@ public final class SqlStageExecution
         requireNonNull(node, "node is null");
         requireNonNull(splits, "splits is null");
 
+        if (stateMachine.getState().isDone()) {
+            return ImmutableSet.of();
+        }
         splitsScheduled.set(true);
 
         checkArgument(stateMachine.getFragment().getPartitionedSources().containsAll(splits.keySet()), "Invalid splits");
@@ -517,7 +522,10 @@ public final class SqlStageExecution
     private synchronized void checkAllTaskFinal()
     {
         if (stateMachine.getState().isDone() && tasksWithFinalInfo.containsAll(allTasks)) {
-            stateMachine.setAllTasksFinal();
+            List<TaskInfo> finalTaskInfos = getAllTasks().stream()
+                    .map(RemoteTask::getTaskInfo)
+                    .collect(toImmutableList());
+            stateMachine.setAllTasksFinal(finalTaskInfos);
         }
     }
 

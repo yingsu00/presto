@@ -24,12 +24,12 @@ public class QualifyingSet
     // begin and end define the range of rows coverd. If a row >=
     // begin and < end and is not in positions rangeBegins[i] <= row <
     // rangeEnds[i] then row is not in the qualifying set.
-    private int begin;
+    //private int begin;
     private int end;
-    private int[] rangeBegins;
-    private int[] rangeEnds;
+    //private int[] rangeBegins;
+    //private int[] rangeEnds;
     private int[] positions;
-    private int numRanges;
+    //private int numRanges;
     private int positionCount;
     // Index into positions for the first row after truncation. -1 if
     // no truncation.
@@ -56,7 +56,7 @@ public class QualifyingSet
 
     public void setRange(int begin, int end)
     {
-        this.begin = begin;
+        //this.begin = begin;
         this.end = end;
         int[] zeros = allZeros;
         if (zeros.length < end - begin) {
@@ -148,7 +148,7 @@ public class QualifyingSet
         }
         return inputNumbers;
     }
-
+    /*
     public int getBegin()
     {
         return begin;
@@ -158,7 +158,7 @@ public class QualifyingSet
     {
         this.begin = begin;
     }
-
+    */
     public int getEnd()
     {
         if (truncationPosition != -1) {
@@ -282,6 +282,8 @@ public class QualifyingSet
     public void copyFrom(QualifyingSet other)
     {
         positionCount = other.positionCount;
+        end = other.end;
+        truncationPosition = other.truncationPosition;
         if (ownedPositions != null && ownedPositions.length >= other.positionCount) {
             positions = ownedPositions;
             System.arraycopy(other.positions, 0, positions, 0, positionCount);
@@ -297,6 +299,13 @@ public class QualifyingSet
         else {
             inputNumbers = Arrays.copyOf(other.inputNumbers, positionCount);
             ownedInputNumbers = inputNumbers;
+        }
+    }
+
+    public void compactInputNumbers(int[] surviving, int numSurviving)
+    {
+        for (int i = 0; i < numSurviving; i++) {
+            inputNumbers[i] = inputNumbers[surviving[i]];
         }
     }
 

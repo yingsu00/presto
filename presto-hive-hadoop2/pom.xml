@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.facebook.presto</groupId>
         <artifactId>presto-root</artifactId>
-        <version>0.216-SNAPSHOT</version>
+        <version>0.216-ARIA-SNAPSHOT</version>
     </parent>
 
     <artifactId>presto-hive-hadoop2</artifactId>
@@ -112,6 +112,7 @@
                             <excludes>
                                 <exclude>**/TestHiveClient.java</exclude>
                                 <exclude>**/TestHiveFileSystemS3.java</exclude>
+                                <exclude>**/TestHiveFileSystemS3SelectPushdown.java</exclude>
                             </excludes>
                         </configuration>
                     </plugin>
@@ -144,6 +145,7 @@
                         <configuration>
                             <includes>
                                 <include>**/TestHiveFileSystemS3.java</include>
+                                <include>**/TestHiveFileSystemS3SelectPushdown.java</include>
                             </includes>
                         </configuration>
                     </plugin>

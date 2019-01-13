@@ -113,6 +113,12 @@ public class LongStreamReader
     }
 
     @Override
+    public QualifyingSet getOrCreateOutputQualifyingSet()
+    {
+        return currentReader.getOrCreateOutputQualifyingSet();
+    }
+
+    @Override
     public void setFilterAndChannel(Filter filter, int channel, int columnIndex, Type type)
     {
         directReader.setFilterAndChannel(filter, channel, columnIndex, type);
@@ -176,6 +182,12 @@ public class LongStreamReader
             return 0;
         }
         return currentReader.getResultSizeInBytes();
+    }
+
+    @Override
+    public int getNumValues()
+    {
+        return currentReader.getNumValues();
     }
 
     @Override

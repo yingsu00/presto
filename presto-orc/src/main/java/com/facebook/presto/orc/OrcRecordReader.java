@@ -746,6 +746,7 @@ public class OrcRecordReader
             // Null means filters are not supported for pushdown, empty map means no filters.
             return false;
         }
+        int[] internalChannels = options.getInternalChannels();
         int[] targetChannels = options.getOutputChannels();
         reuseBlocks = options.getReusePages();
         reorderFilters = options.getReorderFilters();
@@ -753,6 +754,7 @@ public class OrcRecordReader
                                        presentColumns,
                                        channelColumns,
                                        types,
+                                       internalChannels,
                                        targetChannels,
                                        filters,
                                        options.getFilterFunctions(),
