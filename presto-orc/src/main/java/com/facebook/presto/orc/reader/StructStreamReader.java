@@ -24,6 +24,7 @@ import com.facebook.presto.orc.stream.BooleanInputStream;
 import com.facebook.presto.orc.stream.InputStreamSource;
 import com.facebook.presto.orc.stream.InputStreamSources;
 import com.facebook.presto.spi.ReferencePath;
+import com.facebook.presto.spi.ReferencePath.PathElement;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.RowBlock;
 import com.facebook.presto.spi.block.RunLengthEncodedBlock;
@@ -38,9 +39,12 @@ import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -62,6 +66,7 @@ public class StructStreamReader
     private final StreamDescriptor streamDescriptor;
 
     private final Map<String, StreamReader> structFields;
+    private Set<String> referencedFields;
 
     private int readOffset;
     private int nextBatchSize;
@@ -71,6 +76,9 @@ public class StructStreamReader
     private BooleanInputStream presentStream;
 
     ColumnGroupReader reader;
+    // Channel number in output of getBlock for fields. -1 if not returned.
+    int[] fieldChannels;
+    Type[] fieldTypes;
     int[] fieldBlockOffset;
     boolean[] valueIsNull;
     // Number of rows in field blocks. This is < numValues if there
@@ -97,6 +105,34 @@ public class StructStreamReader
         this.streamDescriptor = requireNonNull(streamDescriptor, "stream is null");
         this.structFields = streamDescriptor.getNestedStreams().stream()
                 .collect(toImmutableMap(stream -> stream.getFieldName().toLowerCase(Locale.ENGLISH), stream -> createStreamReader(stream, hiveStorageTimeZone, systemMemoryContext)));
+    }
+
+    @Override
+    public void setReferencedSubfields(List<ReferencePath> subfields, int depth)
+    {
+        HashMap<String, ArrayList<ReferencePath>> subfieldPaths = new HashMap();
+        referencedFields = new HashSet();
+        for (ReferencePath subfield : subfields) {
+            List<PathElement> pathElements = subfield.getPath();
+            PathElement immediateSubfield = pathElements.get(depth + 1);
+            String fieldName = immediateSubfield.getField();
+            referencedFields.add(fieldName);
+            StreamReader fieldReader = structFields.get(fieldName);
+            if (fieldReader instanceof StructStreamReader || fieldReader instanceof MapStreamReader || fieldReader instanceof ListStreamReader) {
+                if (pathElements.size() > depth + 1) {
+                    ArrayList<ReferencePath> pathsForSubfield = subfieldPaths.get(fieldName);
+                    if (pathsForSubfield == null) {
+                        pathsForSubfield = new ArrayList();
+                        subfieldPaths.put(fieldName, pathsForSubfield);
+                    }
+                    pathsForSubfield.add(subfield);
+                }
+            }
+        }
+        for (Map.Entry<String, ArrayList<ReferencePath>> entry : subfieldPaths.entrySet()) {
+            StreamReader fieldReader =  structFields.get(entry.getKey());
+            fieldReader.setReferencedSubfields(entry.getValue(), depth + 1);
+        }
     }
 
     @Override
@@ -230,7 +266,8 @@ public class StructStreamReader
 
             String lowerCaseFieldName = fieldName.get().toLowerCase(Locale.ENGLISH);
             StreamReader streamReader = structFields.get(lowerCaseFieldName);
-            if (streamReader != null) {
+            boolean isReferenced = referencedFields == null || referencedFields.contains(lowerCaseFieldName);
+            if (streamReader != null && isReferenced) {
                 streamReader.prepareNextRead(positionCount);
                 blocks[i] = streamReader.readBlock(fieldType);
             }
@@ -277,10 +314,13 @@ public class StructStreamReader
         RowType rowType = (RowType) type;
         int numFields = rowType.getFields().size();
         int[] fieldColumns = new int[numFields];
+        int[] channelColumns = new int[numFields];
+        fieldTypes = new Type[numFields];
         streamReaders = new StreamReader[numFields];
         HashMap<Integer, Filter> filters = new HashMap();
         for (int i = 0; i < numFields; i++) {
             fieldColumns[i] = i;
+            channelColumns[i] = i;
             Optional<String> fieldName = rowType.getFields().get(i).getName();
             Type fieldType = rowType.getFields().get(i).getType();
 
@@ -288,6 +328,7 @@ public class StructStreamReader
                 throw new IllegalArgumentException("Missing struct field name in type " + rowType);
             }
 
+            fieldTypes[i] = fieldType;
             if (filter != null) {
                 Filters.StructFilter structFilter = (Filters.StructFilter) filter;
                 Filter fieldFilter = structFilter.getMember(new ReferencePath.PathElement(fieldName.get(), 0));
@@ -296,14 +337,22 @@ public class StructStreamReader
                 }
             }
             String lowerCaseFieldName = fieldName.get().toLowerCase(Locale.ENGLISH);
-            StreamReader streamReader = structFields.get(lowerCaseFieldName);
-            if (streamReader != null) {
+            if (referencedFields != null && !referencedFields.contains(lowerCaseFieldName)) {
+                fieldColumns[i] = -1;
+            }
+            if (fieldColumns[i] != -1 || filters.get(i) != null) {
+                StreamReader streamReader = structFields.get(lowerCaseFieldName);
                 streamReaders[i] = streamReader;
             }
         }
+        fieldChannels = fieldColumns;
+        if (outputChannel == -1) {
+            // If the struct is not projected out, none of its members is either.
+            Arrays.fill(fieldChannels, -1);
+        }
         reader = new ColumnGroupReader(streamReaders,
                                        null,
-                                       fieldColumns,
+                                       channelColumns,
                                        rowType.getTypeParameters(),
                                        fieldColumns,
                                        fieldColumns,
@@ -443,6 +492,7 @@ public class StructStreamReader
             int end = input.getEnd();
             int rowsInRange = end - posInRowGroup;
             int[] fieldRows = fieldQualifyingSet.getMutablePositions(numInput);
+            int[] fieldInputNumbers = fieldQualifyingSet.getMutableInputNumbers(numInput);
             int prevFieldRow = posInFields;
             int prevRow = posInRowGroup;
             numFieldRows = 0;
@@ -454,6 +504,7 @@ public class StructStreamReader
                 if (presentStream == null || present[activeRow - posInRowGroup]) {
                     int numSkip = innerDistance(prevRow, activeRow);
                     fieldRows[numFieldRows] = prevFieldRow + numSkip;
+                    fieldInputNumbers[numFieldRows] = i;
                     innerToOuter[numFieldRows] = i;
                     numFieldRows++;
                     prevFieldRow += numSkip;
@@ -500,8 +551,8 @@ public class StructStreamReader
         for (int i = 0; i < numInput; i++) {
             if (presentStream != null && !present[i]) {
                 if (filter == null || filter.testNull()) {
-                    valueIsNull[numValues] = true;
-                    fieldBlockOffset[numValues] = numValues + numResults > 0 ? fieldBlockOffset[numValues + numResults - 1] : 0;
+                    valueIsNull[numValues + numResults] = true;
+                    fieldBlockOffset[numValues + numResults] = numValues + numResults > 0 ? fieldBlockOffset[numValues + numResults - 1] : 0;
                     if (resultRows != null) {
                         resultRows[numResults] = inputRows[i];
                         inputNumbers[numResults] = i;
@@ -584,12 +635,26 @@ public class StructStreamReader
             return getNullBlock(type, numFirstRows);
         }
         Block[] blocks = reader.getBlocks(innerFirstRows, mayReuse, true);
+        blocks = fillUnreferencedWithNulls(blocks, innerFirstRows);
         int[] offsets = mayReuse ? fieldBlockOffset : Arrays.copyOf(fieldBlockOffset, numFirstRows + 1);
         boolean[] nulls = valueIsNull == null ? null
             : mayReuse ? valueIsNull : Arrays.copyOf(valueIsNull, numFirstRows);
         return new RowBlock(0, numFirstRows, nulls, offsets, blocks);
     }
 
+    private Block[] fillUnreferencedWithNulls(Block[] blocks, int numRows)
+    {
+        if (blocks.length < fieldChannels.length) {
+            blocks = Arrays.copyOf(blocks, fieldChannels.length);
+        }
+        for (int i = 0; i < fieldChannels.length; i++) {
+            if (fieldChannels[i] == -1) {
+                blocks[i] = getNullBlock(fieldTypes[i], numRows);
+            }
+        }
+        return blocks;
+    }
+    
     @Override
     public void maybeReorderFilters()
     {

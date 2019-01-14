@@ -37,3 +37,5 @@ AND L.ORDERKEY < 1000000;
 
 select l.applydate from (select e.license as l from (select export as e from hive.tpch.exportinfo where orderkey < 5));
 
+select orderkey, linenumber, s_nation, l.applydate from (select orderkey, linenumber, e.s_nation, e.license as l from (select orderkey, linenumber, export as e from hive.tpch.exportinfo where orderkey < 15));
+

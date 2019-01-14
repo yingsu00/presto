@@ -300,11 +300,11 @@ public class ScanFilterAndProjectOperator
             if (filter.isPresent()) {
                 filters = new FilterExpression[1];
                 filters[0] = new FilterExpression(operatorContext.getSession().toConnectorSession(), filter.get());
+                for (FilterExpression filterExpression : filters) {
+                    channels = addFilterChannels(filterExpression, channels);
+                }
             }
-            for (FilterExpression filterExpression : filters) {
-                channels = addFilterChannels(filterExpression, channels);
-            }
-            boolean reorderFilters = SystemSessionProperties.ariaReorderFilters(operatorContext.getSession());
+                boolean reorderFilters = SystemSessionProperties.ariaReorderFilters(operatorContext.getSession());
             int ariaFlags = SystemSessionProperties.ariaFlags(operatorContext.getSession());
             PageSourceOptions options = new PageSourceOptions(channels,
                                                               projectionPushdownChannels,

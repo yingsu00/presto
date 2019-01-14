@@ -14,7 +14,9 @@
 package com.facebook.presto.sql.planner.optimizations;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.execution.warnings.WarningCollector;
+import com.facebook.presto.spi.AriaFlags;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ReferencePath;
 import com.facebook.presto.sql.planner.PartitioningScheme;
@@ -114,17 +116,27 @@ public class PruneUnreferencedOutputs
         requireNonNull(types, "types is null");
         requireNonNull(symbolAllocator, "symbolAllocator is null");
         requireNonNull(idAllocator, "idAllocator is null");
-
-        return SimplePlanRewriter.rewriteWith(new Rewriter(), plan, ImmutableSet.of());
+        boolean pruneSubfields = (SystemSessionProperties.ariaFlags(session) & AriaFlags.pruneSubfields) != 0;
+        
+        return SimplePlanRewriter.rewriteWith(new Rewriter(pruneSubfields), plan, ImmutableSet.of());
     }
 
     private static class Rewriter
             extends SimplePlanRewriter<Set<Symbol>>
     {
-        HashSet<Symbol> fullColumnUses = new HashSet();
-        HashSet<ReferencePath> subfieldPaths = new HashSet();
+        private boolean pruneSubfields;
+        private HashSet<Symbol> fullColumnUses;
+        private HashSet<ReferencePath> subfieldPaths;
 
 
+        public Rewriter(boolean pruneSubfields) {
+            this.pruneSubfields = pruneSubfields;
+            if (pruneSubfields) {
+                fullColumnUses = new HashSet();
+                subfieldPaths = new HashSet();
+            }
+        }
+        
         @Override
         public PlanNode visitExplainAnalyze(ExplainAnalyzeNode node, RewriteContext<Set<Symbol>> context)
         {
@@ -548,7 +560,9 @@ public class PruneUnreferencedOutputs
         public PlanNode visitOutput(OutputNode node, RewriteContext<Set<Symbol>> context)
         {
             Set<Symbol> expectedInputs = ImmutableSet.copyOf(node.getOutputSymbols());
-            fullColumnUses.addAll(node.getOutputSymbols());
+            if (pruneSubfields) {
+                fullColumnUses.addAll(node.getOutputSymbols());
+            }
             PlanNode source = context.rewrite(node.getSource(), expectedInputs);
             return new OutputNode(node.getId(), source, node.getColumnNames(), node.getOutputSymbols());
         }
@@ -841,7 +855,7 @@ public class PruneUnreferencedOutputs
 
         private Map<Symbol, ColumnHandle> annotateColumnsWithSubfields(Map<Symbol, ColumnHandle> assignments)
         {
-            if (subfieldPaths.size() == 0) {
+            if (!pruneSubfields || subfieldPaths.size() == 0) {
                 return assignments;
             }
             Map<Symbol, ColumnHandle> newAssignments = new HashMap();
@@ -899,6 +913,9 @@ public class PruneUnreferencedOutputs
         
         private void processProjectionPaths(Assignments assignments)
         {
+            if (!pruneSubfields) {
+                return;
+            }
             HashSet<ReferencePath> newPaths = new HashSet();
             for (Map.Entry<Symbol, Expression> entry : assignments.getMap().entrySet()) {
                 Symbol key = entry.getKey();
@@ -942,6 +959,9 @@ public class PruneUnreferencedOutputs
 
         private void collectSubfieldPaths(Node expression)
         {
+            if (!pruneSubfields) {
+                return;
+            }
             if (expression instanceof SymbolReference) {
                 SymbolReference ref = (SymbolReference) expression;
                 Symbol symbol = new Symbol(ref.getName());

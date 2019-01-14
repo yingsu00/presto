@@ -200,6 +200,7 @@ public class OrcPageSourceFactory
                 if (column.getColumnType() == REGULAR) {
                     Type type = typeManager.getType(column.getTypeSignature());
                     includedColumns.put(column.getHiveColumnIndex(), type);
+                    includedColumnHandles.put(column.getHiveColumnIndex(), column);
                     columnReferences.add(new ColumnReference<>(column, column.getHiveColumnIndex(), type));
                 }
             }

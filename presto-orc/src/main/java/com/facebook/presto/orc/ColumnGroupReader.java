@@ -135,6 +135,12 @@ public class ColumnGroupReader
             }
             int internalChannel = i < internalChannels.length ? internalChannels[i] : -1;
             Filter filter = filters.get(columnIndex);
+            if (internalChannel == -1 && filter == null) {
+                if (streamReaders[columnIndex] != null) {
+                    throw new IllegalArgumentException("There should be no StreamReader if there is no filter and the value of the column is unreferenced");
+                }
+                continue;
+            }
             streamReaders[columnIndex].setFilterAndChannel(filter, internalChannel, columnIndex, types.get(i));
             channelToStreamReader.put(internalChannel, streamReaders[columnIndex]);
         }

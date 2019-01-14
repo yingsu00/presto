@@ -257,6 +257,14 @@ public class OrcRecordReader
                 writeValidation);
 
         streamReaders = createStreamReaders(orcDataSource, types, hiveStorageTimeZone, presentColumnsAndTypes.build(), streamReadersSystemMemoryContext);
+        if (includedColumnHandles != null) {
+            for (int columnIdx = 0; columnIdx < streamReaders.length; columnIdx++) {
+                ColumnHandle columnHandle = includedColumnHandles.get(columnIdx);
+                if (columnHandle != null && streamReaders[columnIdx] != null && columnHandle.getReferencedSubfields() != null) {
+                    streamReaders[columnIdx].setReferencedSubfields(columnHandle.getReferencedSubfields(), 0);
+                }
+            }
+        }
         maxBytesPerCell = new long[streamReaders.length];
         nextBatchSize = initialBatchSize;
     }
@@ -588,6 +596,7 @@ public class OrcRecordReader
                 streamReaders[columnId] = StreamReaders.createStreamReader(streamDescriptor, hiveStorageTimeZone, systemMemoryContext);
             }
         }
+        
         return streamReaders;
     }
 

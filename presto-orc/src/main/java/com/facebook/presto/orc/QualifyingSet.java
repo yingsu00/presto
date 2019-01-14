@@ -24,19 +24,14 @@ public class QualifyingSet
     // begin and end define the range of rows coverd. If a row >=
     // begin and < end and is not in positions rangeBegins[i] <= row <
     // rangeEnds[i] then row is not in the qualifying set.
-    //private int begin;
     private int end;
-    //private int[] rangeBegins;
-    //private int[] rangeEnds;
     private int[] positions;
-    //private int numRanges;
     private int positionCount;
     // Index into positions for the first row after truncation. -1 if
     // no truncation.
     private int truncationPosition = -1;
 
     private int[] inputNumbers;
-    private boolean isRanges;
     private ErrorSet errorSet;
 
     static volatile int[] wholeRowGroup;
@@ -56,7 +51,6 @@ public class QualifyingSet
 
     public void setRange(int begin, int end)
     {
-        //this.begin = begin;
         this.end = end;
         int[] zeros = allZeros;
         if (zeros.length < end - begin) {
