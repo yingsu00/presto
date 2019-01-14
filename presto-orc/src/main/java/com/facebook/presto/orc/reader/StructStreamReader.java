@@ -520,18 +520,20 @@ public class StructStreamReader
             }
             System.arraycopy(fieldRows, 0, orgFieldRows, 0, numFieldRows);
             reader.setQualifyingSets(fieldQualifyingSet, fieldOutputQualifyingSet);
-            reader.advance();
-            int truncated = reader.getTruncationRow();
-            if (truncated != -1) {
-                posInFields = truncated;
-                truncationRow = innerToOuterRow(truncated);
-                inputQualifyingSet.setTruncationRow(truncationRow);
+            if (fieldQualifyingSet.getPositionCount() > 0) {
+                reader.advance();
+                int truncated = reader.getTruncationRow();
+                if (truncated != -1) {
+                    posInFields = truncated;
+                    truncationRow = innerToOuterRow(truncated);
+                    inputQualifyingSet.setTruncationRow(truncationRow);
+                }
+                else {
+                    truncationRow = -1;
+                    posInFields = fieldQualifyingSet.getEnd();
+                }
             }
-            else {
-                truncationRow = -1;
-                posInFields = fieldQualifyingSet.getEnd();
             }
-        }
         int[] resultRows = null;
         int[] inputNumbers = null;
         int[] inputRows = inputCopy.getPositions();
