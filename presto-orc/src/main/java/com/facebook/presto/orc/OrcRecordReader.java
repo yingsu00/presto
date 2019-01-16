@@ -532,7 +532,7 @@ public class OrcRecordReader
 
         StripeInformation stripeInformation = stripes.get(currentStripe);
         validateWriteStripe(stripeInformation.getNumberOfRows());
-
+        
         Stripe stripe = stripeReader.readStripe(stripeInformation, currentStripeSystemMemoryContext);
         if (stripe != null) {
             // Give readers access to dictionary streams
@@ -779,8 +779,8 @@ public class OrcRecordReader
         return true;
     }
 
-            public Page getNextPage()
-            throws IOException
+    public Page getNextPage()
+        throws IOException
     {
         reader.newBatch(numResults);
         numResults = 0;

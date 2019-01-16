@@ -375,20 +375,37 @@ public class StructStreamReader
     @Override
     public void erase(int end)
     {
-        if (reader != null) {
-            if (valueIsNull != null) {
-                int fieldEnd = 0;
-                for (int i = 0; i < end; i++) {
-                    if (!valueIsNull[i]) {
-                        fieldEnd++;
-                    }
-                }
-                end = fieldEnd;
-            }
-            fieldBlockSize -= end;
-            reader.newBatch(end);
+        // Without a reader there is nothing to erase, even if the struct is all nulls.
+        if (reader == null) {
+            return;
         }
+        int fieldEnd;
+        if (valueIsNull != null) {
+            fieldEnd = 0;
+            for (int i = 0; i < end; i++) {
+                if (!valueIsNull[i]) {
+                    fieldEnd++;
+                }
+            }
+        }
+        else {
+            fieldEnd = end;
+        }
+        // There is a fieldBlockOffset also for null structs.
+        fieldBlockSize -= end;
+        // There is a field block value only for non-null structs.
+        reader.newBatch(fieldEnd);
         numValues -= end;
+        if (valueIsNull != null) {
+            System.arraycopy(valueIsNull, end, valueIsNull, 0, numValues);
+        }
+        int fieldFill = 0;
+        for (int i = 0; i < numValues; i++) {
+            fieldBlockOffset[i] = fieldFill;
+            if (valueIsNull == null || !valueIsNull[i]) {
+                fieldFill++;
+            }
+        }
     }
 
     @Override
@@ -551,7 +568,8 @@ public class StructStreamReader
         int lastFieldQualified = 0;
         int numFieldResults = reader.getNumResults() - initialFieldResults;
         for (int i = 0; i < numInput; i++) {
-            if (presentStream != null && !present[i]) {
+            int presentIdx = inputRows[i] - posInRowGroup;
+            if (presentStream != null && !present[presentIdx]) {
                 if (filter == null || filter.testNull()) {
                     valueIsNull[numValues + numResults] = true;
                     fieldBlockOffset[numValues + numResults] = numValues + numResults > 0 ? fieldBlockOffset[numValues + numResults - 1] : 0;
