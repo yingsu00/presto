@@ -2,7 +2,15 @@ use hive.tpch;
 
 -- aria enable Aria scan. Works with ORC V2 direct longs, doubles and direct Slices
 set session aria=true;
--- OR of 1: enable repartitioning 2: enable hash join, works only with fixed size data, hash join w 2 longs k=as key and 1 double as payload. 4 reuse buffers in ORC reader, 8 reuse buffers in exchange, 32 reuse Blocks in exchange. 
+
+-- aria_flags is a bitmask with:
+-- 1: enable repartitioning
+-- 2: enable hash join, works only with fixed size data, hash join w 2 longs k=as key and 1 double as payload.
+-- 4 reuse buffers in ORC reader,
+-- 8 reuse buffers in exchange,
+-- 32 reuse Blocks in exchange.
+-- 64 prune unreferenced struct/map/array fields. 
+
 set session aria_flags = 47;
 -- Enables reusing Pages and Blocks between result batches if the pipeline is suitable, e.g. scan - repartition - hash join
 set session aria_reuse_pages = true;
@@ -11,6 +19,7 @@ set session aria_reorder = true;
 
 
 -- The literals are scaled  for 100G scale. The tables should be compressed with Snappy.
+-- Note hat the Presto CLI shows a rate of rows/s. Aria counts rows after filtering, baseline counts rows before filtering.
 
 -- 1/1M
 select  sum (extendedprice) from lineitem_s where suppkey = 111;
@@ -36,3 +45,12 @@ select count (*), sum (l.extendedprice * (1 - l.discount) - l.quantity * p.suppl
 -- 1 * 9/10 
 
 select count (*), sum (l.extendedprice * (1 - l.discount) - l.quantity * p.supplycost) from hive.tpch.lineitem_s l, hive.tpch.partsupp p where l.partkey = p.partkey and l.suppkey = p.suppkey and p.availqty < 9000;
+
+
+-- Example of filter reorder gains, from 58s cpu to 42s cpu
+select count (*) from hive.tpch.lineitem_s where partkey < 19000000 and suppkey < 900000 and quantity < 45 and extendedprice < 9000;
+
+
+-- Example of expression filter
+select count (*), max(partkey) from hive.tpch.lineitem_s where partkey + 1 < 2000000;
+

@@ -32,6 +32,7 @@ import org.weakref.jmx.Nested;
 
 import javax.inject.Inject;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -103,15 +104,17 @@ public class ExpressionCompiler
             OptionalInt initialBatchSize)
     {
         Optional<Supplier<PageFilter>> filterFunctionSupplier = filter.map(expression -> pageFunctionCompiler.compileFilter(expression, classNameSuffix));
-        Optional<Supplier<PageFilter>> filterFunctionSupplierWithoutTupleDomain = filterWithoutTupleDomain.map(expression -> pageFunctionCompiler.compileFilter(expression, classNameSuffix));
-
+        List<Supplier<PageFilter>> filterFunctionWithoutTupleDomainSuppliers = makeReorderableFilters(filterWithoutTupleDomain, classNameSuffix);
         List<Supplier<PageProjection>> pageProjectionSuppliers = projections.stream()
                 .map(projection -> pageFunctionCompiler.compileProjection(projection, classNameSuffix))
                 .collect(toImmutableList());
 
         return () -> {
             Optional<PageFilter> filterFunction = filterFunctionSupplier.map(Supplier::get);
-            Optional<PageFilter> filterFunctionWithoutTupleDomain = filterFunctionSupplierWithoutTupleDomain.map(Supplier::get);
+
+            List<PageFilter> filterFunctionWithoutTupleDomain = filterFunctionWithoutTupleDomainSuppliers.stream()
+                    .map(Supplier::get)
+                    .collect(toImmutableList());
 
             List<PageProjection> pageProjections = pageProjectionSuppliers.stream()
                     .map(Supplier::get)
@@ -233,5 +236,15 @@ public class ExpressionCompiler
                     .add("uniqueKey", uniqueKey)
                     .toString();
         }
+    }
+
+    List<Supplier<PageFilter>> makeReorderableFilters(Optional<RowExpression> filter, Optional<String> classNameSuffix)
+    {
+        ArrayList<Supplier<PageFilter>> result = new ArrayList();
+        if (!filter.isPresent()) {
+            return result;
+        }
+        result.add(pageFunctionCompiler.compileFilter(filter.get(), classNameSuffix));
+        return result;
     }
 }

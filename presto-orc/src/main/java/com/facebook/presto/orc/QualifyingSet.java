@@ -14,9 +14,10 @@
 package com.facebook.presto.orc;
 
 import com.facebook.presto.spi.PageSourceOptions.ErrorSet;
+import com.facebook.presto.spi.PrestoException;
 
 import java.util.Arrays;
-
+import static com.facebook.presto.spi.StandardErrorCode.GENERIC_USER_ERROR;
 import static com.google.common.base.Preconditions.checkArgument;
 
 public class QualifyingSet
@@ -248,7 +249,11 @@ public class QualifyingSet
         this.errorSet = errorSet;
     }
 
-    // Erases qulifying rows and corresponding input numbers below position.
+    // Erases qulifying rows and corresponding input numbers below
+    // position. If one of the erased positions has an error, throws
+    // the error. This is used to remove a row that is past all
+    // filters. Errors that were masked by subsequent filters will
+    // have been compacted away before this is called.
     public void eraseBelowRow(int row)
     {
         if (positionCount == 0 || positions[positionCount - 1] < row) {
@@ -256,11 +261,20 @@ public class QualifyingSet
             return;
         }
         int surviving = findPositionAtOrAbove(row);
-        if (surviving == positionCount) {
-            positionCount = 0;
+        if (surviving == 0) {
             return;
         }
-        if (surviving == 0) {
+        if (errorSet != null) {
+            Throwable error = errorSet.getFirstError(surviving);
+            if (error != null) {
+                throw new PrestoException(GENERIC_USER_ERROR, error);
+            }
+        }
+        if (surviving == positionCount) {
+            positionCount = 0;
+            if (errorSet != null) {
+                errorSet.clear();
+            }
             return;
         }
         positions = getMutablePositions(positionCount);
@@ -271,6 +285,9 @@ public class QualifyingSet
             inputNumbers[i - surviving] = inputNumbers[i] - lowestSurvivingInput;
         }
         positionCount -= surviving;
+        if (errorSet != null) {
+            errorSet.erase(surviving);
+        }
     }
 
     public void copyFrom(QualifyingSet other)
@@ -295,6 +312,29 @@ public class QualifyingSet
             ownedInputNumbers = inputNumbers;
         }
     }
+    public void compactPositionsAndErrors(int[] surviving, int numSurviving)
+    {
+        int[] rows = getMutablePositions(0);
+        for (int i = 0; i < numSurviving; i++) {
+            rows[i] = rows[surviving[i]];
+        }
+        positionCount = numSurviving;
+        if (errorSet != null && !errorSet.isEmpty()) {
+            Throwable[] errors = errorSet.getErrors();
+            int numErrors = errorSet.getPositionCount();
+            int lastError = -1;
+            for (int i = 0; i < numSurviving; i++) {
+                if (surviving[i] >= numErrors) {
+                    break;
+                }
+                errors[i] = errors[surviving[i]];
+                if (errors[i] != null) {
+                    lastError = i;
+                }
+                }
+            errorSet.setErrors(errors, lastError + 1);
+        }
+    }
 
     public void compactInputNumbers(int[] surviving, int numSurviving)
     {
@@ -303,6 +343,10 @@ public class QualifyingSet
         }
     }
 
+    public boolean hasErrors() {
+        return errorSet != null && !errorSet.isEmpty();
+    }
+    
     public void check()
     {
         for (int i = 0; i < positionCount; i++) {

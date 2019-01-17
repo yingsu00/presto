@@ -153,11 +153,7 @@ abstract class ColumnReader
         if (outputQualifyingSet == null) {
             return;
         }
-        int[] rows = outputQualifyingSet.getMutablePositions(0);
-        for (int i = 0; i < numSurviving; i++) {
-            rows[i] = rows[surviving[i]];
-        }
-        outputQualifyingSet.setPositionCount(numSurviving);
+        outputQualifyingSet.compactPositionsAndErrors(surviving, numSurviving);
     }
 
     protected void beginScan(    BooleanInputStream presentStream, LongInputStream lengthStream)

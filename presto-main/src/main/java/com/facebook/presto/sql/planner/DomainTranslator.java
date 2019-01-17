@@ -46,11 +46,13 @@ import com.facebook.presto.sql.tree.InPredicate;
 import com.facebook.presto.sql.tree.IsNotNullPredicate;
 import com.facebook.presto.sql.tree.IsNullPredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
+import com.facebook.presto.sql.tree.LongLiteral;
 import com.facebook.presto.sql.tree.NodeRef;
 import com.facebook.presto.sql.tree.NotExpression;
 import com.facebook.presto.sql.tree.GenericLiteral;
 import com.facebook.presto.sql.tree.NullLiteral;
 import com.facebook.presto.sql.tree.DereferenceExpression;
+import com.facebook.presto.sql.tree.StringLiteral;
 import com.facebook.presto.sql.tree.SubscriptExpression;
 import com.facebook.presto.sql.tree.SymbolReference;
 import com.google.common.collect.ImmutableList;
@@ -119,7 +121,17 @@ public final class DomainTranslator
             ReferencePath path = subfieldPath.getPath();
             Expression base = new SymbolReference(path.getPath().get(0).getField());
             for (int i = 1; i < path.getPath().size(); i++) {
-                base = new DereferenceExpression(base, new Identifier(path.getPath().get(i).getField()));
+                ReferencePath.PathElement element = path.getPath().get(i);
+                String field = element.getField();
+                if (element.getIsMap()) {
+                    base = new SubscriptExpression(base, field != null ? new StringLiteral(field) : new LongLiteral(Long.valueOf(element.getSubscript()).toString()));
+                }
+                else if (field != null) {
+                    base = new DereferenceExpression(base, new Identifier(field));
+                }
+                else {
+                    throw new IllegalArgumentException("Bad subfield path in DomainTranslator");
+                }
             }
             return base;
         }

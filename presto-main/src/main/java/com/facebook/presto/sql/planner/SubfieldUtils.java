@@ -88,7 +88,10 @@ public class SubfieldUtils
                 GenericLiteral literalIndex = (GenericLiteral) index;
                 String type = literalIndex.getType();
                 if (type.equals("BIGINT")) {
-                    steps.add(new ReferencePath.PathElement(null, new Integer(literalIndex.getValue()).intValue()));
+                    steps.add(new ReferencePath.PathElement(null, new Integer(literalIndex.getValue()).intValue(), true));
+                }
+                else if (type.equals("VARCHAR")) {
+                    steps.add(new ReferencePath.PathElement(literalIndex.getValue().toString(), 0, true));
                 }
                 else {
                     return null;

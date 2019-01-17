@@ -223,6 +223,12 @@ public class OrcReader
         return compressionKind;
     }
 
+    public OrcRecordReader createRecordReader(Map<Integer, Type> includedColumns, OrcPredicate predicate, DateTimeZone hiveStorageTimeZone, AggregatedMemoryContext systemMemoryUsage, int initialBatchSize)
+    {
+        return createRecordReader(includedColumns, null, predicate, 0, orcDataSource.getSize(), hiveStorageTimeZone, systemMemoryUsage, initialBatchSize);
+    }
+
+    
     public OrcRecordReader createRecordReader(Map<Integer, Type> includedColumns, Map<Integer, ColumnHandle> includedColumnHandles, OrcPredicate predicate, DateTimeZone hiveStorageTimeZone, AggregatedMemoryContext systemMemoryUsage, int initialBatchSize)
     {
         return createRecordReader(includedColumns, includedColumnHandles, predicate, 0, orcDataSource.getSize(), hiveStorageTimeZone, systemMemoryUsage, initialBatchSize);

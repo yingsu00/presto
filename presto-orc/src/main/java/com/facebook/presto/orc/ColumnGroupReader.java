@@ -625,7 +625,7 @@ public class ColumnGroupReader
             QualifyingSet input = reader.getInputQualifyingSet();
             int truncationRow = reader.getTruncationRow();
             if (truncationRow == -1 &&
-                (output == null || output.getPositionCount() == input.getPositionCount())) {
+                (output == null || output.getPositionCount() == input.getPositionCount() && !output.hasErrors())) {
                 continue;
             }
             if (streamIdx == 0 && outputQualifyingSet == null) {

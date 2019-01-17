@@ -61,7 +61,7 @@ public class PageProcessor
     private final ExpressionProfiler expressionProfiler;
     private final DictionarySourceIdFunction dictionarySourceIdFunction = new DictionarySourceIdFunction();
     private final Optional<PageFilter> filter;
-    private final Optional<PageFilter> filterWithoutTupleDomain;
+    private final List<PageFilter> filterWithoutTupleDomain;
     private final List<PageProjection> projections;
     private final int[] inputToOutputChannel;
     boolean filterPushedDown;
@@ -76,15 +76,15 @@ public class PageProcessor
     @VisibleForTesting
     public PageProcessor(Optional<PageFilter> filter, List<? extends PageProjection> projections, OptionalInt initialBatchSize, ExpressionProfiler expressionProfiler)
     {
-        this(filter, Optional.empty(), projections, initialBatchSize, expressionProfiler);
+        this(filter, null, projections, initialBatchSize, expressionProfiler);
     }
 
-    public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections, OptionalInt initialBatchSize)
+    public PageProcessor(Optional<PageFilter> filter, List<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections, OptionalInt initialBatchSize)
     {
         this(filter, filterWithoutTupleDomain, projections, initialBatchSize, new ExpressionProfiler());
     }
 
-    public PageProcessor(Optional<PageFilter> filter, Optional<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections, OptionalInt initialBatchSize, ExpressionProfiler expressionProfiler)
+    public PageProcessor(Optional<PageFilter> filter, List<PageFilter> filterWithoutTupleDomain, List<? extends PageProjection> projections, OptionalInt initialBatchSize, ExpressionProfiler expressionProfiler)
     {
         this.filter = requireNonNull(filter, "filter is null")
         .map(pageFilter -> {
@@ -144,7 +144,7 @@ public class PageProcessor
         this(filter, projections, OptionalInt.of(1));
     }
 
-    public Optional<PageFilter> getFilterWithoutTupleDomain()
+    public List<PageFilter> getFilterWithoutTupleDomain()
     {
         return filterWithoutTupleDomain;
     }

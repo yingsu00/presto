@@ -18,6 +18,7 @@ import com.facebook.presto.memory.context.LocalMemoryContext;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.operator.project.CursorProcessor;
 import com.facebook.presto.operator.project.CursorProcessorOutput;
+import com.facebook.presto.operator.project.DictionaryAwarePageFilter;
 import com.facebook.presto.operator.project.MergingPageOutput;
 import com.facebook.presto.operator.project.PageFilter;
 import com.facebook.presto.operator.project.PageProcessor;
@@ -235,22 +236,49 @@ public class ScanFilterAndProjectOperator
         @Override
         public int filter(Page page, int[] outputRows, PageSourceOptions.ErrorSet errorSet)
         {
-            SelectedPositions positions = filter.filter(session, page);
-
-            int offset = positions.getOffset();
-            int size = positions.size();
-            if (!positions.isList()) {
-                for (int i = 0; i < size; i++) {
-                    outputRows[i] = i + offset;
+            int positionCount = page.getPositionCount();
+            if (outputRows.length < positionCount) {
+                throw new IllegalArgumentException("outputRows too small");
+            }
+            try {
+                SelectedPositions positions = filter.filter(session, page);
+                int offset = positions.getOffset();
+                int size = positions.size();
+                if (!positions.isList()) {
+                    for (int i = 0; i < size; i++) {
+                        outputRows[i] = i + offset;
+                    }
+                }
+                else {
+                    int[] positionsArray = positions.getPositions();
+                    for (int i = 0; i < size; i++) {
+                        outputRows[i] = positionsArray[i] + offset;
+                    }
+                }
+                return size;
+            }
+            catch (Exception e) {
+                /* Ignore the errirm try next row by row and track errors */
+            }
+                
+            PageFilter rowFilter = filter;
+            if (filter instanceof DictionaryAwarePageFilter) {
+                DictionaryAwarePageFilter dictionaryFilter = (DictionaryAwarePageFilter) filter;
+                rowFilter = dictionaryFilter.getFilter();
+            }
+            int numTrue = 0;
+            for (int i = 0; i < positionCount; i++) {
+                try {
+                    if (rowFilter.filter(session, page, i)) {
+                        outputRows[numTrue++] = i;
+                    }
+                }
+                catch (Exception e) {
+                    outputRows[numTrue++] = i;
+                    errorSet.addError(i, positionCount, e);
                 }
             }
-            else {
-                int[] positionsArray = positions.getPositions();
-                for (int i = 0; i < size; i++) {
-                    outputRows[i] = positionsArray[i] + offset;
-                }
-            }
-            return size;
+            return numTrue;
         }
     }
 
@@ -296,15 +324,17 @@ public class ScanFilterAndProjectOperator
                 channels[channel] = channel;
             }
             FilterExpression[] filters = null;
-            Optional<PageFilter> filter = pageProcessor.getFilterWithoutTupleDomain();
-            if (filter.isPresent()) {
-                filters = new FilterExpression[1];
-                filters[0] = new FilterExpression(operatorContext.getSession().toConnectorSession(), filter.get());
+            List<PageFilter> pageFilters = pageProcessor.getFilterWithoutTupleDomain();
+            if (pageFilters != null && !pageFilters.isEmpty()) {
+                filters = new FilterExpression[pageFilters.size()];
+                for (int i = 0; i < pageFilters.size(); i++) {
+                    filters[i] = new FilterExpression(operatorContext.getSession().toConnectorSession(), pageFilters.get(i));
                 for (FilterExpression filterExpression : filters) {
                     channels = addFilterChannels(filterExpression, channels);
                 }
             }
-                boolean reorderFilters = SystemSessionProperties.ariaReorderFilters(operatorContext.getSession());
+            }
+            boolean reorderFilters = SystemSessionProperties.ariaReorderFilters(operatorContext.getSession());
             int ariaFlags = SystemSessionProperties.ariaFlags(operatorContext.getSession());
             PageSourceOptions options = new PageSourceOptions(channels,
                                                               projectionPushdownChannels,

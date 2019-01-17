@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.spi;
 
+import java.util.Arrays;
+
 public class PageSourceOptions
 {
     private final boolean reusePages;
@@ -98,16 +100,79 @@ public class PageSourceOptions
 
     public static class ErrorSet
     {
+        int positionCount;
         private Throwable[] errors;
+
+        public boolean isEmpty()
+        {
+            for (int i = 0; i < positionCount; i++) {
+                if (errors[i] != null) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public int getPositionCount()
+        {
+            return positionCount;
+        }
+
+        public void clear()
+        {
+            positionCount = 0;
+            if (errors != null) {
+                // Drop the references, errors may be large.
+                Arrays.fill(errors, null);
+            }
+        }
+
+        public void erase(int end)
+        {
+            if (positionCount <= end) {
+                clear();
+            }
+            System.arraycopy(errors, end, errors, 0, positionCount - end);
+            positionCount -= end;
+        }
+        
+        public void addError(int position, int maxPosition, Throwable error)
+        {
+            if (errors == null) {
+                errors = new Throwable[maxPosition];
+            }
+            else if (errors.length < maxPosition) {
+                errors = Arrays.copyOf(errors, maxPosition);
+            }
+            errors[position] = error;
+            if (position >= positionCount) {
+                positionCount = position + 1;
+            }
+        }
 
         public Throwable[] getErrors()
         {
             return errors;
         }
 
-        void setErrors(Throwable[] errors)
+        public void setErrors(Throwable[] errors, int positionCount)
         {
+            if (positionCount > errors.length) {
+                throw new IllegalArgumentException("positionCount is larger than the errors array");
+            }
+            this.positionCount = positionCount;
             this.errors = errors;
+        }
+
+        public Throwable getFirstError(int numPositions)
+        {
+            int end = Math.min(positionCount, numPositions);
+            for (int i = 0; i < end; i++) {
+                if (errors[i] != null) {
+                    return errors[i];
+                }
+            }
+            return null;
         }
     }
 
