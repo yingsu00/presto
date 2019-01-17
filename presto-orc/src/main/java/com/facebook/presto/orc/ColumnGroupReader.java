@@ -107,7 +107,7 @@ public class ColumnGroupReader
     private int[] filterResults;
     private HashMap<Integer, StreamReader> channelToStreamReader;
     private int[] targetChannels;
-    
+
     public ColumnGroupReader(StreamReader[] streamReaders,
                       Set<Integer> presentColumns,
                       int[] channelColumns,
@@ -234,7 +234,7 @@ public class ColumnGroupReader
     {
         return f1.getTimePerDroppedValue() <= f2.getTimePerDroppedValue() ? -1 : 1;
     }
-    
+
     // Sorts the functions most efficient first. Places the functions
     // in filterFunctionOrder most efficient first. If the function
     // depends on non-filter columns, moves the columns right after
@@ -281,7 +281,7 @@ public class ColumnGroupReader
         }
         throw new IllegalArgumentException("Channel is not assigned by any reader");
     }
-    
+
     public void maybeReorderFilters()
     {
         double time = 0;

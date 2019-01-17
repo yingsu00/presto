@@ -37,7 +37,7 @@ public class SerializedPage
     private ByteArrayPool pool;
     private final ConcatenatedByteArrayInputStream stream;
     private final long position;
-    
+
     public SerializedPage(Slice slice, PageCompression compression, int positionCount, int uncompressedSizeInBytes)
     {
         this.slice = requireNonNull(slice, "slice is null");
@@ -62,7 +62,7 @@ public class SerializedPage
         this.uncompressedSizeInBytes = uncompressedSizeInBytes;
     }
 
-    
+
     public void setByteArrayPool(ByteArrayPool pool)
     {
         this.pool = pool;

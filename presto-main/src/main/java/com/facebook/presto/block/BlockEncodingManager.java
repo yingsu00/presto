@@ -123,7 +123,7 @@ public final class BlockEncodingManager
         }
         }
 
-    
+
     @Override
     public void writeBlock(SliceOutput output, Block block)
     {

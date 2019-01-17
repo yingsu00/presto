@@ -374,7 +374,7 @@ public class PickTableLayout
         }
         return assignments.get(columnHandle);
     }
-    
+
     private static class LayoutConstraintEvaluator
     {
         private final Map<Symbol, ColumnHandle> assignments;

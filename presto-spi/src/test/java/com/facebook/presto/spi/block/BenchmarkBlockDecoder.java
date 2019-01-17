@@ -31,7 +31,7 @@ import sun.misc.Unsafe;
 public class BenchmarkBlockDecoder
 {
 
-    
+
   // Evaluator class that would be generated from
   // extendedprice * (1 - discount) - quantity * supplycost
   public static class ProfitExpr {
@@ -63,8 +63,8 @@ public class BenchmarkBlockDecoder
       }
 
 
-      
-      
+
+
       double[] asDoubleArray(long[] longs)
     {
       tempLongs[0] = longs;
@@ -304,7 +304,7 @@ public class BenchmarkBlockDecoder
   }
 
     public static void TestCase(DataSource source, ProfitExpr expr, boolean nulls, boolean dicts) {
-	System.out.println("===" + (nulls ? " with nulls " : " no nulls") + (dicts ? " nested dicts " : " flat ")); 
+	System.out.println("===" + (nulls ? " with nulls " : " no nulls") + (dicts ? " nested dicts " : " flat "));
     Page page = source.nextPage(1000, nulls, dicts);
     Page pageDouble = source.nextPageDouble(1000, nulls, dicts);
     long tim = System.currentTimeMillis();
@@ -327,7 +327,7 @@ public class BenchmarkBlockDecoder
     endtim = System.currentTimeMillis();
     System.out.println("===blocks in loop: " + (endtim - tim));
     }
-    
+
   public static void TestExpr()
   {
       DataSource source = new DataSource();

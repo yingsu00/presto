@@ -243,7 +243,7 @@ public class QualifyingSet
     {
         return errorSet;
     }
-    
+
     public void setErrorSet(ErrorSet errorSet)
     {
         this.errorSet = errorSet;
@@ -346,7 +346,7 @@ public class QualifyingSet
     public boolean hasErrors() {
         return errorSet != null && !errorSet.isEmpty();
     }
-    
+
     public void check()
     {
         for (int i = 0; i < positionCount; i++) {

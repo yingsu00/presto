@@ -97,7 +97,7 @@ public class HiveColumnHandle
     {
         this(name, hiveType, typeSignature, hiveColumnIndex, columnType, comment, null, null);
     }
-    
+
     @JsonProperty
     public String getName()
     {
@@ -160,7 +160,7 @@ public class HiveColumnHandle
     {
         return referencedSubfields;
     }
-    
+
     @Override
     public int hashCode()
     {

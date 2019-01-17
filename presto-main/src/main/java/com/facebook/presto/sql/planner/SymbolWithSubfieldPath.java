@@ -24,7 +24,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Represents a series of subfield or array/map subscript expressions.
- * This may may occur as a key in a TupleDomain<Symbol> for representing 
+ * This may may occur as a key in a TupleDomain<Symbol> for representing
  *predicates on nested elements in a row */
 public class SymbolWithSubfieldPath
     extends Symbol

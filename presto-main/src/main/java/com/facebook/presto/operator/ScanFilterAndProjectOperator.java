@@ -260,7 +260,7 @@ public class ScanFilterAndProjectOperator
             catch (Exception e) {
                 /* Ignore the errirm try next row by row and track errors */
             }
-                
+
             PageFilter rowFilter = filter;
             if (filter instanceof DictionaryAwarePageFilter) {
                 DictionaryAwarePageFilter dictionaryFilter = (DictionaryAwarePageFilter) filter;

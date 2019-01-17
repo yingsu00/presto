@@ -117,7 +117,7 @@ public class PruneUnreferencedOutputs
         requireNonNull(symbolAllocator, "symbolAllocator is null");
         requireNonNull(idAllocator, "idAllocator is null");
         boolean pruneSubfields = (SystemSessionProperties.ariaFlags(session) & AriaFlags.pruneSubfields) != 0;
-        
+
         return SimplePlanRewriter.rewriteWith(new Rewriter(pruneSubfields), plan, ImmutableSet.of());
     }
 
@@ -136,7 +136,7 @@ public class PruneUnreferencedOutputs
                 subfieldPaths = new HashSet();
             }
         }
-        
+
         @Override
         public PlanNode visitExplainAnalyze(ExplainAnalyzeNode node, RewriteContext<Set<Symbol>> context)
         {
@@ -910,7 +910,7 @@ public class PruneUnreferencedOutputs
             }
             return true;
         }
-        
+
         private void processProjectionPaths(Assignments assignments)
         {
             if (!pruneSubfields) {
@@ -977,7 +977,7 @@ public class PruneUnreferencedOutputs
             for (Node child : expression.getChildren()) {
                 collectSubfieldPaths(child);
             }
-                
+
         }
     }
 }

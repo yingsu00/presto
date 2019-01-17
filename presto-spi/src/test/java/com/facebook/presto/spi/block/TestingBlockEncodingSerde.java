@@ -104,7 +104,7 @@ public final class TestingBlockEncodingSerde
         }
         }
 
-    
+
     @Override
     public void writeBlock(SliceOutput output, Block block)
     {

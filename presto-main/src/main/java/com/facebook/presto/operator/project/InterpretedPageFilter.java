@@ -101,7 +101,7 @@ public class InterpretedPageFilter
     {
         return filter(page, position);
     }
-    
+
     private boolean filter(Page page, int position)
     {
         return TRUE.equals(evaluator.evaluate(position, page));

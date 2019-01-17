@@ -21,7 +21,7 @@ public class TestExprContext
     boolean[] nullsInReserve;
     boolean[] nullsInBatch;
 
-    
+
     static void boolArrayOr(boolean[] target, boolean[] source, int[] map, int positionCount) {
       if (map == null) {
 	  int i = 0;
@@ -65,4 +65,4 @@ public class TestExprContext
           }
     }
 }
-    
+

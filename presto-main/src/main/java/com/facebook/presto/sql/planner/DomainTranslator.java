@@ -333,7 +333,7 @@ public final class DomainTranslator
         private final TypeProvider types;
         private final InterpretedFunctionInvoker functionInvoker;
         private final boolean includeSubfields;
-        
+
         private Visitor(Metadata metadata, Session session, TypeProvider types, boolean includeSubfields)
         {
             this.metadata = requireNonNull(metadata, "metadata is null");

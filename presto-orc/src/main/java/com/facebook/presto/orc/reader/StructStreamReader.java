@@ -674,7 +674,7 @@ public class StructStreamReader
         }
         return blocks;
     }
-    
+
     @Override
     public void maybeReorderFilters()
     {

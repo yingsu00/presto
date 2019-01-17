@@ -58,7 +58,7 @@ public class PageSourceOptions
             time /= 2;
         }
     }
-    
+
     public static class FilterFunction
         extends FilterStats
     {
@@ -78,7 +78,7 @@ public class PageSourceOptions
             return inputChannels;
         }
 
-        
+
         /* Sets outputRows to be the list of positions on page for
          * which the filter is true. Returns the number of positions
          * written to outputRows. outputRows is expected to have at
@@ -135,7 +135,7 @@ public class PageSourceOptions
             System.arraycopy(errors, end, errors, 0, positionCount - end);
             positionCount -= end;
         }
-        
+
         public void addError(int position, int maxPosition, Throwable error)
         {
             if (errors == null) {
