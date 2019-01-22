@@ -61,6 +61,6 @@ public final class CompilerUtils
     public static <T> Class<? extends T> defineClass(ClassDefinition classDefinition, Class<T> superType, DynamicClassLoader classLoader)
     {
         log.debug("Defining class: %s", classDefinition.getName());
-        return classGenerator(classLoader).dumpClassFilesTo(new File("/home/oerling/ptemp").toPath()).defineClass(classDefinition, superType);
+        return classGenerator(classLoader).dumpClassFilesTo(new File("/Users/yingsu/ptemp").toPath()).defineClass(classDefinition, superType);
     }
 }
