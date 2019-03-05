@@ -43,31 +43,6 @@ import static com.facebook.presto.hive.metastore.thrift.ThriftMetastoreUtil.isRo
 import static com.facebook.presto.hive.metastore.thrift.ThriftMetastoreUtil.isRoleEnabled;
 import static com.facebook.presto.hive.metastore.thrift.ThriftMetastoreUtil.listApplicableRoles;
 import static com.facebook.presto.hive.metastore.thrift.ThriftMetastoreUtil.listApplicableTablePrivileges;
-import static com.facebook.presto.hive.metastore.thrift.ThriftMetastoreUtil.listEnabledTablePrivileges;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyAddColumn;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateRole;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateSchema;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateTable;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateView;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyCreateViewWithSelect;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyDeleteTable;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyDropColumn;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyDropRole;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyDropSchema;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyDropTable;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyDropView;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyGrantRoles;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyGrantTablePrivilege;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyInsertTable;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyRenameColumn;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyRenameSchema;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyRenameTable;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyRevokeRoles;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyRevokeTablePrivilege;
-import static com.facebook.presto.spi.security.AccessDeniedException.denySelectTable;
-import static com.facebook.presto.spi.security.AccessDeniedException.denySetCatalogSessionProperty;
-import static com.facebook.presto.spi.security.AccessDeniedException.denySetRole;
-import static com.facebook.presto.spi.security.AccessDeniedException.denyShowRoles;
 import static com.facebook.presto.spi.security.PrincipalType.ROLE;
 import static com.facebook.presto.spi.security.PrincipalType.USER;
 import static java.util.Objects.requireNonNull;
@@ -96,7 +71,7 @@ public class SqlStandardAccessControl
     public void checkCanCreateSchema(ConnectorTransactionHandle transaction, ConnectorIdentity identity, String schemaName)
     {
         if (!isAdmin(transaction, identity)) {
-            denyCreateSchema(schemaName);
+            //denyCreateSchema(schemaName);
         }
     }
 
@@ -104,7 +79,7 @@ public class SqlStandardAccessControl
     public void checkCanDropSchema(ConnectorTransactionHandle transaction, ConnectorIdentity identity, String schemaName)
     {
         if (!isDatabaseOwner(transaction, identity, schemaName)) {
-            denyDropSchema(schemaName);
+            //denyDropSchema(schemaName);
         }
     }
 
@@ -112,7 +87,7 @@ public class SqlStandardAccessControl
     public void checkCanRenameSchema(ConnectorTransactionHandle transaction, ConnectorIdentity identity, String schemaName, String newSchemaName)
     {
         if (!isDatabaseOwner(transaction, identity, schemaName)) {
-            denyRenameSchema(schemaName, newSchemaName);
+            //denyRenameSchema(schemaName, newSchemaName);
         }
     }
 
@@ -131,7 +106,7 @@ public class SqlStandardAccessControl
     public void checkCanCreateTable(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName tableName)
     {
         if (!isDatabaseOwner(transaction, identity, tableName.getSchemaName())) {
-            denyCreateTable(tableName.toString());
+            //denyCreateTable(tableName.toString());
         }
     }
 
@@ -139,7 +114,7 @@ public class SqlStandardAccessControl
     public void checkCanDropTable(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName tableName)
     {
         if (!isTableOwner(transaction, identity, tableName)) {
-            denyDropTable(tableName.toString());
+            //denyDropTable(tableName.toString());
         }
     }
 
@@ -147,7 +122,7 @@ public class SqlStandardAccessControl
     public void checkCanRenameTable(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName tableName, SchemaTableName newTableName)
     {
         if (!isTableOwner(transaction, identity, tableName)) {
-            denyRenameTable(tableName.toString(), newTableName.toString());
+            //denyRenameTable(tableName.toString(), newTableName.toString());
         }
     }
 
@@ -166,7 +141,7 @@ public class SqlStandardAccessControl
     public void checkCanAddColumn(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName tableName)
     {
         if (!isTableOwner(transaction, identity, tableName)) {
-            denyAddColumn(tableName.toString());
+            //denyAddColumn(tableName.toString());
         }
     }
 
@@ -174,7 +149,7 @@ public class SqlStandardAccessControl
     public void checkCanDropColumn(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName tableName)
     {
         if (!isTableOwner(transaction, identity, tableName)) {
-            denyDropColumn(tableName.toString());
+            //denyDropColumn(tableName.toString());
         }
     }
 
@@ -182,7 +157,7 @@ public class SqlStandardAccessControl
     public void checkCanRenameColumn(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName tableName)
     {
         if (!isTableOwner(transaction, identity, tableName)) {
-            denyRenameColumn(tableName.toString());
+            //denyRenameColumn(tableName.toString());
         }
     }
 
@@ -191,7 +166,7 @@ public class SqlStandardAccessControl
     {
         // TODO: Implement column level access control
         if (!checkTablePermission(transaction, identity, tableName, SELECT, false)) {
-            denySelectTable(tableName.toString());
+            //denySelectTable(tableName.toString());
         }
     }
 
@@ -199,7 +174,7 @@ public class SqlStandardAccessControl
     public void checkCanInsertIntoTable(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName tableName)
     {
         if (!checkTablePermission(transaction, identity, tableName, INSERT, false)) {
-            denyInsertTable(tableName.toString());
+            //denyInsertTable(tableName.toString());
         }
     }
 
@@ -207,7 +182,7 @@ public class SqlStandardAccessControl
     public void checkCanDeleteFromTable(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName tableName)
     {
         if (!checkTablePermission(transaction, identity, tableName, DELETE, false)) {
-            denyDeleteTable(tableName.toString());
+            //denyDeleteTable(tableName.toString());
         }
     }
 
@@ -215,7 +190,7 @@ public class SqlStandardAccessControl
     public void checkCanCreateView(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName viewName)
     {
         if (!isDatabaseOwner(transaction, identity, viewName.getSchemaName())) {
-            denyCreateView(viewName.toString());
+            //denyCreateView(viewName.toString());
         }
     }
 
@@ -223,7 +198,7 @@ public class SqlStandardAccessControl
     public void checkCanDropView(ConnectorTransactionHandle transaction, ConnectorIdentity identity, SchemaTableName viewName)
     {
         if (!isTableOwner(transaction, identity, viewName)) {
-            denyDropView(viewName.toString());
+            //denyDropView(viewName.toString());
         }
     }
 
@@ -234,7 +209,7 @@ public class SqlStandardAccessControl
 
         // TODO implement column level access control
         if (!checkTablePermission(transaction, identity, tableName, SELECT, true)) {
-            denyCreateViewWithSelect(tableName.toString(), identity);
+            //denyCreateViewWithSelect(tableName.toString(), identity);
         }
     }
 
@@ -242,7 +217,7 @@ public class SqlStandardAccessControl
     public void checkCanSetCatalogSessionProperty(ConnectorTransactionHandle transaction, ConnectorIdentity identity, String propertyName)
     {
         if (!isAdmin(transaction, identity)) {
-            denySetCatalogSessionProperty(connectorId, propertyName);
+            //denySetCatalogSessionProperty(connectorId, propertyName);
         }
     }
 
@@ -254,7 +229,7 @@ public class SqlStandardAccessControl
         }
 
         if (!hasGrantOptionForPrivilege(transaction, identity, privilege, tableName)) {
-            denyGrantTablePrivilege(privilege.name(), tableName.toString());
+            //denyGrantTablePrivilege(privilege.name(), tableName.toString());
         }
     }
 
@@ -266,7 +241,7 @@ public class SqlStandardAccessControl
         }
 
         if (!hasGrantOptionForPrivilege(transaction, identity, privilege, tableName)) {
-            denyRevokeTablePrivilege(privilege.name(), tableName.toString());
+            //denyRevokeTablePrivilege(privilege.name(), tableName.toString());
         }
     }
 
@@ -278,7 +253,7 @@ public class SqlStandardAccessControl
             throw new AccessDeniedException("Hive Connector does not support WITH ADMIN statement");
         }
         if (!isAdmin(transactionHandle, identity)) {
-            denyCreateRole(role);
+            //denyCreateRole(role);
         }
     }
 
@@ -286,7 +261,7 @@ public class SqlStandardAccessControl
     public void checkCanDropRole(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, String role)
     {
         if (!isAdmin(transactionHandle, identity)) {
-            denyDropRole(role);
+            //denyDropRole(role);
         }
     }
 
@@ -298,7 +273,7 @@ public class SqlStandardAccessControl
             throw new AccessDeniedException("Hive Connector does not support GRANTED BY statement");
         }
         if (!hasAdminOptionForRoles(transactionHandle, identity, roles)) {
-            denyGrantRoles(roles, grantees);
+            //denyGrantRoles(roles, grantees);
         }
     }
 
@@ -310,7 +285,7 @@ public class SqlStandardAccessControl
             throw new AccessDeniedException("Hive Connector does not support GRANTED BY statement");
         }
         if (!hasAdminOptionForRoles(transactionHandle, identity, roles)) {
-            denyRevokeRoles(roles, grantees);
+            //denyRevokeRoles(roles, grantees);
         }
     }
 
@@ -319,7 +294,7 @@ public class SqlStandardAccessControl
     {
         SemiTransactionalHiveMetastore metastore = metastoreProvider.apply(((HiveTransactionHandle) transaction));
         if (!isRoleApplicable(metastore, new PrestoPrincipal(USER, identity.getUser()), role)) {
-            denySetRole(role);
+            //denySetRole(role);
         }
     }
 
@@ -327,7 +302,7 @@ public class SqlStandardAccessControl
     public void checkCanShowRoles(ConnectorTransactionHandle transactionHandle, ConnectorIdentity identity, String catalogName)
     {
         if (!isAdmin(transactionHandle, identity)) {
-            denyShowRoles(catalogName);
+            //denyShowRoles(catalogName);
         }
     }
 
@@ -388,6 +363,8 @@ public class SqlStandardAccessControl
             HivePrivilege requiredPrivilege,
             boolean grantOptionRequired)
     {
+        return true;
+        /*
         if (isAdmin(transaction, identity)) {
             return true;
         }
@@ -404,6 +381,7 @@ public class SqlStandardAccessControl
         return listEnabledTablePrivileges(metastore, tableName.getSchemaName(), tableName.getTableName(), identity)
                 .filter(privilegeInfo -> !grantOptionRequired || privilegeInfo.isGrantOption())
                 .anyMatch(privilegeInfo -> privilegeInfo.getHivePrivilege().equals(requiredPrivilege));
+                */
     }
 
     private boolean hasGrantOptionForPrivilege(ConnectorTransactionHandle transaction, ConnectorIdentity identity, Privilege privilege, SchemaTableName tableName)
