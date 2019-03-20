@@ -93,7 +93,9 @@ public final class BlockEncodingManager
     public Block readBlock(SliceInput input)
     {
         // read the encoding name
+        // System.out.println("Reading encoding name at " + input.position());
         String encodingName = readLengthPrefixedString(input);
+        // System.out.println("encoding name " + encodingName + " length " + encodingName.length());
 
         // look up the encoding factory
         BlockEncoding blockEncoding = blockEncodings.get(encodingName);

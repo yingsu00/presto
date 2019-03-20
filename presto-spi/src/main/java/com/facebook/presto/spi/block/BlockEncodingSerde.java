@@ -27,4 +27,16 @@ public interface BlockEncodingSerde
      * Write a blockEncoding to the output.
      */
     void writeBlock(SliceOutput output, Block block);
+
+    static BlockEncodingBuffers createBlockEncodingBuffers(Block block)
+    {
+        switch (block.getEncodingName()) {
+            case LongArrayBlockEncoding.NAME:
+                return new LongArrayBlockEncodingBuffers();
+            case ArrayBlockEncoding.NAME:
+                return new ArrayBlockEncodingBuffers(block);
+            default:
+                throw new IllegalArgumentException("Unsupported encoding: " + block.getEncodingName());
+        }
+    }
 }

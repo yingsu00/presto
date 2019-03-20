@@ -48,16 +48,22 @@ public class LongArrayBlockEncoding
     @Override
     public Block readBlock(BlockEncodingSerde blockEncodingSerde, SliceInput sliceInput)
     {
+        //System.out.println("Reading positionCount at " + sliceInput.position());
         int positionCount = sliceInput.readInt();
+        //System.out.println("positionCount " + positionCount);
 
+        //System.out.println("Reading nulls at " + sliceInput.position());
         boolean[] valueIsNull = decodeNullBits(sliceInput, positionCount).orElse(null);
 
+        //System.out.println("Reading values at " + sliceInput.position());
         long[] values = new long[positionCount];
         for (int position = 0; position < positionCount; position++) {
             if (valueIsNull == null || !valueIsNull[position]) {
                 values[position] = sliceInput.readLong();
             }
         }
+
+        //System.out.println("finished block slice postion at " + sliceInput.position());
 
         return new LongArrayBlock(0, positionCount, valueIsNull, values);
     }
