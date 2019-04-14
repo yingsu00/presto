@@ -21,6 +21,8 @@ import com.facebook.presto.spi.type.Type;
 import java.io.IOException;
 import java.util.Arrays;
 
+import static java.lang.Math.min;
+
 public class ByteInputStream
         implements ValueInputStream<ByteStreamCheckpoint>
 {
@@ -104,7 +106,7 @@ public class ByteInputStream
             if (offset == length) {
                 readNextBlock();
             }
-            long consume = Math.min(items, length - offset);
+            long consume = min(items, length - offset);
             offset += consume;
             items -= consume;
         }
@@ -124,6 +126,34 @@ public class ByteInputStream
     {
         for (int i = 0; i < items; i++) {
             type.writeLong(builder, next());
+        }
+    }
+
+    public byte[] next(int items)
+            throws IOException
+    {
+        byte[] values = new byte[items];
+        next(values, items);
+        return values;
+    }
+
+    public void next(byte[] values, int items)
+            throws IOException
+    {
+        int outputOffset = 0;
+        while (outputOffset < items) {
+            if (offset == length) {
+                readNextBlock();
+            }
+            if (length == 0) {
+                throw new OrcCorruptionException(input.getOrcDataSourceId(), "Unexpected end of stream");
+            }
+
+            int chunkSize = min(items - outputOffset, length - offset);
+            System.arraycopy(buffer, offset, values, outputOffset, chunkSize);
+
+            outputOffset += chunkSize;
+            offset += chunkSize;
         }
     }
 }
