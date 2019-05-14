@@ -231,4 +231,14 @@ public class Int128ArrayBlock
             throw new IllegalArgumentException("position is not valid");
         }
     }
+
+    public void appendPositionSizesInBytes(int[] sizesInBytes)
+    {
+        throw new UnsupportedOperationException("accumulateSizesInBytes is not supported");
+    }
+
+    public void appendRegionSizesInBytes(int[] offsets, int[] sizesInBytes)
+    {
+        throw new UnsupportedOperationException("accumulateSizesInBytes is not supported");
+    }
 }

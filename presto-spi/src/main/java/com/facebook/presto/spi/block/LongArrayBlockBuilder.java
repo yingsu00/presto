@@ -123,6 +123,7 @@ public class LongArrayBlockBuilder
             initialized = true;
         }
 
+        //System.out.println(newSize);
         valueIsNull = Arrays.copyOf(valueIsNull, newSize);
         values = Arrays.copyOf(values, newSize);
         updateDataSize();
@@ -327,5 +328,17 @@ public class LongArrayBlockBuilder
         if (position < 0 || position >= getPositionCount()) {
             throw new IllegalArgumentException("position is not valid");
         }
+    }
+
+    @Override
+    public void appendPositionSizesInBytes(int[] sizesInBytes)
+    {
+        throw new UnsupportedOperationException("accumulateSizesInBytes is not supported");
+    }
+
+    @Override
+    public void appendRegionSizesInBytes(int[] offsets, int[] sizesInBytes)
+    {
+        throw new UnsupportedOperationException("accumulateSizesInBytes is not supported");
     }
 }

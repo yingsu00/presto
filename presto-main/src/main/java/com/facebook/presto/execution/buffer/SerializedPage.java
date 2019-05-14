@@ -83,4 +83,18 @@ public class SerializedPage
                 .add("uncompressedSizeInBytes", uncompressedSizeInBytes)
                 .toString();
     }
+
+    public void print()
+    {
+        System.out.println(toString());
+//        long size = slice.length();
+//        byte[] bytes = slice.getBytes();
+//        StringBuilder stringBuilder = new StringBuilder();
+//        for (int i = 0; i < size; i++) {
+//            stringBuilder.append(bytes[i]);
+//            stringBuilder.append(' ');
+//            //System.out.print(String.format("%02X ", bytes[i]));
+//        }
+//        System.out.println(stringBuilder.substring(0));
+    }
 }

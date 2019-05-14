@@ -25,7 +25,7 @@ public abstract class AbstractVariableWidthBlock
 {
     protected abstract Slice getRawSlice(int position);
 
-    protected abstract int getPositionOffset(int position);
+    public abstract int getPositionOffset(int position);
 
     protected abstract boolean isEntryNull(int position);
 
@@ -165,5 +165,17 @@ public abstract class AbstractVariableWidthBlock
     protected void checkReadablePosition(int position)
     {
         checkValidPosition(position, getPositionCount());
+    }
+
+    @Override
+    public void appendPositionSizesInBytes(int[] sizesInBytes)
+    {
+        throw new UnsupportedOperationException("accumulateSizesInBytes is not supported");
+    }
+
+    @Override
+    public void appendRegionSizesInBytes(int[] offsets, int[] sizesInBytes)
+    {
+        throw new UnsupportedOperationException("accumulateSizesInBytes is not supported");
     }
 }

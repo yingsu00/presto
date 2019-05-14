@@ -128,6 +128,7 @@ public class FeaturesConfig
     private boolean legacyUnnestArrayRows;
 
     private boolean jsonSerdeCodeGenerationEnabled;
+    private boolean useOptimizedPartitionedOutput;
 
     public enum JoinReorderingStrategy
     {
@@ -952,5 +953,17 @@ public class FeaturesConfig
     public boolean isPushLimitThroughOuterJoin()
     {
         return pushLimitThroughOuterJoin;
+    }
+
+    @Config("experimental.use-optimized-partitioned-output")
+    public FeaturesConfig setUseOptimizedPartitionedOutput(boolean useOptimizedPartitionedOutput)
+    {
+        this.useOptimizedPartitionedOutput = useOptimizedPartitionedOutput;
+        return this;
+    }
+
+    public boolean useOptimizedPartitionedOutput()
+    {
+        return useOptimizedPartitionedOutput;
     }
 }

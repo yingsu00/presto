@@ -13,7 +13,9 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.Session;
 import com.facebook.presto.block.BlockEncodingManager;
+import com.facebook.presto.client.ClientCapabilities;
 import com.facebook.presto.execution.StateMachine;
 import com.facebook.presto.execution.buffer.OutputBuffers;
 import com.facebook.presto.execution.buffer.PagesSerdeFactory;
@@ -24,8 +26,8 @@ import com.facebook.presto.operator.exchange.LocalPartitionGenerator;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.block.BlockBuilder;
-import com.facebook.presto.spi.type.RowType;
 import com.facebook.presto.spi.type.Type;
+import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.facebook.presto.testing.TestingTaskContext;
 import com.facebook.presto.type.TypeRegistry;
@@ -37,6 +39,7 @@ import org.openjdk.jmh.annotations.Fork;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
@@ -46,36 +49,39 @@ import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.VerboseMode;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
+import static com.facebook.presto.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
+import static com.facebook.presto.SystemSessionProperties.JOIN_REORDERING_STRATEGY;
+import static com.facebook.presto.SystemSessionProperties.OPTIMIZED_PARTITIONED_OUTPUT;
 import static com.facebook.presto.execution.buffer.BufferState.OPEN;
 import static com.facebook.presto.execution.buffer.BufferState.TERMINAL_BUFFER_STATES;
 import static com.facebook.presto.execution.buffer.OutputBuffers.BufferType.PARTITIONED;
 import static com.facebook.presto.execution.buffer.OutputBuffers.createInitialEmptyOutputBuffers;
 import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
-import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
+import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
+import static com.facebook.presto.tpch.TpchMetadata.TINY_SCHEMA_NAME;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
-import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.airlift.units.DataSize.Unit.GIGABYTE;
+import static java.util.Arrays.stream;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 @State(Scope.Thread)
 @OutputTimeUnit(MILLISECONDS)
-@Fork(2)
-@Warmup(iterations = 20, time = 500, timeUnit = MILLISECONDS)
-@Measurement(iterations = 20, time = 500, timeUnit = MILLISECONDS)
+@Fork(0)
+@Warmup(iterations = 5, time = 500, timeUnit = MILLISECONDS)
+@Measurement(iterations = 5  , time = 500, timeUnit = MILLISECONDS)
 @BenchmarkMode(Mode.AverageTime)
 public class BenchmarkPartitionedOutputOperator
 {
@@ -94,12 +100,14 @@ public class BenchmarkPartitionedOutputOperator
     {
         private static final int PAGE_COUNT = 5000;
         private static final int PARTITION_COUNT = 512;
-        private static final int ENTRIES_PER_PAGE = 256;
+        private static final int ENTRIES_PER_PAGE = 10000;
         private static final DataSize MAX_MEMORY = new DataSize(1, GIGABYTE);
-        private static final RowType rowType = RowType.anonymous(ImmutableList.of(VARCHAR, VARCHAR, VARCHAR, VARCHAR));
-        private static final List<Type> TYPES = ImmutableList.of(BIGINT, rowType, rowType, rowType);
+        private static final List<Type> TYPES = ImmutableList.of(BIGINT);
         private static final ExecutorService EXECUTOR = newCachedThreadPool(daemonThreadsNamed("test-EXECUTOR-%s"));
         private static final ScheduledExecutorService SCHEDULER = newScheduledThreadPool(1, daemonThreadsNamed("test-%s"));
+
+        @Param({"true"})
+        private String useOptimized = "true";
 
         private final Page dataPage = createPage();
 
@@ -115,7 +123,7 @@ public class BenchmarkPartitionedOutputOperator
 
         private PartitionedOutputOperator createPartitionedOutputOperator()
         {
-            PartitionFunction partitionFunction = new LocalPartitionGenerator(new InterpretedHashGenerator(ImmutableList.of(BIGINT), new int[] {0}), PARTITION_COUNT);
+            PartitionFunction partitionFunction = new LocalPartitionGenerator(new PrecomputedHashGenerator(0), PARTITION_COUNT);
             PagesSerdeFactory serdeFactory = new PagesSerdeFactory(new BlockEncodingManager(new TypeRegistry()), false);
             OutputBuffers buffers = createInitialEmptyOutputBuffers(PARTITIONED);
             for (int partition = 0; partition < PARTITION_COUNT; partition++) {
@@ -140,60 +148,27 @@ public class BenchmarkPartitionedOutputOperator
 
         private Page createPage()
         {
-            List<Object>[] testRows = generateTestRows(ImmutableList.of(VARCHAR, VARCHAR, VARCHAR, VARCHAR), ENTRIES_PER_PAGE);
             PageBuilder pageBuilder = new PageBuilder(TYPES);
             BlockBuilder bigintBlockBuilder = pageBuilder.getBlockBuilder(0);
-            BlockBuilder rowBlockBuilder = pageBuilder.getBlockBuilder(1);
-            BlockBuilder rowBlockBuilder2 = pageBuilder.getBlockBuilder(2);
-            BlockBuilder rowBlockBuilder3 = pageBuilder.getBlockBuilder(3);
             for (int i = 0; i < ENTRIES_PER_PAGE; i++) {
                 BIGINT.writeLong(bigintBlockBuilder, i);
-                writeRow(testRows[i], rowBlockBuilder);
-                writeRow(testRows[i], rowBlockBuilder2);
-                writeRow(testRows[i], rowBlockBuilder3);
             }
             pageBuilder.declarePositions(ENTRIES_PER_PAGE);
             return pageBuilder.build();
         }
 
-        private void writeRow(List<Object> testRow, BlockBuilder rowBlockBuilder)
-        {
-            BlockBuilder singleRowBlockWriter = rowBlockBuilder.beginBlockEntry();
-            for (Object fieldValue : testRow) {
-                if (fieldValue instanceof String) {
-                    VARCHAR.writeSlice(singleRowBlockWriter, utf8Slice((String) fieldValue));
-                }
-                else {
-                    throw new UnsupportedOperationException();
-                }
-            }
-            rowBlockBuilder.closeEntry();
-        }
-
-        // copied & modifed from TestRowBlock
-        private List<Object>[] generateTestRows(List<Type> fieldTypes, int numRows)
-        {
-            List<Object>[] testRows = new List[numRows];
-            for (int i = 0; i < numRows; i++) {
-                List<Object> testRow = new ArrayList<>(fieldTypes.size());
-                for (int j = 0; j < fieldTypes.size(); j++) {
-                    if (fieldTypes.get(j) == VARCHAR) {
-                        byte[] data = new byte[ThreadLocalRandom.current().nextInt(128)];
-                        ThreadLocalRandom.current().nextBytes(data);
-                        testRow.add(new String(data));
-                    }
-                    else {
-                        throw new UnsupportedOperationException();
-                    }
-                }
-                testRows[i] = testRow;
-            }
-            return testRows;
-        }
-
         private DriverContext createDriverContext()
         {
-            return TestingTaskContext.builder(EXECUTOR, SCHEDULER, TEST_SESSION)
+            Session testSession = testSessionBuilder()
+                    .setCatalog("tpch")
+                    .setSchema(TINY_SCHEMA_NAME)
+                    .setClientCapabilities(stream(ClientCapabilities.values())
+                            .map(ClientCapabilities::toString)
+                            .collect(toImmutableSet()))
+                    .setSystemProperty(OPTIMIZED_PARTITIONED_OUTPUT, useOptimized)
+                    .build();
+
+            return TestingTaskContext.builder(EXECUTOR, SCHEDULER, testSession)
                     .setMemoryPoolSize(MAX_MEMORY)
                     .build()
                     .addPipelineContext(0, true, true, false)
@@ -217,10 +192,13 @@ public class BenchmarkPartitionedOutputOperator
     {
         // assure the benchmarks are valid before running
         BenchmarkData data = new BenchmarkData();
-        new BenchmarkPartitionedOutputOperator().addPage(data);
+        //BenchmarkPartitionedOutputOperator operator = new BenchmarkPartitionedOutputOperator();
+
+        //new BenchmarkPartitionedOutputOperator().addPage(data);
         Options options = new OptionsBuilder()
                 .verbosity(VerboseMode.NORMAL)
-                .jvmArgs("-Xmx10g")
+                .jvmArgs("-Xmx100g")
+                //, "-server", "-XX:+UnlockDiagnosticVMOptions", "-XX:+PrintCompilation", "-XX:+PrintInlining")
                 .include(".*" + BenchmarkPartitionedOutputOperator.class.getSimpleName() + ".*")
                 .build();
         new Runner(options).run();
