@@ -27,17 +27,19 @@ import static java.lang.Math.max;
 import static java.lang.String.format;
 import static sun.misc.Unsafe.ARRAY_LONG_INDEX_SCALE;
 
-public class LongArrayBlockEncodingBuffers
+public class ByteArrayBlockEncodingBuffers
         extends BlockEncodingBuffers
 {
-    public static final String NAME = "LONG_ARRAY";
-    public static final int DEFAULT_MAX_ELEMENT_COUNT = 128 * 1024;
+    public static final String NAME = "BYTE_ARRAY";
+    public static final int DEFAULT_MAX_ELEMENT_COUNT = 1024 * 1024;
 
     // These are single piece buffers for now. They will be requested from buffer pool dynamically
+//    private byte[] nullsBuffer;
+//    private int nullsBufferIndex;
     private byte[] valuesBuffer;
     private int valuesBufferIndex;
 
-    LongArrayBlockEncodingBuffers(int[] positions)
+    ByteArrayBlockEncodingBuffers(int[] positions)
     {
         this.positions = positions;
         prepareBuffers();
@@ -47,8 +49,13 @@ public class LongArrayBlockEncodingBuffers
     void prepareBuffers()
     {
         // TODO: These local buffers will be requested from the buffer pools in the future.
+//        if (nullsBuffer == null) {
+//            nullsBuffer = new byte[DEFAULT_MAX_ELEMENT_COUNT / ARRAY_BYTE_INDEX_SCALE];
+//        }
+//        nullsBufferIndex = 0;
+
         if (valuesBuffer == null) {
-            valuesBuffer = new byte[DEFAULT_MAX_ELEMENT_COUNT * ARRAY_LONG_INDEX_SCALE];
+            valuesBuffer = new byte[DEFAULT_MAX_ELEMENT_COUNT];
         }
         valuesBufferIndex = 0;
     }
@@ -56,11 +63,12 @@ public class LongArrayBlockEncodingBuffers
     void resetBuffers()
     {
         bufferedPositionCount = 0;
-        valuesBufferIndex = 0;
         nullsBufferIndex = 0;
         remainingNullsCount = 0;
         containsNull = false;
+        valuesBufferIndex = 0;
     }
+
     void setColumnarObject(PartitionedOutputOperator.ColumnarObjectNode columnarObjectNode)
     {
         throw new UnsupportedOperationException("LongArrayBlockEncodingBuffers does not support setColumnarObject");
@@ -87,24 +95,18 @@ public class LongArrayBlockEncodingBuffers
 
     void writeTo(SliceOutput sliceOutput)
     {
-        try {
-             //System.out.println("Writing encoding Name " + NAME + " at " + sliceOutput.size() + " slize capacity " + ((BasicSliceOutput) sliceOutput).getUnderlyingSlice().length());
-            writeLengthPrefixedString(sliceOutput, NAME);
-             //System.out.println("Writing bufferedPositionCount(positionCount) " + bufferedPositionCount + " at " + sliceOutput.size()+ " slize capacity " + ((BasicSliceOutput) sliceOutput).getUnderlyingSlice().length());
-            sliceOutput.writeInt(bufferedPositionCount);
+         System.out.println("Writing encoding Name " + NAME + " at " + sliceOutput.size());
+        writeLengthPrefixedString(sliceOutput, NAME);
+         System.out.println("Writing bufferedPositionCount(positionCount) " + bufferedPositionCount + " at " + sliceOutput.size());
+        sliceOutput.writeInt(bufferedPositionCount);
 
-             //System.out.println("Writing nullsBuffer at " + sliceOutput.size());
-            // TODO: When the buffers are requested from buffer pool, they would be linked lists of buffers, then we need to copy them one by one to sliceOutput.
+         System.out.println("Writing nullsBuffer at " + sliceOutput.size());
+        // TODO: When the buffers are requested from buffer pool, they would be linked lists of buffers, then we need to copy them one by one to sliceOutput.
+        writeNullsTo(sliceOutput);
 
-            writeNullsTo(sliceOutput);
-
-             //System.out.println("Writing valuesBuffer at " + sliceOutput.size()+ " slize capacity " + ((BasicSliceOutput) sliceOutput).getUnderlyingSlice().length());
-            sliceOutput.appendBytes(valuesBuffer, 0, valuesBufferIndex);
-             //System.out.println("Writing Block finishes at " + sliceOutput.size()+ " slize capacity " + ((BasicSliceOutput) sliceOutput).getUnderlyingSlice().length());
-        }
-        catch (Exception e) {
-            e.printStackTrace();
-        }
+         System.out.println("Writing valuesBuffer at " + sliceOutput.size());
+        sliceOutput.appendBytes(valuesBuffer, 0, valuesBufferIndex);
+         System.out.println("Writing Block finishes at " + sliceOutput.size());
     }
 
     int getSizeInBytes()
@@ -119,26 +121,22 @@ public class LongArrayBlockEncodingBuffers
     {
         ensureValueBufferSize();
         if (block.mayHaveNull()) {
-            appendLongsWithNullsToBuffer(block);
-            //appendNulls(block);
+            appendBytesWithNullsToBuffer(block);
         }
         else {
-            appendLongsToBuffer(block);
+            appendBytesToBuffer(block);
         }
     }
 
-    private void appendLongsToBuffer(Block block)
+    private void appendBytesToBuffer(Block block)
     {
-        ensureValueBufferSize();
-
         //System.out.println("appendValuesToBuffer positionsOffset " + positionsOffset + " batchSize " + batchSize + " block size " + block.getPositionCount());
         for (int i = positionsOffset; i < positionsOffset + batchSize; i++) {
             //System.out.println("i " + i + " positions[i] " + positions[i]);
             //try {
-                long value = block.getLong(positions[i]);
-                //long value = block.getLong(positions[i]);
-                ByteArrayUtils.writeLong(valuesBuffer, valuesBufferIndex, value);
-                valuesBufferIndex += ARRAY_LONG_INDEX_SCALE;
+            byte value = block.getByte(positions[i]);
+            ByteArrayUtils.writeByte(valuesBuffer, valuesBufferIndex, value);
+            valuesBufferIndex += ARRAY_LONG_INDEX_SCALE;
 //            }
 //            catch (ArrayIndexOutOfBoundsException e) {
 //                e.printStackTrace();
@@ -146,14 +144,15 @@ public class LongArrayBlockEncodingBuffers
         }
     }
 
-    private void appendLongsWithNullsToBuffer(Block block)
+    private void appendBytesWithNullsToBuffer(Block block)
     {
         ensureValueBufferSize();
 
         for (int i = positionsOffset; i < positionsOffset + batchSize; i++) {
             int position = positions[i];
-            long value = block.getLong(position);
-            ByteArrayUtils.writeLong(valuesBuffer, valuesBufferIndex, value);
+            byte value = block.getByte(position);
+            ByteArrayUtils.writeByte(valuesBuffer, valuesBufferIndex, value);
+            valuesBufferIndex += ARRAY_LONG_INDEX_SCALE;
             if (!block.isNull(position)) {
                 valuesBufferIndex += ARRAY_LONG_INDEX_SCALE;
             }
@@ -162,9 +161,10 @@ public class LongArrayBlockEncodingBuffers
 
     private void ensureValueBufferSize()
     {
-        int requiredSize = valuesBufferIndex + batchSize * ARRAY_LONG_INDEX_SCALE;
+        int requiredSize = valuesBufferIndex + batchSize;
         if (requiredSize > valuesBuffer.length) {
             valuesBuffer = Arrays.copyOf(valuesBuffer, max(valuesBuffer.length * 2, requiredSize));
         }
     }
 }
+

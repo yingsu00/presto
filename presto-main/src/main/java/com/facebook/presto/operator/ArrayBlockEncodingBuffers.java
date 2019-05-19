@@ -15,20 +15,18 @@ package com.facebook.presto.operator;
 
 import com.facebook.presto.spi.block.AbstractArrayBlock;
 import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.ColumnarArray;
 import io.airlift.slice.ByteArrays;
 import io.airlift.slice.SliceOutput;
 
 import java.util.Arrays;
 
 import static com.facebook.presto.operator.ByteArrayUtils.writeLengthPrefixedString;
-import static com.facebook.presto.spi.block.ColumnarArray.toColumnarArray;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Verify.verify;
 import static io.airlift.slice.SizeOf.SIZE_OF_BYTE;
 import static io.airlift.slice.SizeOf.SIZE_OF_INT;
 import static java.lang.Math.max;
-import static java.lang.String.format;
-import static sun.misc.Unsafe.ARRAY_BYTE_INDEX_SCALE;
 import static sun.misc.Unsafe.ARRAY_INT_INDEX_SCALE;
 import static sun.misc.Unsafe.ARRAY_LONG_INDEX_SCALE;
 
@@ -39,43 +37,37 @@ public class ArrayBlockEncodingBuffers
     public static final int DEFAULT_MAX_ELEMENT_COUNT = 8 * 1024;
 
     // TODO: These are single piece buffers for now. They will become linked list of pages requested from buffer pool.
-    // TODO: we need to decide how we can operate on the buffers. Slice itself doesn't allow appending, and DynamicSliceOutput does capacity check for every value. If we modify DynamicSliceOutput we need to modify Airlift.
-    // If we directly operate on byte[] we need to decide the interface. Currently we'll use ByteArrayUtils for updating batch of rows, and ByteArrays in Airlift to update single value
-    private byte[] nullsBuffer;
-    private int nullsBufferIndex;  //The next byte address if new values to be added.
     private byte[] offsetsBuffer;
     private int offsetsBufferIndex;  //The next byte address if new positions to be added.
-    private Block rawBlock;
+
+    private ColumnarArray columnarArray;
     private BlockEncodingBuffers rawBlockBuffer;
 
-    public ArrayBlockEncodingBuffers(Block block, int[] positions)
+    ArrayBlockEncodingBuffers(PartitionedOutputOperator.ColumnarObjectNode columnarObjectNode, int[] positions)
     {
         this.positions = positions;
-        Block rawBlock = toColumnarArray(block).getElementsBlock();
+        ColumnarArray columnarArray = (ColumnarArray)columnarObjectNode.columnarObject;
+        Block rawBlock = columnarArray.getElementsBlock();
 
         int[] nestedLevelPositions = new int[positions.length * 2];
-        rawBlockBuffer = createBlockEncodingBuffers(rawBlock, nestedLevelPositions);
+        rawBlockBuffer = createBlockEncodingBuffers(rawBlock, columnarObjectNode.getChild(0), nestedLevelPositions);
         prepareBuffers();
     }
 
-    @Override
-    public void resetBuffers()
-    {
-        bufferedPositionCount = 0;
-        nullsBufferIndex = 0;
-        offsetsBufferIndex = 0;
-        rawBlockBuffer.resetBuffers();
-    }
+//    ArrayBlockEncodingBuffers(Block block, int[] positions)
+//    {
+//        this.positions = positions;
+//        Block rawBlock = toColumnarArray(block).getElementsBlock();
+//
+//        int[] nestedLevelPositions = new int[positions.length * 2];
+//        rawBlockBuffer = createBlockEncodingBuffers(rawBlock, nestedLevelPositions);
+//        prepareBuffers();
+//    }
 
     @Override
-    protected void prepareBuffers()
+    void prepareBuffers()
     {
         // TODO: These local buffers will be requested from the buffer pools in the future.
-        if (nullsBuffer == null) {
-            nullsBuffer = new byte[DEFAULT_MAX_ELEMENT_COUNT / ARRAY_BYTE_INDEX_SCALE];
-        }
-        nullsBufferIndex = 0;
-
         if (offsetsBuffer == null) {
             offsetsBuffer = new byte[DEFAULT_MAX_ELEMENT_COUNT * ARRAY_LONG_INDEX_SCALE];
         }
@@ -85,7 +77,27 @@ public class ArrayBlockEncodingBuffers
     }
 
     @Override
-    public void copyValues(Block block)
+    void resetBuffers()
+    {
+        bufferedPositionCount = 0;
+        nullsBufferIndex = 0;
+        remainingNullsCount = 0;
+        containsNull = false;
+        offsetsBufferIndex = 0;
+        rawBlockBuffer.resetBuffers();
+    }
+
+    void setColumnarObject(PartitionedOutputOperator.ColumnarObjectNode columnarBLock)
+    {
+        columnarArray = (ColumnarArray) columnarBLock.columnarObject;
+        PartitionedOutputOperator.ColumnarObjectNode childNode = columnarBLock.getChild(0);
+        if (childNode != null) {
+            rawBlockBuffer.setColumnarObject(childNode);
+        }
+    }
+
+    @Override
+    void copyValues(Block block)
     {
         verify(positionsOffset + batchSize - 1 < positions.length && positions[positionsOffset] >= 0 && positions[positionsOffset + batchSize - 1] < block.getPositionCount());
 //                format("positionOffset %d + batchSize %d - 1 should be less than the positions array size %d, " +
@@ -99,25 +111,36 @@ public class ArrayBlockEncodingBuffers
 //                        block.getPositionCount()));
 
         appendOffsets(block);
+        appendNulls(block);
 
-        Block arrayBlock = toColumnarArray(block).getElementsBlock();
-        rawBlockBuffer.copyValues(arrayBlock);
+        rawBlockBuffer.copyValues(columnarArray.getElementsBlock());
 
         bufferedPositionCount += batchSize;
     }
-//
-//    public void appendFixedWidthValues(Object values, boolean[] nulls, boolean mayHaveNull, int offsetBase)
-//    {
-//        throw new UnsupportedOperationException(getClass().getName() + " doesn't support appendLongValues");
-//    }
 
-    public void appendNulls(boolean mayHaveNull, boolean[] nulls, int offsetBase)
+    void writeTo(SliceOutput sliceOutput)
     {
-        //TODO: ensure valuesBuffer has enough space for these rows. We will make it to request a new buffer and append to the end of current buffer if the current buffer has no enough room
-        // Also needs to evaluate the performance using DynamicSliceInput vs Slice vs byte[]
-        if (mayHaveNull) {
-            nullsBufferIndex = ByteArrayUtils.encodeNullsAsBits(nulls, positions, positionsOffset, batchSize, nullsBuffer, nullsBufferIndex);
-        }
+        writeLengthPrefixedString(sliceOutput, NAME);
+        //
+
+        // TODO: When the buffers are requested from buffer pool, they would be linked lists of buffers, then we need to copy them one by one to sliceOutput.
+        rawBlockBuffer.writeTo(sliceOutput);
+
+        sliceOutput.writeInt(bufferedPositionCount); //positionCount
+
+        sliceOutput.writeInt(0);  // the base position
+        sliceOutput.appendBytes(offsetsBuffer, 0, offsetsBufferIndex);
+
+        writeNullsTo(sliceOutput);
+    }
+
+    int getSizeInBytes()
+    {
+        return NAME.length() + SIZE_OF_INT +  // encoding name
+                rawBlockBuffer.getSizeInBytes() +
+                SIZE_OF_INT +  // positionCount
+                SIZE_OF_INT + offsetsBufferIndex + // offsets. The offsetsBuffer doesn't contain the offset 0 so we need to add it here.
+                SIZE_OF_BYTE + nullsBufferIndex + (remainingNullsCount > 0 ? SIZE_OF_BYTE : 0); //nulls
     }
 
     private void appendOffsets(Block block)
@@ -127,8 +150,6 @@ public class ArrayBlockEncodingBuffers
 
         verify(offsetsBufferIndex == bufferedPositionCount * ARRAY_INT_INDEX_SCALE);
 //                format("offsetsBufferIndex %d should equal to bufferedPositionCount %d * ARRAY_INT_INDEX_SCALE %d.", offsetsBufferIndex, bufferedPositionCount, ARRAY_INT_INDEX_SCALE));
-
-
 
         int lastOffset = 0;
         if (offsetsBufferIndex > 0) {
@@ -158,37 +179,6 @@ public class ArrayBlockEncodingBuffers
 
             lastOffset = currentOffset;
         }
-    }
-
-    public void writeTo(SliceOutput sliceOutput)
-    {
-        writeLengthPrefixedString(sliceOutput, NAME);
-        //
-
-        // TODO: When the buffers are requested from buffer pool, they would be linked lists of buffers, then we need to copy them one by one to sliceOutput.
-        rawBlockBuffer.writeTo(sliceOutput);
-
-        sliceOutput.writeInt(bufferedPositionCount); //positionCount
-
-        sliceOutput.writeInt(0);  // the base position
-        sliceOutput.appendBytes(offsetsBuffer, 0, offsetsBufferIndex);
-
-        if (nullsBufferIndex > 0) {
-            sliceOutput.writeBoolean(true);
-            sliceOutput.appendBytes(nullsBuffer, 0, nullsBufferIndex);
-        }
-        else {
-            sliceOutput.writeBoolean(false);
-        }
-    }
-
-    public int getSizeInBytes()
-    {
-        return NAME.length() + SIZE_OF_INT +  // encoding name
-                rawBlockBuffer.getSizeInBytes() +
-                SIZE_OF_INT +  // positionCount
-                SIZE_OF_INT + offsetsBufferIndex + // offsets. The offsetsBuffer doesn't contain the offset 0 so we need to add it here.
-                SIZE_OF_BYTE + nullsBufferIndex + 1; //nulls
     }
 
     private void ensureOffsetsBufferSize()

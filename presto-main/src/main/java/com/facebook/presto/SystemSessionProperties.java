@@ -586,7 +586,7 @@ public final class SystemSessionProperties
                 booleanProperty(
                         OPTIMIZED_PARTITIONED_OUTPUT,
                         "push limits to the outer side of an outer join",
-                        featuresConfig.useOptimizedPartitionedOutput(),
+                        featuresConfig.isOptimizedPartitionedOutput(),
                         false)
                 );
     }

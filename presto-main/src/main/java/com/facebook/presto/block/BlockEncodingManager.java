@@ -32,6 +32,7 @@ import com.facebook.presto.spi.block.SingleRowBlockEncoding;
 import com.facebook.presto.spi.block.VariableWidthBlockEncoding;
 import com.facebook.presto.spi.type.TypeManager;
 import com.google.common.collect.ImmutableSet;
+import io.airlift.slice.BasicSliceInput;
 import io.airlift.slice.SliceInput;
 import io.airlift.slice.SliceOutput;
 
@@ -94,12 +95,12 @@ public final class BlockEncodingManager
     {
         // read the encoding name
         long position1 = input.position();
-         // System.out.println("readBlock Reading encoding name at " + input.position());
+         // System.out.println("readBlock Reading encoding name at " + input.position() + " slice size " + ((BasicSliceInput)input).length());
 
         String encodingName = readLengthPrefixedString(input);
         long position2 = input.position();
-         // System.out.println("encoding name " + encodingName + " length " + encodingName.length() + " position " + position2);
-         //assert(position1 + 14 == position2);
+        //  System.out.println("encoding name " + encodingName + " length " + encodingName.length() + " position " + position2 + " slice size " + ((BasicSliceInput)input).length());
+         assert(position1 + 14 == position2);
 
         // look up the encoding factory
         BlockEncoding blockEncoding = blockEncodings.get(encodingName);
@@ -139,6 +140,7 @@ public final class BlockEncodingManager
     private static String readLengthPrefixedString(SliceInput input)
     {
         int length = input.readInt();
+        // System.out.println("Read encoding name length " + length);
         byte[] bytes = new byte[length];
         input.readBytes(bytes);
         return new String(bytes, UTF_8);

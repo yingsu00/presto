@@ -120,7 +120,7 @@ public class LongArrayBlock
     @Override
     public long getLong(int position)
     {
-        //checkReadablePosition(position);
+        checkReadablePosition(position);
         return values[position + arrayOffset];
     }
 
@@ -262,16 +262,17 @@ public class LongArrayBlock
     @Override
     public void appendPositionSizesInBytes(int[] sizesInBytes)
     {
+        // The top level should not be called.
         // TODO: validate sizesInBytes.length >= positionCount
-        int averageElementSize = Long.BYTES;
-        if (mayHaveNull()) {
-            // TODO: this is overestimating.
-            averageElementSize += 1;
-        }
-        //arrayOffset doesnt' matter
-        for (int i = 0; i < positionCount; i++) {
-            sizesInBytes[i] += averageElementSize;
-        }
+//        int averageElementSize = Long.BYTES;
+//        if (mayHaveNull()) {
+//            // TODO: this is overestimating.
+//            averageElementSize += 1;
+//        }
+//        //arrayOffset doesnt' matter
+//        for (int i = 0; i < positionCount; i++) {
+//            sizesInBytes[i] += averageElementSize;
+//        }
     }
 
     @Override
@@ -282,8 +283,12 @@ public class LongArrayBlock
         if (mayHaveNull()) {
             averageElementSize += 1;
         }
+
+        int startPosition = offsets[0];
         for (int i = 0; i < offsets.length - 1; i++) {
-            sizesInBytes[i] += (offsets[i + 1] - offsets[i]) * averageElementSize;
+            int endPosition = offsets[i + 1];
+            sizesInBytes[i] += (endPosition- startPosition) * averageElementSize;
+            startPosition = endPosition;
         }
     }
 }

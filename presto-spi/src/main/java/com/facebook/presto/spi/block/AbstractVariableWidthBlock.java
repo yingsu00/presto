@@ -17,15 +17,17 @@ import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.airlift.slice.XxHash64;
 
+import java.util.Arrays;
+
 import static com.facebook.presto.spi.block.BlockUtil.checkValidPosition;
 import static io.airlift.slice.Slices.EMPTY_SLICE;
 
 public abstract class AbstractVariableWidthBlock
         implements Block
 {
-    protected abstract Slice getRawSlice(int position);
-
     public abstract int getPositionOffset(int position);
+
+    protected abstract Slice getRawSlice(int position);
 
     protected abstract boolean isEntryNull(int position);
 
@@ -167,15 +169,37 @@ public abstract class AbstractVariableWidthBlock
         checkValidPosition(position, getPositionCount());
     }
 
+
     @Override
     public void appendPositionSizesInBytes(int[] sizesInBytes)
     {
-        throw new UnsupportedOperationException("accumulateSizesInBytes is not supported");
+        int averageElementSize = Integer.BYTES;
+        if (mayHaveNull()) {
+            averageElementSize += 1;
+        }
+
+        int startOffset = getPositionOffset(0);
+        for (int i = 0; i < getPositionCount(); i++) {
+            int endOffset = getPositionOffset(i + 1);
+            sizesInBytes[i] += (endOffset - startOffset + averageElementSize);  // The slice size for this row and offset
+            startOffset = endOffset;
+        }
     }
 
     @Override
     public void appendRegionSizesInBytes(int[] offsets, int[] sizesInBytes)
     {
-        throw new UnsupportedOperationException("accumulateSizesInBytes is not supported");
+        // offset and null array cost per row
+        int averageElementSize = Integer.BYTES;
+        if (mayHaveNull()) {
+            averageElementSize += 1;
+        }
+
+        int startPosition = offsets[0];
+        for (int i = 0; i < offsets.length - 1; i++) {
+            int endPosition = offsets[i + 1];
+            sizesInBytes[i] += (getPositionOffset(endPosition) - getPositionOffset(startPosition) + averageElementSize);  // The slice size for this row and offset
+            startPosition = endPosition;
+        }
     }
 }

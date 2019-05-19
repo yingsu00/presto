@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import io.airlift.slice.ByteArrays;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceOutput;
 import sun.misc.Unsafe;
@@ -177,11 +178,34 @@ public class ByteArrayUtils
 //    {
 //        unsafe.putInt(bytes, (long) index, value);
 //    }
+//
+//    public static int writeSlice(byte[] bytes, int index, Slice slice)
+//    {
+//        copyMemory(slice.getBase(), slice.getAddress(), bytes, (long) index + ARRAY_BYTE_BASE_OFFSET, slice.length());
+//        return index + slice.length();
+//    }
+
+    public static void writeByte(byte[] bytes, int index, byte value)
+    {
+        unsafe.putByte(bytes, (long) index + ARRAY_BYTE_BASE_OFFSET, value);
+    }
 
     public static int writeSlice(byte[] bytes, int index, Slice slice)
     {
-        copyMemory(slice.getBase(), slice.getAddress(), bytes, (long) index + ARRAY_BYTE_BASE_OFFSET, slice.length());
+        unsafe.copyMemory(slice.getBase(), slice.getAddress(),bytes, (long) index + ARRAY_BYTE_BASE_OFFSET, slice.length());
         return index + slice.length();
+    }
+
+    public static int writeValues(byte[] bytes, int index, int length, byte value)
+    {
+        unsafe.setMemory(bytes, index + ARRAY_BYTE_BASE_OFFSET, length, value);
+        return index + length;
+    }
+
+    public static int copyBytes(byte[] destination, int destinationIndex, byte[] source, int sourceIndex, int length)
+    {
+        unsafe.copyMemory(source, (long) sourceIndex + ARRAY_BYTE_BASE_OFFSET, destination, (long) destinationIndex + ARRAY_BYTE_BASE_OFFSET, length);
+        return sourceIndex + length;
     }
 
     static void writeLengthPrefixedString(SliceOutput output, String value)

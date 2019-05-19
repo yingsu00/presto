@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
+
 package com.facebook.presto.operator;
 
 import com.facebook.presto.spi.Page;
@@ -59,44 +59,44 @@ public class BenchmarkPartitionedOutputOperatorAppendToBuffers
 {
     private static final int RUNS = 1000;
 //
-//    @Benchmark
-//    public void addLongValuesToByteArrayBuffer(BenchmarkData data)
-//    {
-//        for (int i = 0; i < RUNS; i++) {
-//            int[][] longValueBufferIndexes = data.getLongValueBufferIndexes();
-//
-//            int pageCount = data.getPageCount();
-//            for (int pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-//                for (int channelIndex = 0; channelIndex < data.channelCount; channelIndex++) {
-//                    long[] longValues = data.getLongValues(pageIndex, channelIndex);
-//                    boolean[] nulls = data.getNulls(pageIndex, channelIndex);
-//                    for (int partition = 0; partition < data.PARTITION_COUNT; partition++) {
-//                        if (data.mayHaveNull) {
-//                            longValueBufferIndexes[partition][channelIndex] = ByteArrayUtils.putLongValuesWithNullsToBuffer(
-//                                    longValues,
-//                                    nulls,
-//                                    data.getPositions(partition),
-//                                    0,
-//                                    data.getPostistionCount(partition),
-//                                    0,
-//                                    data.getLongValueBuffer(partition, channelIndex),
-//                                    longValueBufferIndexes[partition][channelIndex]);
-//                        }
-//                        else {
-//                            longValueBufferIndexes[partition][channelIndex] = ByteArrayUtils.putLongValuesToBuffer(
-//                                    longValues,
-//                                    data.getPositions(partition),
-//                                    0,
-//                                    data.getPostistionCount(partition),
-//                                    0,
-//                                    data.getLongValueBuffer(partition, channelIndex),
-//                                    longValueBufferIndexes[partition][channelIndex]);
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
+    @Benchmark
+    public void addLongValuesToByteArrayBuffer(BenchmarkData data)
+    {
+        for (int i = 0; i < RUNS; i++) {
+            int[][] longValueBufferIndexes = data.getLongValueBufferIndexes();
+
+            int pageCount = data.getPageCount();
+            for (int pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+                for (int channelIndex = 0; channelIndex < data.channelCount; channelIndex++) {
+                    long[] longValues = data.getLongValues(pageIndex, channelIndex);
+                    boolean[] nulls = data.getNulls(pageIndex, channelIndex);
+                    for (int partition = 0; partition < data.PARTITION_COUNT; partition++) {
+                        if (data.mayHaveNull) {
+                            longValueBufferIndexes[partition][channelIndex] = ByteArrayUtils.putLongValuesWithNullsToBuffer(
+                                    longValues,
+                                    nulls,
+                                    data.getPositions(partition),
+                                    0,
+                                    data.getPostistionCount(partition),
+                                    0,
+                                    data.getLongValueBuffer(partition, channelIndex),
+                                    longValueBufferIndexes[partition][channelIndex]);
+                        }
+                        else {
+                            longValueBufferIndexes[partition][channelIndex] = ByteArrayUtils.putLongValuesToBuffer(
+                                    longValues,
+                                    data.getPositions(partition),
+                                    0,
+                                    data.getPostistionCount(partition),
+                                    0,
+                                    data.getLongValueBuffer(partition, channelIndex),
+                                    longValueBufferIndexes[partition][channelIndex]);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
 //    @Benchmark
 //    public void addLongValuesNotNullToByteArrayBuffer(BenchmarkData data)
@@ -221,44 +221,44 @@ public class BenchmarkPartitionedOutputOperatorAppendToBuffers
 //            }
 //        }
 //    }
-
-    @Benchmark
-    public void addLongValuesToOptimizedSliceOutput(BenchmarkData data)
-    {
-        for (int i = 0; i < RUNS; i++) {
-            data.resetOptimizedSliceOutput();
-
-            int pageCount = data.getPageCount();
-            for (int pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-                for (int channelIndex = 0; channelIndex < data.channelCount; channelIndex++) {
-                    long[] longValues = data.getLongValues(pageIndex, channelIndex);
-                    boolean[] nulls = data.getNulls(pageIndex, channelIndex);
-                    for (int partition = 0; partition < data.PARTITION_COUNT; partition++) {
-                        OptimizedSliceOutput sliceOutput = data.optimizedSliceOutput[partition][channelIndex];
-                        if (data.mayHaveNull) {
-                            putLongValuesWithNullsToSlice2(
-                                    longValues,
-                                    nulls,
-                                    data.getPositions(partition),
-                                    0,
-                                    data.getPostistionCount(partition),
-                                    0,
-                                    sliceOutput);
-                        }
-                        else {
-                            putLongValuesToSlice(
-                                    longValues,
-                                    data.getPositions(partition),
-                                    0,
-                                    data.getPostistionCount(partition),
-                                    0,
-                                    sliceOutput);
-                        }
-                    }
-                }
-            }
-        }
-    }
+//
+//    @Benchmark
+//    public void addLongValuesToOptimizedSliceOutput(BenchmarkData data)
+//    {
+//        for (int i = 0; i < RUNS; i++) {
+//            data.resetOptimizedSliceOutput();
+//
+//            int pageCount = data.getPageCount();
+//            for (int pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+//                for (int channelIndex = 0; channelIndex < data.channelCount; channelIndex++) {
+//                    long[] longValues = data.getLongValues(pageIndex, channelIndex);
+//                    boolean[] nulls = data.getNulls(pageIndex, channelIndex);
+//                    for (int partition = 0; partition < data.PARTITION_COUNT; partition++) {
+//                        OptimizedSliceOutput sliceOutput = data.optimizedSliceOutput[partition][channelIndex];
+//                        if (data.mayHaveNull) {
+//                            putLongValuesWithNullsToSlice2(
+//                                    longValues,
+//                                    nulls,
+//                                    data.getPositions(partition),
+//                                    0,
+//                                    data.getPostistionCount(partition),
+//                                    0,
+//                                    sliceOutput);
+//                        }
+//                        else {
+//                            putLongValuesToSlice(
+//                                    longValues,
+//                                    data.getPositions(partition),
+//                                    0,
+//                                    data.getPostistionCount(partition),
+//                                    0,
+//                                    sliceOutput);
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//    }
 
 //    @Benchmark
 //    public void addLongPagesToDynamicSliceOutput(BenchmarkData data)
@@ -684,10 +684,10 @@ public class BenchmarkPartitionedOutputOperatorAppendToBuffers
         private int[][] longValueBufferIndexes;
         private int[][] shortValueBufferIndexes;
 
-        //@Param({"1", "2", "4"})
+        @Param({"1", "2", "4"})
         private int channelCount = 1;
 
-        @Param({"true"})
+        @Param({"true", "false"})
         private boolean mayHaveNull;
 
         @Setup
@@ -1010,7 +1010,7 @@ public class BenchmarkPartitionedOutputOperatorAppendToBuffers
         // assure the benchmarks are valid before running
         BenchmarkData data = new BenchmarkData();
         data.setup();
-        new BenchmarkPartitionedOutputOperatorAppendToBuffers().addLongValuesToOptimizedSliceOutput(data);
+        //new BenchmarkPartitionedOutputOperatorAppendToBuffers().addLongValuesToOptimizedSliceOutput(data);
 //        new BenchmarkPartitionedOutputOperatorAppendToBuffers().addLongValuesToByteArrayBuffer(data);
 //        new BenchmarkPartitionedOutputOperatorAppendToBuffers().addLongValuesToByteArrayBuffer(data);
 //        new BenchmarkPartitionedOutputOperatorAppendToBuffers().addLongValuesToByteArrayBuffer2(data);
@@ -1021,11 +1021,11 @@ public class BenchmarkPartitionedOutputOperatorAppendToBuffers
        // new BenchmarkPartitionedOutputOperatorAppendToBuffers().addLongPagesToDynamicSliceOutput(data);
         Options options = new OptionsBuilder()
                 .verbosity(VerboseMode.NORMAL)
-                .jvmArgs("-Xmx10g",
-                        "-XX:+UnlockDiagnosticVMOptions",
-                        "-XX:+PrintAssembly",
-                        "-XX:PrintAssemblyOptions=intel",
-                        "-XX:CompileCommand=print,*BenchmarkPartitionedOutputOperatorAppendToBuffers.addLongValuesToOptimizedSliceOutput")
+                .jvmArgs("-Xmx10g") //,
+//                        "-XX:+UnlockDiagnosticVMOptions",
+//                        "-XX:+PrintAssembly",
+//                        "-XX:PrintAssemblyOptions=intel",
+//                        "-XX:CompileCommand=print,*BenchmarkPartitionedOutputOperatorAppendToBuffers.addLongValuesToOptimizedSliceOutput")
 
                 .include(".*" + BenchmarkPartitionedOutputOperatorAppendToBuffers.class.getSimpleName() + ".*")
                 //.addProfiler(LinuxPerfAsmProfiler.class, "events=cpu-clock")
@@ -1033,4 +1033,3 @@ public class BenchmarkPartitionedOutputOperatorAppendToBuffers
         new Runner(options).run();
     }
 }
-*/

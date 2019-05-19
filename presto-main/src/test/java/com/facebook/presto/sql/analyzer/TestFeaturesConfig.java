@@ -110,8 +110,8 @@ public class TestFeaturesConfig
                 .setMaxGroupingSets(2048)
                 .setLegacyUnnestArrayRows(false)
                 .setJsonSerdeCodeGenerationEnabled(false)
-                .setPushLimitThroughOuterJoin(true)
-                .setUseOptimizedPartitionedOutput(true));
+                .setPushLimitThroughOuterJoin(true));
+                //.setUseOptimizedPartitionedOutput(true));
     }
 
     @Test
@@ -249,8 +249,8 @@ public class TestFeaturesConfig
                 .setLegacyUnnestArrayRows(true)
                 .setDefaultFilterFactorEnabled(true)
                 .setJsonSerdeCodeGenerationEnabled(true)
-                .setPushLimitThroughOuterJoin(false)
-                .setUseOptimizedPartitionedOutput(false);
+                .setPushLimitThroughOuterJoin(false);
+                //.setUseOptimizedPartitionedOutput(false);
         assertFullMapping(properties, expected);
     }
 

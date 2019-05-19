@@ -247,14 +247,15 @@ public abstract class AbstractArrayBlock
             averageElementSize += 1;
         }
 
-        // offsetBase doesn't matter
-        for (int i = 0; i < getPositionCount(); i++) {
+        int positionCount = getPositionCount();
+        for (int i = 0; i < positionCount; i++) {
             sizesInBytes[i] += averageElementSize;
         }
 
         // Top level offsets need to be copied because it may be updated by lower level nested blocks.
         // The size of it is positionCount + 1. It's the ranges of each row of the next level
-        int[] offsets = Arrays.copyOfRange(getOffsets(), getOffsetBase(), getPositionCount() + getOffsetBase() + 1);
+        int offsetBase = getOffsetBase();
+        int[] offsets = Arrays.copyOfRange(getOffsets(), offsetBase, positionCount + offsetBase+ 1);
         getRawElementBlock().appendRegionSizesInBytes(offsets, sizesInBytes);
     }
 
@@ -270,12 +271,13 @@ public abstract class AbstractArrayBlock
             averageElementSize += 1;
         }
 
-        int start = offsets[0];
+        int startPosition = offsets[0];
+        offsets[0] = getOffset(startPosition);
         for (int i = 0; i < offsets.length - 1; i++) {
-            int end = offsets[i + 1];
-            sizesInBytes[i] += averageElementSize * (end - start);
-            offsets[i + 1] = getOffsets()[end];
-            start = end;
+            int endPosition = offsets[i + 1];
+            sizesInBytes[i] += averageElementSize * (endPosition - startPosition);
+            offsets[i + 1] = getOffset(endPosition);
+            startPosition = endPosition;
         }
 
         getRawElementBlock().appendRegionSizesInBytes(offsets, sizesInBytes);

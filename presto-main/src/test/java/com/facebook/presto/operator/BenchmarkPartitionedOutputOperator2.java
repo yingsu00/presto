@@ -28,7 +28,9 @@ import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.block.DictionaryBlock;
+import com.facebook.presto.spi.block.LongArrayBlockBuilder;
 import com.facebook.presto.spi.block.RunLengthEncodedBlock;
+import com.facebook.presto.spi.block.VariableWidthBlockBuilder;
 import com.facebook.presto.spi.function.OperatorType;
 import com.facebook.presto.spi.type.ArrayType;
 import com.facebook.presto.spi.type.MapType;
@@ -59,6 +61,8 @@ import org.openjdk.jmh.runner.options.VerboseMode;
 
 import java.lang.invoke.MethodHandle;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -67,6 +71,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
@@ -83,6 +88,7 @@ import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
+import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
 import static com.facebook.presto.testing.TestingEnvironment.TYPE_MANAGER;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static com.facebook.presto.tpch.TpchMetadata.TINY_SCHEMA_NAME;
@@ -100,8 +106,8 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 @State(Scope.Thread)
 @OutputTimeUnit(MILLISECONDS)
 @Fork(0)
-@Warmup(iterations = 5, time = 500, timeUnit = MILLISECONDS)
-@Measurement(iterations = 5, time = 500, timeUnit = MILLISECONDS)
+@Warmup(iterations = 10, time = 500, timeUnit = MILLISECONDS)
+@Measurement(iterations = 10, time = 500, timeUnit = MILLISECONDS)
 @BenchmarkMode(Mode.AverageTime)
 public class BenchmarkPartitionedOutputOperator2
 {
@@ -118,10 +124,10 @@ public class BenchmarkPartitionedOutputOperator2
     @State(Scope.Thread)
     public static class BenchmarkData
     {
-        //@Param({"true", "false"})
-        private String useOptimized = "true";
+        @Param({"true", "false"})
+        private String useOptimized = "false";
 
-        //@Param({"1", "2", "4"})
+        @Param({"1", "2"})
         //@Param({"1"})
         private int channelCount = 1;
 
@@ -130,17 +136,18 @@ public class BenchmarkPartitionedOutputOperator2
         private int positionCount = 8192;
 
         // @Param({"BIGINT", "BOOLEAN", "DOUBLE", "ROW(VARCHAR)", "ARRAY(BIGINT)", "MAP(BIGINT, VARCHAR)", "DICTIONARY", "RLE"})
-        @Param({"ARRAY(BIGINT)"})
-        private String type = "ARRAY(BIGINT)";
+        @Param({"BIGINT"})
+        private String type = "BIGINT";
 
         //@Param({"true", "false"})
-        private boolean hasNull;
+        private boolean hasNull = true;
 
         private static final int PARTITION_COUNT = 512;
         private static final int PAGE_COUNT = 5000;
         private static final int ROW_SIZE = 4;
         private static final int ARRAY_SIZE = 10;
         private static final int MAP_SIZE = 10;
+        private static final int STRING_SIZE = 10;
 
         private static final DataSize MAX_MEMORY = new DataSize(1, GIGABYTE);
 
@@ -208,11 +215,18 @@ public class BenchmarkPartitionedOutputOperator2
 
         private void createPagesWithBuilders(BiConsumer<BlockBuilder, Type> createChannelConsumer, Type type)
         {
-            types = nCopies(channelCount, type);
+            types = new ArrayList<>(channelCount + 1);
+            types.add(0, BIGINT);
+            for (int i = 1; i <= channelCount; i++) {
+                types.add(i, type);
+            }
 
             PageBuilder pageBuilder = new PageBuilder(types);
-            for (int channelIndex = 0; channelIndex < channelCount; channelIndex++) {
-                BlockBuilder blockBuilder = pageBuilder.getBlockBuilder(channelIndex);
+            BlockBuilder blockBuilder = pageBuilder.getBlockBuilder(0);
+            createBigintChannel(blockBuilder, BIGINT);
+
+            for (int channelIndex = 1; channelIndex <= channelCount; channelIndex++) {
+                blockBuilder = pageBuilder.getBlockBuilder(channelIndex);
                 createChannelConsumer.accept(blockBuilder, type);
             }
             pageBuilder.declarePositions(positionCount);
@@ -220,10 +234,12 @@ public class BenchmarkPartitionedOutputOperator2
             dataPage = pageBuilder.build();
         }
 
+
         private void createDictionaryPages()
         {
-            Block[] blocks = new Block[channelCount];
-            for (int channelIndex = 0; channelIndex < channelCount; channelIndex++) {
+            Block[] blocks = new Block[channelCount + 1];
+            blocks[0] = createBigintChannel();
+            for (int channelIndex = 1; channelIndex < channelCount + 1; channelIndex++) {
                 blocks[channelIndex] = createDictionaryChannel();
             }
             dataPage = new Page(blocks);
@@ -231,12 +247,41 @@ public class BenchmarkPartitionedOutputOperator2
 
         private void createRLEPages()
         {
-            Block[] blocks = new Block[channelCount];
-            for (int channelIndex = 0; channelIndex < channelCount; channelIndex++) {
+            Block[] blocks = new Block[channelCount + 1];
+            blocks[0] = createBigintChannel();
+            for (int channelIndex = 1; channelIndex < channelCount + 1; channelIndex++) {
                 blocks[channelIndex] = createRLEChannel();
             }
             dataPage = new Page(blocks);
         }
+
+        private Block createBigintChannel()
+        {
+            LongArrayBlockBuilder builder = new LongArrayBlockBuilder(null, positionCount);
+            for (int position = 0; position < positionCount; position++) {
+                if (hasNull && position % 10 == 0) {
+                    builder.appendNull();
+                }
+                else {
+                    BIGINT.writeLong(builder, ThreadLocalRandom.current().nextLong());
+                }
+            }
+            return builder.build();
+        }
+//
+//        private Block createVarcharChannel()
+//        {
+//            VariableWidthBlockBuilder blockBuilder = new VariableWidthBlockBuilder(null, positionCount, positionCount * STRING_SIZE);
+//            for (int position = 0; position < positionCount; position++) {
+//                if (hasNull && position % 10 == 0) {
+//                    blockBuilder.appendNull();
+//                }
+//                else {
+//                    createUnboundedVarcharType().writeSlice(blockBuilder, Slices.utf8Slice(getRandomString(ThreadLocalRandom.current().nextInt(100))));
+//                }
+//            }
+//            return blockBuilder.build();
+//        }
 
         private void createBigintChannel(BlockBuilder blockBuilder, Type type)
         {
@@ -369,7 +414,7 @@ public class BenchmarkPartitionedOutputOperator2
 
         private PartitionedOutputOperator createPartitionedOutputOperator()
         {
-            PartitionFunction partitionFunction = new LocalPartitionGenerator(new InterpretedHashGenerator(ImmutableList.of(types.get(0)), new int[] {0}), PARTITION_COUNT);
+            PartitionFunction partitionFunction = new LocalPartitionGenerator(new PrecomputedHashGenerator(0), PARTITION_COUNT);
 
             //PartitionFunction partitionFunction = new LocalPartitionGenerator(new InterpretedHashGenerator(ImmutableList.of(BIGINT), new int[] {0}), PARTITION_COUNT);
             PagesSerdeFactory serdeFactory = new PagesSerdeFactory(new BlockEncodingManager(new TypeRegistry()), false);
@@ -433,7 +478,7 @@ public class BenchmarkPartitionedOutputOperator2
         new BenchmarkPartitionedOutputOperator2().addPage(data);
         Options options = new OptionsBuilder()
                 .verbosity(VerboseMode.NORMAL)
-                .jvmArgs("-Xmx40g")
+                .jvmArgs("-Xmx50g")
                 .include(".*" + BenchmarkPartitionedOutputOperator2.class.getSimpleName() + ".*")
                 .build();
         new Runner(options).run();

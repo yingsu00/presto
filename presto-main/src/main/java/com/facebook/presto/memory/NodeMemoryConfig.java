@@ -30,11 +30,11 @@ public class NodeMemoryConfig
 
     private boolean isReservedPoolEnabled = true;
 
-    private DataSize maxQueryMemoryPerNode = new DataSize(AVAILABLE_HEAP_MEMORY * 0.1, BYTE);
+    private DataSize maxQueryMemoryPerNode = new DataSize(AVAILABLE_HEAP_MEMORY * 0.5, BYTE);
 
     // This is a per-query limit for the user plus system allocations.
-    private DataSize maxQueryTotalMemoryPerNode = new DataSize(AVAILABLE_HEAP_MEMORY * 0.3, BYTE);
-    private DataSize heapHeadroom = new DataSize(AVAILABLE_HEAP_MEMORY * 0.3, BYTE);
+    private DataSize maxQueryTotalMemoryPerNode = new DataSize(AVAILABLE_HEAP_MEMORY * 0.9, BYTE);
+    private DataSize heapHeadroom = new DataSize(AVAILABLE_HEAP_MEMORY * 0.1, BYTE);
 
     @NotNull
     public DataSize getMaxQueryMemoryPerNode()

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.spi.block;
 
+import io.airlift.slice.BasicSliceInput;
 import io.airlift.slice.SliceInput;
 import io.airlift.slice.SliceOutput;
 
@@ -49,18 +50,25 @@ public class LongArrayBlockEncoding
     public Block readBlock(BlockEncodingSerde blockEncodingSerde, SliceInput sliceInput)
     {
         long position1 = sliceInput.position();
-        // System.out.println("Reading positionCount at " + sliceInput.position());
+        // System.out.println("Reading positionCount at " + sliceInput.position() + " slice size " + ((BasicSliceInput)sliceInput).length());
 
         int positionCount = sliceInput.readInt();
 
         long position2 = sliceInput.position();
-        // System.out.println("positionCount " + positionCount + " position " + position2);
-        // assert(position1 + 4 == position2);
+        // System.out.println("positionCount " + positionCount + " position " + position2 + " slice size " + ((BasicSliceInput)sliceInput).length());
+         assert(position1 + 4 == position2);
 
         // System.out.println("Reading nulls at " + position2);
         boolean[] valueIsNull = decodeNullBits(sliceInput, positionCount).orElse(null);
         long position3 = sliceInput.position();
-        // assert(position2 + 1 == position3);
+        if (valueIsNull == null) {
+            // System.out.println("no nulls");
+            assert(position2 + 1 == position3);
+        }
+        else {
+            //System.out.println("valueIsNull length" + valueIsNull.length + " position " + position3 + " slice size " + ((BasicSliceInput)sliceInput).length());
+            assert (positionCount == valueIsNull.length);
+        }
 
         // System.out.println("Reading values at " + position3);
         long[] values = new long[positionCount];
@@ -71,8 +79,8 @@ public class LongArrayBlockEncoding
         }
 
         long position4 = sliceInput.position();
-        // System.out.println("finished block slice postion at " + position4);
-        // assert(position3 + positionCount * 8 == position4);
+        // System.out.println("finished block slice postion at " + position4 + " slice size " + ((BasicSliceInput)sliceInput).length());
+         assert(position3 + positionCount * 8 == position4);
 
         return new LongArrayBlock(0, positionCount, valueIsNull, values);
     }

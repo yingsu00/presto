@@ -136,7 +136,7 @@ public class ColumnarArray
         return getOffset(position + 1) - getOffset(position);
     }
 
-    private int getOffset(int position)
+    public int getOffset(int position)
     {
         return offsets[position + offsetsOffset];
     }

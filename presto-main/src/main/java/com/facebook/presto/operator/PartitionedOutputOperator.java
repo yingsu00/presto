@@ -22,8 +22,13 @@ import com.facebook.presto.execution.buffer.SerializedPage;
 import com.facebook.presto.memory.context.LocalMemoryContext;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
+import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.block.ArrayBlock;
 import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.ColumnarArray;
+import com.facebook.presto.spi.block.LongArrayBlock;
 import com.facebook.presto.spi.block.RunLengthEncodedBlock;
+import com.facebook.presto.spi.block.VariableWidthBlock;
 import com.facebook.presto.spi.predicate.NullableValue;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
@@ -38,9 +43,12 @@ import io.airlift.units.DataSize;
 
 import javax.annotation.Nullable;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicLong;
@@ -48,6 +56,7 @@ import java.util.function.Function;
 
 import static com.facebook.presto.execution.buffer.PageSplitterUtil.splitPage;
 import static com.facebook.presto.operator.BlockEncodingBuffers.createBlockEncodingBuffers;
+import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.block.PageBuilderStatus.DEFAULT_MAX_PAGE_SIZE_IN_BYTES;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Verify.verify;
@@ -323,6 +332,7 @@ public class PartitionedOutputOperator
         }
 
         page = pagePreprocessor.apply(page);
+        //System.out.println("page positionCount " + page.getPositionCount() + " column 0 contains null " + page.getBlock(0).mayHaveNull()  + " column 1 contains null " + page.getBlock(1).mayHaveNull());
         if (useOptmizedPartitionedOutputOperator) {
             partitionFunction.ariaPartitionPage(page);
         }
@@ -361,6 +371,7 @@ public class PartitionedOutputOperator
         BlockEncodingBuffers[] blockEncodingBuffers;
         private int capacity;
         private int bufferedRowCount;
+        private boolean bufferFull;
         private boolean hasSetupPositionsInBuffers;
 
 //        private long timeForPrepareBuffers;
@@ -384,49 +395,19 @@ public class PartitionedOutputOperator
             this.positions = new int[INITIAL_POSITION_COUNT];
         }
 
-        private void createBuffers(Page page)
+        public void resetPositionCount()
         {
-            if (blockEncodingBuffers == null) {
-                int channelCount = page.getChannelCount();
-                blockEncodingBuffers = new BlockEncodingBuffers[channelCount];
-                for (int i = 0; i < channelCount; i++) {
-                    blockEncodingBuffers[i] = createBlockEncodingBuffers(page.getBlock(i), positions);
-                }
-            }
+            positionCount = 0;
         }
 
-        private void resetBuffers()
+        public void appendPosition(int position)
         {
-            for (int i = 0; i < blockEncodingBuffers.length; i++) {
-                blockEncodingBuffers[i].resetBuffers();
-            }
-        }
-
-        private int calculateNumberRowsFitInBuffers(boolean containsNonFixedWidthBlocks, int rowSizeForfixedWidthBlocks, @Nullable int[] positionSizesInBytes, int startPosition)
-        {
-            // TODO: validate rows and rowSizes length >= numberOfRows > firstRowIndex
-            // Note that the capacity limit may be exceeded by 1 row.
-            int remainingBytes = capacity - getBuffersSizeInBytes();
-
-            if (!containsNonFixedWidthBlocks) {
-                //int rowsFit = (int) ceil(((double) remainingBytes / rowSizeForfixedWidthBlocks));
-                int rowsFit = remainingBytes / rowSizeForfixedWidthBlocks + 1;
-                return min(rowsFit, positionCount - startPosition);
-            }
-
-            verify(positionSizesInBytes != null);
-            for (int i = startPosition; i < positionCount; i++) {
-                remainingBytes -= positionSizesInBytes[positions[i]];
-                if (remainingBytes <= 0) {
-                    return max(i - startPosition, 1);
-                }
-            }
-
-            return positionCount - startPosition;
+            ensurePositionsCapacity();
+            positions[positionCount++] = position;
         }
 
         // TODO: verify if this is inlined
-        public void appendRows(Page page, boolean containsNonFixedWidthBlocks, int rowSizeForfixedWidthBlocks, int[] rowSizes, OutputBuffer outputBuffer)
+        public void appendRows(Page page,ColumnarObjectNode[] columnarBlocks, boolean containsNonFixedWidthBlocks, int rowSizeForfixedWidthBlocks, int[] rowSizes, OutputBuffer outputBuffer)
         {
             if (positionCount == 0) {
                 return;
@@ -436,8 +417,16 @@ public class PartitionedOutputOperator
 
             // Create buffers has to be done after seeing the first page.
             if (isBufferEmpty()) {
-                createBuffers(page);
+                createBuffers(page, columnarBlocks);
             }
+
+            for (int i = 0; i < page.getChannelCount(); i++) {
+                if (columnarBlocks[i] != null) {
+                    blockEncodingBuffers[i].setColumnarObject(columnarBlocks[i] );
+                }
+            }
+
+            // setupNestedBlockInBuffers(page);
 //            long two = System.nanoTime();
 //            timeForPrepareBuffers += two - one;
 
@@ -447,9 +436,12 @@ public class PartitionedOutputOperator
 
                 int numberOfRowsFit = calculateNumberRowsFitInBuffers(containsNonFixedWidthBlocks, rowSizeForfixedWidthBlocks, rowSizes, positionsWritten);
                 verify(numberOfRowsFit > 0 && numberOfRowsFit <= positionCount);
+//                if (numberOfRowsFit < positionCount) {
+//                    System.out.println(numberOfRowsFit + " " + positionCount);
+//                }
                 //        format("numberOfRowsFit %d should be greater than 0 and less than the positionCount %d for this partition.", numberOfRowsFit, positionCount));
 
-                //System.out.println("appendRows numberOfRowsFit " + numberOfRowsFit);
+                //System.out.println("appendRows numberOfRowsFit " + numberOfRowsFit + " page size " + page.getPositionCount());
 //                long five = System.nanoTime();
 //                timeForCalculateNumberRowsFitInBuffers += five - four;
 
@@ -468,6 +460,8 @@ public class PartitionedOutputOperator
                 bufferedRowCount += numberOfRowsFit;
                 positionsWritten += numberOfRowsFit;
 
+                //System.out.println(format("bufferedRowCount %d", bufferedRowCount));
+
 //                long six = System.nanoTime();
 //                timeForCopyValues += six - five;
 
@@ -482,27 +476,50 @@ public class PartitionedOutputOperator
             while (positionsWritten < positionCount);
         }
 
-        public void resetPositionCount()
+        private void createBuffers(Page page, ColumnarObjectNode[] columnarBlocks)
         {
-            positionCount = 0;
-        }
-
-        public void appendPosition(int position)
-        {
-            ensurePositionsCapacity();
-            positions[positionCount++] = position;
-        }
-
-        public void ensurePositionsCapacity()
-        {
-            if (positions.length <= positionCount) {
-                positions = Arrays.copyOf(positions, 2 * positions.length);
-                if (blockEncodingBuffers != null) {
-                    for (int i = 0; i < blockEncodingBuffers.length; i++) {
-                        blockEncodingBuffers[i].setPositions(positions);  // top level positions is not needed to be set.
-                    }
+            if (blockEncodingBuffers == null) {
+                int channelCount = page.getChannelCount();
+                blockEncodingBuffers = new BlockEncodingBuffers[channelCount];
+                for (int i = 0; i < channelCount; i++) {
+                    blockEncodingBuffers[i] = createBlockEncodingBuffers(page.getBlock(i), columnarBlocks[i], positions);
                 }
             }
+        }
+
+        private void resetBuffers()
+        {
+            bufferFull = false;
+            for (int i = 0; i < blockEncodingBuffers.length; i++) {
+                blockEncodingBuffers[i].resetBuffers();
+            }
+        }
+
+        private int calculateNumberRowsFitInBuffers(boolean containsNonFixedWidthBlocks, int rowSizeForfixedWidthBlocks, @Nullable int[] positionSizesInBytes, int startPosition)
+        {
+            // TODO: validate rows and rowSizes length >= numberOfRows > firstRowIndex
+            // Note that the capacity limit may be exceeded by 1 row.
+            int remainingBytes = capacity - getBuffersSizeInBytes();
+
+            if (!containsNonFixedWidthBlocks) {
+                //int rowsFit = (int) ceil(((double) remainingBytes / rowSizeForfixedWidthBlocks));
+                int rowsFit = max(remainingBytes / rowSizeForfixedWidthBlocks, 1);
+                bufferFull = (rowsFit <= positionCount - startPosition);
+                return min(rowsFit, positionCount - startPosition);
+            }
+
+            verify(positionSizesInBytes != null);
+            for (int i = startPosition; i < positionCount; i++) {
+                int newRemainingBytes = remainingBytes - positionSizesInBytes[positions[i]];
+
+                if (newRemainingBytes <= 0) {
+                    bufferFull = true;
+                    return max(i - startPosition, 1);
+                }
+                remainingBytes = newRemainingBytes;
+            }
+
+            return positionCount - startPosition;
         }
 
         private void flush(OutputBuffer outputBuffer)
@@ -527,21 +544,33 @@ public class PartitionedOutputOperator
             //  The performace using DynamicSliceOutput should be ok if the capacity is enough, and for each buffer we only do one range check.
             // TODO: size should include channelCount etc
             int bytes = getBuffersSizeInBytes();
-           // System.out.println("serialize bytes " + bytes);
+            // System.out.println("serialize bytes " + bytes);
 //            serializedPageAllocationBytes += bytes;
 //            serializedPageAllocationCount++;
             Slice slice = Slices.wrappedBuffer(new byte[bytes]);
             SliceOutput sliceOutput = slice.getOutput();
 
-           // System.out.println("serialize writing number of blocks at " + sliceOutput.size());
+            // System.out.println("serialize writing number of blocks at " + sliceOutput.size());
             sliceOutput.writeInt(blockEncodingBuffers.length);  // channelCount
 
-           // System.out.println("serialize number of blocks " + blockEncodingBuffers.length + sliceOutput.size());
+            // System.out.println("serialize number of blocks " + blockEncodingBuffers.length + sliceOutput.size());
 
             for (BlockEncodingBuffers currentBlockEncodingBuffers : blockEncodingBuffers) {
                 currentBlockEncodingBuffers.writeTo(sliceOutput);
             }
             return sliceOutput.slice();
+        }
+
+        private void ensurePositionsCapacity()
+        {
+            if (positions.length <= positionCount) {
+                positions = Arrays.copyOf(positions, 2 * positions.length);
+                if (blockEncodingBuffers != null) {
+                    for (int i = 0; i < blockEncodingBuffers.length; i++) {
+                        blockEncodingBuffers[i].setPositions(positions);  // top level positions is not needed to be set.
+                    }
+                }
+            }
         }
 
         private boolean isBufferEmpty()
@@ -551,7 +580,7 @@ public class PartitionedOutputOperator
 
         private boolean isBufferFull()
         {
-            return getBuffersSizeInBytes() >= capacity;
+            return bufferFull;
         }
 
         private int getBuffersSizeInBytes()
@@ -561,6 +590,44 @@ public class PartitionedOutputOperator
                 blockEncodingBuffersSize += blockEncodingBuffers.getSizeInBytes();
             }
             return SIZE_OF_INT + blockEncodingBuffersSize;  // Channel count for one int
+        }
+    }
+
+    static class ColumnarObjectNode
+    {
+        final Object columnarObject;
+        private final ArrayList<ColumnarObjectNode> children;
+
+        public ColumnarObjectNode(Object columnarObject)
+        {
+            this.columnarObject = columnarObject;
+            children = new ArrayList<>();
+        }
+
+        private void addChild(ColumnarObjectNode node)
+        {
+            children.add(node);
+        }
+
+        public ColumnarObjectNode addChild(Object columnarObject)
+        {
+            ColumnarObjectNode childNode = new ColumnarObjectNode(columnarObject);
+            addChild(childNode);
+            return childNode;
+        }
+
+        public ArrayList<ColumnarObjectNode> getChildren()
+        {
+            return new ArrayList<>(children);
+        }
+
+        public ColumnarObjectNode getChild(int index)
+        {
+            if (index < children.size()) {
+                return children.get(index);
+            }
+
+            return null;
         }
     }
 
@@ -582,14 +649,27 @@ public class PartitionedOutputOperator
 
         private final PartitionData[] partitionData;   // TODO: Check final
         private int[] rowSizes;
+        private boolean wasRowSizeForfixedWidthBlocksCalculated;
         private int rowSizeForfixedWidthBlocks;
         private boolean containsNonFixedWidthColumns;
+        private ArrayList<Integer> variableWidthBlockChannels = new ArrayList<>();
+        private ColumnarObjectNode[] columnarBlocks;
 
         private long timeForCalculateRowSizes;
         private long timeForPopulatePositionsForEachPartition;
         private long timeForAppendRows;
+        private long pageIndex;
 
         private boolean useOptmizedPartitionedOutputOperator;
+
+        // TODO: create a map here, or add a method to the Block interface?
+        private static Map<Class, Integer> serializedBytesPerRow = new HashMap<>();
+
+        static {
+            serializedBytesPerRow.put(LongArrayBlock.class, 9);
+            serializedBytesPerRow.put(ArrayBlock.class, -1);
+            serializedBytesPerRow.put(VariableWidthBlock.class, -1);
+        }
 
         public PagePartitioner(
                 PartitionFunction partitionFunction,
@@ -687,8 +767,11 @@ public class PartitionedOutputOperator
             flush(false);
         }
 
-        void ariaPartitionPage(Page page)
+        public void ariaPartitionPage(Page page)
         {
+            decodePage(page);
+
+            //System.out.println("pageIndex " + pageIndex++);
             //long one = System.nanoTime();
             calculateRowSizes(page);
             //long two = System.nanoTime();
@@ -703,21 +786,75 @@ public class PartitionedOutputOperator
 //            timeForPopulatePositionsForEachPartition += three - two;
 
             for (int i = 0; i < partitionData.length; i++) {
+            //for (PartitionData target: partitionData) {
                 //System.out.println("appendRows for partition " + i);
-                partitionData[i].appendRows(page, containsNonFixedWidthColumns, rowSizeForfixedWidthBlocks, rowSizes, outputBuffer);
+                PartitionData target = partitionData[i];
+                target.appendRows(page, columnarBlocks, containsNonFixedWidthColumns, rowSizeForfixedWidthBlocks, rowSizes, outputBuffer);
             }
+//            for (int i = 0; i < partitionData.length; i++) {
+//                //System.out.println("appendRows for partition " + i);
+//                partitionData[i].appendRows(page, containsNonFixedWidthColumns, rowSizeForfixedWidthBlocks, rowSizes, outputBuffer);
+//            }
             //System.out.println("appendRows");
 
 //            long four = System.nanoTime();
 //            timeForAppendRows += four - three;
         }
 
+        private void decodePage(Page page)
+        {
+            if (columnarBlocks == null) {
+                columnarBlocks = new ColumnarObjectNode[page.getChannelCount()];
+            }
+
+            for (int i = 0; i < page.getChannelCount(); i++) {
+                ColumnarObjectNode columnarObjectNode = getColumnarObjectTree(page.getBlock(i));
+                columnarBlocks[i] = columnarObjectNode;
+            }
+        }
+
+        private ColumnarObjectNode getColumnarObjectTree(Block block)
+        {
+            if (block instanceof ArrayBlock) {
+                ColumnarArray columnarArray = ColumnarArray.toColumnarArray(block);
+                ColumnarObjectNode columnarObjectRoot = new ColumnarObjectNode(columnarArray);
+                addColumnarObjectNode(columnarArray.getElementsBlock(), columnarObjectRoot);
+                return columnarObjectRoot;
+            }
+            return null;
+        }
+
+        private void addColumnarObjectNode(Block block, ColumnarObjectNode parentNode)
+        {
+            if (block instanceof ArrayBlock) {
+                ColumnarArray columnarArray = ColumnarArray.toColumnarArray(block);
+                ColumnarObjectNode columnarObjectNode = parentNode.addChild(columnarArray);
+                addColumnarObjectNode(columnarArray.getElementsBlock(), columnarObjectNode);
+            }
+        }
+
         private void calculateRowSizes(Page page)
         {
-            rowSizeForfixedWidthBlocks = 0;
-            containsNonFixedWidthColumns = false;
-            for (int i = 0; i < page.getChannelCount(); i++) {
-                rowSizeForfixedWidthBlocks += 8;
+            // We only need to calculate the fixed width columns' size for the first page seen by this operator.
+            if (!wasRowSizeForfixedWidthBlocksCalculated) {
+                rowSizeForfixedWidthBlocks = 0;
+                containsNonFixedWidthColumns = false;
+                for (int i = 0; i < page.getChannelCount(); i++) {
+                    Block block = page.getBlock(i);
+                    Integer serializedBytesPerRowForCurrentBlock = serializedBytesPerRow.get(block.getClass());
+                    if (serializedBytesPerRowForCurrentBlock == null) {
+                        throw new PrestoException(NOT_SUPPORTED, format("The %dth block of type %s does not have a serializedSizePerRow map", i, block.getClass()));
+                    }
+
+                    if (serializedBytesPerRowForCurrentBlock == -1) {
+                        containsNonFixedWidthColumns = true;
+                        variableWidthBlockChannels.add(i);
+                    }
+                    else {
+                        rowSizeForfixedWidthBlocks += serializedBytesPerRowForCurrentBlock;
+                    }
+                }
+                wasRowSizeForfixedWidthBlocksCalculated = true;
             }
 
             if (!containsNonFixedWidthColumns) {
@@ -727,9 +864,9 @@ public class PartitionedOutputOperator
             if (rowSizes == null || rowSizes.length < page.getPositionCount()) {
                 rowSizes = new int[(int) (page.getPositionCount() * 1.2)];
             }
-            Arrays.fill(rowSizes, 0);
-            for (int i = 0; i < page.getChannelCount(); i++) {
-                page.getBlock(i).appendPositionSizesInBytes(rowSizes);
+            Arrays.fill(rowSizes, 0, page.getPositionCount(), rowSizeForfixedWidthBlocks);
+            for (int varianbleWidthChannel : variableWidthBlockChannels) {
+                page.getBlock(varianbleWidthChannel).appendPositionSizesInBytes(rowSizes);
             }
         }
 
@@ -804,8 +941,8 @@ public class PartitionedOutputOperator
                             .collect(toImmutableList());
 
 //                    for (SerializedPage serializedPage : serializedPages) {
-//                        serializedPage.print();
-//                    }
+////                        serializedPage.print();
+////                    }
 
                     outputBuffer.enqueue(lifespan, partition, serializedPages);
                     pagesAdded.incrementAndGet();
