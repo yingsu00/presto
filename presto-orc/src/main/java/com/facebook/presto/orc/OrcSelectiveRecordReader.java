@@ -30,6 +30,7 @@ import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockLease;
 import com.facebook.presto.spi.block.RunLengthEncodedBlock;
 import com.facebook.presto.spi.type.Type;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
@@ -388,7 +389,8 @@ public class OrcSelectiveRecordReader
         return page;
     }
 
-    private SelectiveStreamReader getStreamReader(int columnIndex)
+    @VisibleForTesting
+    public SelectiveStreamReader getStreamReader(int columnIndex)
     {
         return getStreamReaders()[hiveColumnIndices[columnIndex]];
     }

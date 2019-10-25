@@ -14,6 +14,7 @@
 package com.facebook.presto.orc.reader;
 
 import com.facebook.presto.memory.context.LocalMemoryContext;
+import com.facebook.presto.orc.OrcCorruptionException;
 import com.facebook.presto.orc.StreamDescriptor;
 import com.facebook.presto.orc.TupleDomainFilter;
 import com.facebook.presto.orc.metadata.ColumnEncoding;
@@ -80,6 +81,9 @@ public class ByteSelectiveStreamReader
     private boolean allNulls;
     private boolean valuesInUse;
 
+    private byte[] nonNullValueTemp = new byte[0];
+    private boolean[] nullsTemp = new boolean[0];
+
     public ByteSelectiveStreamReader(
             StreamDescriptor streamDescriptor,
             Optional<TupleDomainFilter> filter,
@@ -121,7 +125,7 @@ public class ByteSelectiveStreamReader
     @Override
     public long getRetainedSizeInBytes()
     {
-        return INSTANCE_SIZE + sizeOf(values) + sizeOf(nulls) + sizeOf(outputPositions);
+        return INSTANCE_SIZE + sizeOf(values) + sizeOf(nulls) + sizeOf(outputPositions) + sizeOf(nonNullValueTemp);
     }
 
     private void openRowGroup()
@@ -168,7 +172,17 @@ public class ByteSelectiveStreamReader
             streamPosition = readAllNulls(positions, positionCount);
         }
         else if (filter == null) {
-            streamPosition = readNoFilter(positions, positionCount);
+            if (dataStream != null) {
+                if (presentStream == null) {
+                    streamPosition = readNoFilterNoNull(positions, positionCount);
+                }
+                else {
+                    streamPosition = readNoFilterWithNulls(positions, positionCount);
+                }
+            }
+            else {
+                throw new OrcCorruptionException(streamDescriptor.getOrcDataSourceId(), "Value is null but present stream is missing");
+            }
         }
         else {
             streamPosition = readWithFilter(positions, positionCount);
@@ -264,7 +278,20 @@ public class ByteSelectiveStreamReader
         return positions[positionCount - 1] + 1;
     }
 
-    private int readNoFilter(int[] positions, int positionCount)
+    private int readNoFilterNoNull(int[] positions, int positionCount)
+            throws IOException
+    {
+        // filter == null implies outputRequired == true
+        int totalPositionCount = positions[positionCount - 1] + 1;
+        nonNullValueTemp = ensureCapacity(nonNullValueTemp, totalPositionCount);
+        dataStream.next(nonNullValueTemp, totalPositionCount);
+        ReaderUtils.packByteValues(nonNullValueTemp, values, positions, positionCount);
+
+        outputPositionCount = positionCount;
+        return totalPositionCount;
+    }
+
+    private int readNoFilterWithNulls(int[] positions, int positionCount)
             throws IOException
     {
         // filter == null implies outputRequired == true
@@ -276,17 +303,17 @@ public class ByteSelectiveStreamReader
                 streamPosition = position;
             }
 
-            if (presentStream != null && !presentStream.nextBit()) {
-                nulls[i] = true;
+            if (presentStream.nextBit()) {
+                values[i] = dataStream.next();
+                nulls[i] = false;
             }
             else {
-                values[i] = dataStream.next();
-                if (presentStream != null) {
-                    nulls[i] = false;
-                }
+                nulls[i] = true;
             }
+
             streamPosition++;
         }
+
         outputPositionCount = positionCount;
         return streamPosition;
     }
@@ -312,6 +339,7 @@ public class ByteSelectiveStreamReader
 
         if (recordNulls) {
             nulls = ensureCapacity(nulls, capacity);
+            // Arrays.fill(nulls, 0, capacity, false);
         }
     }
 
