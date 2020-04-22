@@ -238,6 +238,9 @@ import static com.facebook.presto.geospatial.SphericalGeographyUtils.sphericalDi
 import static com.facebook.presto.operator.DistinctLimitOperator.DistinctLimitOperatorFactory;
 import static com.facebook.presto.operator.NestedLoopBuildOperator.NestedLoopBuildOperatorFactory;
 import static com.facebook.presto.operator.NestedLoopJoinOperator.NestedLoopJoinOperatorFactory;
+import static com.facebook.presto.operator.PageSinkCommitStrategy.LIFESPAN_COMMIT;
+import static com.facebook.presto.operator.PageSinkCommitStrategy.NO_COMMIT;
+import static com.facebook.presto.operator.PageSinkCommitStrategy.TASK_COMMIT;
 import static com.facebook.presto.operator.PipelineExecutionStrategy.GROUPED_EXECUTION;
 import static com.facebook.presto.operator.PipelineExecutionStrategy.UNGROUPED_EXECUTION;
 import static com.facebook.presto.operator.TableFinishOperator.TableFinishOperatorFactory;
@@ -391,7 +394,8 @@ public class LocalExecutionPlanner
                 partitionedSourceOrder,
                 createOutputFactory(taskContext, partitioningScheme, outputBuffer),
                 remoteSourceFactory,
-                tableWriteInfo);
+                tableWriteInfo,
+                false);
     }
 
     public LocalExecutionPlan plan(
@@ -402,7 +406,8 @@ public class LocalExecutionPlanner
             List<PlanNodeId> partitionedSourceOrder,
             OutputFactory outputFactory,
             RemoteSourceFactory remoteSourceFactory,
-            TableWriteInfo tableWriteInfo)
+            TableWriteInfo tableWriteInfo,
+            boolean pageSinkCommitRequired)
     {
         return plan(
                 taskContext,
@@ -413,7 +418,8 @@ public class LocalExecutionPlanner
                 outputFactory,
                 createOutputPartitioning(taskContext, partitioningScheme),
                 remoteSourceFactory,
-                tableWriteInfo);
+                tableWriteInfo,
+                pageSinkCommitRequired);
     }
 
     private OutputFactory createOutputFactory(TaskContext taskContext, PartitioningScheme partitioningScheme, OutputBuffer outputBuffer)
@@ -503,11 +509,12 @@ public class LocalExecutionPlanner
             OutputFactory outputOperatorFactory,
             Optional<OutputPartitioning> outputPartitioning,
             RemoteSourceFactory remoteSourceFactory,
-            TableWriteInfo tableWriteInfo)
+            TableWriteInfo tableWriteInfo,
+            boolean pageSinkCommitRequired)
     {
         Session session = taskContext.getSession();
         LocalExecutionPlanContext context = new LocalExecutionPlanContext(taskContext, tableWriteInfo);
-        PhysicalOperation physicalOperation = plan.accept(new Visitor(session, stageExecutionDescriptor, remoteSourceFactory), context);
+        PhysicalOperation physicalOperation = plan.accept(new Visitor(session, stageExecutionDescriptor, remoteSourceFactory, pageSinkCommitRequired), context);
 
         Function<Page, Page> pagePreprocessor = enforceLayoutProcessor(outputLayout, physicalOperation.getLayout());
 
@@ -742,12 +749,14 @@ public class LocalExecutionPlanner
         private final Session session;
         private final StageExecutionDescriptor stageExecutionDescriptor;
         private final RemoteSourceFactory remoteSourceFactory;
+        private final boolean pageSinkCommitRequired;
 
-        private Visitor(Session session, StageExecutionDescriptor stageExecutionDescriptor, RemoteSourceFactory remoteSourceFactory)
+        private Visitor(Session session, StageExecutionDescriptor stageExecutionDescriptor, RemoteSourceFactory remoteSourceFactory, boolean pageSinkCommitRequired)
         {
             this.session = requireNonNull(session, "session is null");
             this.stageExecutionDescriptor = requireNonNull(stageExecutionDescriptor, "stageExecutionDescriptor is null");
             this.remoteSourceFactory = requireNonNull(remoteSourceFactory, "remoteSourceFactory is null");
+            this.pageSinkCommitRequired = pageSinkCommitRequired;
         }
 
         @Override
@@ -2321,11 +2330,20 @@ public class LocalExecutionPlanner
                     statisticsAggregation,
                     getVariableTypes(node.getOutputVariables()),
                     tableCommitContextCodec,
-                    stageExecutionDescriptor.isRecoverableGroupedExecution()
-                            ? PageSinkCommitStrategy.LIFESPAN_COMMIT
-                            : PageSinkCommitStrategy.NO_COMMIT);
+                    getPageSinkCommitStrategy());
 
             return new PhysicalOperation(operatorFactory, outputMapping.build(), context, source);
+        }
+
+        private PageSinkCommitStrategy getPageSinkCommitStrategy()
+        {
+            if (stageExecutionDescriptor.isRecoverableGroupedExecution()) {
+                return LIFESPAN_COMMIT;
+            }
+            if (pageSinkCommitRequired) {
+                return TASK_COMMIT;
+            }
+            return NO_COMMIT;
         }
 
         @Override
