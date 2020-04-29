@@ -27,18 +27,20 @@
  */
 package com.facebook.presto.operator.repartition;
 
-import com.facebook.presto.spi.block.ColumnarArray;
+import com.facebook.presto.common.block.ArrayAllocator;
+import com.facebook.presto.common.block.ColumnarArray;
 import com.google.common.annotations.VisibleForTesting;
 import io.airlift.slice.SliceOutput;
 import org.openjdk.jol.info.ClassLayout;
 
 import static com.facebook.presto.array.Arrays.ExpansionFactor.LARGE;
+import static com.facebook.presto.array.Arrays.ExpansionFactor.SMALL;
+import static com.facebook.presto.array.Arrays.ExpansionOption.NONE;
 import static com.facebook.presto.array.Arrays.ExpansionOption.PRESERVE;
 import static com.facebook.presto.array.Arrays.ensureCapacity;
 import static com.facebook.presto.operator.UncheckedByteArrays.setIntUnchecked;
 import static io.airlift.slice.SizeOf.SIZE_OF_BYTE;
 import static io.airlift.slice.SizeOf.SIZE_OF_INT;
-import static io.airlift.slice.SizeOf.sizeOf;
 import static java.util.Objects.requireNonNull;
 import static sun.misc.Unsafe.ARRAY_INT_INDEX_SCALE;
 
@@ -57,21 +59,22 @@ public class ArrayBlockEncodingBuffer
     // The address that the next offset value will be written to.
     private int offsetsBufferIndex;
 
+    // The estimated maximum size for offsetsBuffer
+    private int estimatedOffsetBufferMaxCapacity;
+
     // This array holds the condensed offsets for each position for the incoming block.
     private int[] offsets;
 
     // The last offset in the offsets buffer
     private int lastOffset;
 
-    // This array holds the offsets into its nested values block for each row in the ArrayBlock.
-    private int[] offsetsCopy;
-
     // The AbstractBlockEncodingBuffer for the nested values Block of the ArrayBlock
-    private final BlockEncodingBuffer valuesBuffers;
+    private final AbstractBlockEncodingBuffer valuesBuffers;
 
-    public ArrayBlockEncodingBuffer(DecodedBlockNode decodedBlockNode)
+    public ArrayBlockEncodingBuffer(DecodedBlockNode decodedBlockNode, ArrayAllocator bufferAllocator, boolean isNested)
     {
-        valuesBuffers = createBlockEncodingBuffers(decodedBlockNode.getChildren().get(0));
+        super(bufferAllocator, isNested);
+        valuesBuffers = (AbstractBlockEncodingBuffer) createBlockEncodingBuffers(decodedBlockNode.getChildren().get(0), bufferAllocator, true);
     }
 
     @Override
@@ -81,10 +84,14 @@ public class ArrayBlockEncodingBuffer
             serializedRowSizes[i] += POSITION_SIZE;
         }
 
-        offsetsCopy = ensureCapacity(offsetsCopy, positionCount + 1);
-        System.arraycopy(offsets, 0, offsetsCopy, 0, positionCount + 1);
-
-        ((AbstractBlockEncodingBuffer) valuesBuffers).accumulateSerializedRowSizes(offsetsCopy, positionCount, serializedRowSizes);
+        int[] offsetsCopy = ensureCapacity(null, positionCount + 1, SMALL, NONE, bufferAllocator);
+        try {
+            System.arraycopy(offsets, 0, offsetsCopy, 0, positionCount + 1);
+            valuesBuffers.accumulateSerializedRowSizes(offsetsCopy, positionCount, serializedRowSizes);
+        }
+        finally {
+            bufferAllocator.returnArray(offsetsCopy);
+        }
     }
 
     @Override
@@ -92,6 +99,7 @@ public class ArrayBlockEncodingBuffer
     {
         this.positionsOffset = positionsOffset;
         this.batchSize = batchSize;
+        this.flushed = false;
 
         // If all positions for the ArrayBlock to be copied are null, the number of positions to copy for its
         // nested values block could be 0. In such case we don't need to proceed.
@@ -100,7 +108,6 @@ public class ArrayBlockEncodingBuffer
         }
 
         int offset = offsets[positionsOffset];
-
         valuesBuffers.setNextBatch(offset, offsets[positionsOffset + batchSize] - offset);
     }
 
@@ -142,20 +149,34 @@ public class ArrayBlockEncodingBuffer
         bufferedPositionCount = 0;
         offsetsBufferIndex = 0;
         lastOffset = 0;
+        flushed = true;
         resetNullsBuffer();
 
         valuesBuffers.resetBuffers();
     }
 
     @Override
+    public void noMoreBatches()
+    {
+        valuesBuffers.noMoreBatches();
+
+        if (flushed && offsetsBuffer != null) {
+            bufferAllocator.returnArray(offsetsBuffer);
+            offsetsBuffer = null;
+        }
+
+        super.noMoreBatches();
+
+        if (offsets != null) {
+            bufferAllocator.returnArray(offsets);
+            offsets = null;
+        }
+    }
+
+    @Override
     public long getRetainedSizeInBytes()
     {
         return INSTANCE_SIZE +
-                getPositionsRetainedSizeInBytes() +
-                sizeOf(offsetsBuffer) +
-                sizeOf(offsets) +
-                sizeOf(offsetsCopy) +
-                getNullsBufferRetainedSizeInBytes() +
                 valuesBuffers.getRetainedSizeInBytes();
     }
 
@@ -183,7 +204,7 @@ public class ArrayBlockEncodingBuffer
     }
 
     @Override
-    protected void setupDecodedBlockAndMapPositions(DecodedBlockNode decodedBlockNode)
+    protected void setupDecodedBlockAndMapPositions(DecodedBlockNode decodedBlockNode, int partitionBufferCapacity, double decodedBlockPageSizeFraction)
     {
         requireNonNull(decodedBlockNode, "decodedBlockNode is null");
 
@@ -191,9 +212,18 @@ public class ArrayBlockEncodingBuffer
         ColumnarArray columnarArray = (ColumnarArray) decodedBlockNode.getDecodedBlock();
         decodedBlock = columnarArray.getNullCheckBlock();
 
+        double targetBufferSize = partitionBufferCapacity * decodedBlockPageSizeFraction;
+        if (decodedBlock.mayHaveNull()) {
+            setEstimatedNullsBufferMaxCapacity((int) (targetBufferSize * Byte.BYTES / POSITION_SIZE));
+            estimatedOffsetBufferMaxCapacity = (int) (targetBufferSize * Integer.BYTES / POSITION_SIZE);
+        }
+        else {
+            estimatedOffsetBufferMaxCapacity = (int) targetBufferSize;
+        }
+
         populateNestedPositions(columnarArray);
 
-        ((AbstractBlockEncodingBuffer) valuesBuffers).setupDecodedBlockAndMapPositions(decodedBlockNode.getChildren().get(0));
+        valuesBuffers.setupDecodedBlockAndMapPositions(decodedBlockNode.getChildren().get(0), partitionBufferCapacity, decodedBlockPageSizeFraction);
     }
 
     @Override
@@ -211,40 +241,37 @@ public class ArrayBlockEncodingBuffer
             positionOffsets[i + 1] = offsets[offset];
         }
 
-        ((AbstractBlockEncodingBuffer) valuesBuffers).accumulateSerializedRowSizes(positionOffsets, positionCount, serializedRowSizes);
+        valuesBuffers.accumulateSerializedRowSizes(positionOffsets, positionCount, serializedRowSizes);
     }
 
     private void populateNestedPositions(ColumnarArray columnarArray)
     {
         // Reset nested level positions before checking positionCount. Failing to do so may result in valuesBuffers having stale values when positionCount is 0.
-        ((AbstractBlockEncodingBuffer) valuesBuffers).resetPositions();
+        valuesBuffers.resetPositions();
 
         if (positionCount == 0) {
             return;
         }
 
-        offsets = ensureCapacity(offsets, positionCount + 1);
+        offsets = ensureCapacity(offsets, positionCount + 1, SMALL, NONE, bufferAllocator);
+        offsets[0] = 0;
 
         int[] positions = getPositions();
 
         for (int i = 0; i < positionCount; i++) {
-            int position = positions[i];
-            int beginOffset = columnarArray.getOffset(position);
-            int endOffset = columnarArray.getOffset(position + 1);
-            int length = endOffset - beginOffset;
+            offsets[i + 1] = offsets[i] + columnarArray.getLength(positions[i]);
+        }
 
-            offsets[i + 1] = offsets[i] + length;
+        valuesBuffers.ensurePositionsCapacity(offsets[positionCount]);
 
-            if (length > 0) {
-                // beginOffset is the absolute position in the nested block. We need to subtract the base offset from it to get the logical position.
-                ((AbstractBlockEncodingBuffer) valuesBuffers).appendPositionRange(beginOffset, length);
-            }
+        for (int i = 0; i < positionCount; i++) {
+            valuesBuffers.appendPositionRange(columnarArray.getOffset(positions[i]), offsets[i + 1] - offsets[i]);
         }
     }
 
     private void appendOffsets()
     {
-        offsetsBuffer = ensureCapacity(offsetsBuffer, offsetsBufferIndex + batchSize * ARRAY_INT_INDEX_SCALE, LARGE, PRESERVE);
+        offsetsBuffer = ensureCapacity(offsetsBuffer, offsetsBufferIndex + batchSize * ARRAY_INT_INDEX_SCALE, estimatedOffsetBufferMaxCapacity, LARGE, PRESERVE, bufferAllocator);
 
         int baseOffset = lastOffset - offsets[positionsOffset];
         for (int i = positionsOffset; i < positionsOffset + batchSize; i++) {
