@@ -378,7 +378,7 @@ public class PartitionedOutputOperator
             }
 
             // We track the memory before it's flushed to avoid under counting when the page size is large.
-            systemMemoryContext.setBytes(getRetainedSizeInBytes());
+            systemMemoryContext.setBytes(getRetainedSizeInBytes() + page.getRetainedSizeInBytes());
 
             flush(false);
         }
