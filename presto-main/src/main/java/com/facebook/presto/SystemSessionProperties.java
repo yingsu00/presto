@@ -168,6 +168,7 @@ public final class SystemSessionProperties
     public static final String DYNAMIC_FILTERING_MAX_PER_DRIVER_SIZE = "dynamic_filtering_max_per_driver_size";
     public static final String LEGACY_TYPE_COERCION_WARNING_ENABLED = "legacy_type_coercion_warning_enabled";
     public static final String INLINE_SQL_FUNCTIONS = "inline_sql_functions";
+    public static final String DISABLE_MERGINGPAGEOUTPUT = "disable_mergingpageoutput";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -875,6 +876,11 @@ public final class SystemSessionProperties
                         INLINE_SQL_FUNCTIONS,
                         "Inline SQL function definition at plan time",
                         featuresConfig.isInlineSqlFunctions(),
+                        false),
+                booleanProperty(
+                        DISABLE_MERGINGPAGEOUTPUT,
+                        "Experimental: Disable MergingPageOutput",
+                        featuresConfig.isMergingPageOutputDisabled(),
                         false));
     }
 
@@ -1480,5 +1486,10 @@ public final class SystemSessionProperties
     public static boolean isInlineSqlFunctions(Session session)
     {
         return session.getSystemProperty(INLINE_SQL_FUNCTIONS, Boolean.class);
+    }
+
+    public static boolean isMergingPageOutputDisabled(Session session)
+    {
+        return session.getSystemProperty(DISABLE_MERGINGPAGEOUTPUT, Boolean.class);
     }
 }

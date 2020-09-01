@@ -167,6 +167,8 @@ public class FeaturesConfig
 
     private PartitioningPrecisionStrategy partitioningPrecisionStrategy = PartitioningPrecisionStrategy.AUTOMATIC;
 
+    private boolean isMergingPageOutputDisabled;
+
     public enum PartitioningPrecisionStrategy
     {
         // Let Presto decide when to repartition
@@ -1396,6 +1398,19 @@ public class FeaturesConfig
     public FeaturesConfig setInlineSqlFunctions(boolean inlineSqlFunctions)
     {
         this.inlineSqlFunctions = inlineSqlFunctions;
+        return this;
+    }
+
+    public boolean isMergingPageOutputDisabled()
+    {
+        return isMergingPageOutputDisabled;
+    }
+
+    @Config("experimental.disable-mergingpageoutput")
+    @ConfigDescription("Experimental: Disable MergingPageOutput")
+    public FeaturesConfig setMergingPageOutputDisabled(boolean isMergingPageOutputDisabled)
+    {
+        this.isMergingPageOutputDisabled = isMergingPageOutputDisabled;
         return this;
     }
 }

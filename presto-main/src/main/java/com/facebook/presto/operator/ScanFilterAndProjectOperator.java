@@ -51,6 +51,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 import static com.facebook.airlift.concurrent.MoreFutures.toListenableFuture;
+import static com.facebook.presto.SystemSessionProperties.isMergingPageOutputDisabled;
 import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -442,7 +443,7 @@ public class ScanFilterAndProjectOperator
                     columns,
                     types,
                     dynamicFilter,
-                    new MergingPageOutput(types, minOutputPageSize.toBytes(), minOutputPageRowCount));
+                    new MergingPageOutput(types, minOutputPageSize.toBytes(), minOutputPageRowCount, isMergingPageOutputDisabled(driverContext.getSession())));
         }
 
         @Override

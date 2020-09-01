@@ -71,12 +71,14 @@ public class MergingPageOutput
     private Iterator<Optional<Page>> currentInput;
     private boolean finishing;
 
-    public MergingPageOutput(Iterable<? extends Type> types, long minPageSizeInBytes, int minRowCount)
+    private final boolean isMergingPageOutputDisabled;
+
+    public MergingPageOutput(Iterable<? extends Type> types, long minPageSizeInBytes, int minRowCount, boolean isMergingPageOutputDisabled)
     {
-        this(types, minPageSizeInBytes, minRowCount, DEFAULT_MAX_PAGE_SIZE_IN_BYTES);
+        this(types, minPageSizeInBytes, minRowCount, DEFAULT_MAX_PAGE_SIZE_IN_BYTES, isMergingPageOutputDisabled);
     }
 
-    public MergingPageOutput(Iterable<? extends Type> types, long minPageSizeInBytes, int minRowCount, int maxPageSizeInBytes)
+    public MergingPageOutput(Iterable<? extends Type> types, long minPageSizeInBytes, int minRowCount, int maxPageSizeInBytes, boolean isMergingPageOutputDisabled)
     {
         this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
         checkArgument(minPageSizeInBytes >= 0, "minPageSizeInBytes must be greater or equal than zero");
@@ -87,6 +89,7 @@ public class MergingPageOutput
         this.minPageSizeInBytes = minPageSizeInBytes;
         this.minRowCount = minRowCount;
         pageBuilder = PageBuilder.withMaxPageSize(maxPageSizeInBytes, this.types);
+        this.isMergingPageOutputDisabled = isMergingPageOutputDisabled;
     }
 
     public boolean needsInput()
@@ -150,7 +153,7 @@ public class MergingPageOutput
         requireNonNull(page, "page is null");
 
         // avoid memory copying for pages that are big enough
-        if (page.getSizeInBytes() >= minPageSizeInBytes || page.getPositionCount() >= minRowCount) {
+        if (isMergingPageOutputDisabled || page.getSizeInBytes() >= minPageSizeInBytes || page.getPositionCount() >= minRowCount) {
             flush();
             outputQueue.add(page);
             return;

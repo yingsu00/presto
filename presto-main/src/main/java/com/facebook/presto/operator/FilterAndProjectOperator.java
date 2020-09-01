@@ -25,6 +25,7 @@ import io.airlift.units.DataSize;
 import java.util.List;
 import java.util.function.Supplier;
 
+import static com.facebook.presto.SystemSessionProperties.isMergingPageOutputDisabled;
 import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -137,7 +138,7 @@ public class FilterAndProjectOperator
             return new FilterAndProjectOperator(
                     operatorContext,
                     processor.get(),
-                    new MergingPageOutput(types, minOutputPageSize.toBytes(), minOutputPageRowCount));
+                    new MergingPageOutput(types, minOutputPageSize.toBytes(), minOutputPageRowCount, isMergingPageOutputDisabled(driverContext.getSession())));
         }
 
         @Override

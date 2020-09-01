@@ -44,7 +44,7 @@ public class TestMergingPageOutput
     {
         Page page = createSequencePage(TYPES, 10);
 
-        MergingPageOutput output = new MergingPageOutput(TYPES, page.getSizeInBytes(), Integer.MAX_VALUE, Integer.MAX_VALUE);
+        MergingPageOutput output = new MergingPageOutput(TYPES, page.getSizeInBytes(), Integer.MAX_VALUE, Integer.MAX_VALUE, false);
 
         assertTrue(output.needsInput());
         assertNull(output.getOutput());
@@ -59,7 +59,7 @@ public class TestMergingPageOutput
     {
         Page page = createSequencePage(TYPES, 10);
 
-        MergingPageOutput output = new MergingPageOutput(TYPES, 1024 * 1024, page.getPositionCount(), Integer.MAX_VALUE);
+        MergingPageOutput output = new MergingPageOutput(TYPES, 1024 * 1024, page.getPositionCount(), Integer.MAX_VALUE, false);
 
         assertTrue(output.needsInput());
         assertNull(output.getOutput());
@@ -76,7 +76,7 @@ public class TestMergingPageOutput
         Page page = createSequencePage(TYPES, singlePageRowCount * 2);
         List<Page> splits = splitPage(page, page.getSizeInBytes() / 2);
 
-        MergingPageOutput output = new MergingPageOutput(TYPES, page.getSizeInBytes() + 1, page.getPositionCount() + 1, Integer.MAX_VALUE);
+        MergingPageOutput output = new MergingPageOutput(TYPES, page.getSizeInBytes() + 1, page.getPositionCount() + 1, Integer.MAX_VALUE, false);
 
         assertTrue(output.needsInput());
         assertNull(output.getOutput());
@@ -102,7 +102,7 @@ public class TestMergingPageOutput
         Page smallPage = createSequencePage(TYPES, 10);
         Page bigPage = createSequencePage(TYPES, 100);
 
-        MergingPageOutput output = new MergingPageOutput(TYPES, bigPage.getSizeInBytes(), bigPage.getPositionCount(), Integer.MAX_VALUE);
+        MergingPageOutput output = new MergingPageOutput(TYPES, bigPage.getSizeInBytes(), bigPage.getPositionCount(), Integer.MAX_VALUE, false);
 
         assertTrue(output.needsInput());
         assertNull(output.getOutput());
@@ -127,7 +127,7 @@ public class TestMergingPageOutput
         Page page = createSequencePage(types, singlePageRowCount * 2);
         List<Page> splits = splitPage(page, page.getSizeInBytes() / 2);
 
-        MergingPageOutput output = new MergingPageOutput(types, page.getSizeInBytes() / 2 + 1, page.getPositionCount() / 2 + 1, toIntExact(page.getSizeInBytes()));
+        MergingPageOutput output = new MergingPageOutput(types, page.getSizeInBytes() / 2 + 1, page.getPositionCount() / 2 + 1, toIntExact(page.getSizeInBytes()), false);
 
         assertTrue(output.needsInput());
         assertNull(output.getOutput());
