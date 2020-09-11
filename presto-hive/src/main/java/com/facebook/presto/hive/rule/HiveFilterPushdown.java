@@ -73,12 +73,9 @@ import java.util.Set;
 import java.util.function.Function;
 
 import static com.facebook.presto.common.predicate.TupleDomain.withColumnDomains;
-import static com.facebook.presto.expressions.DynamicFilters.extractDynamicConjuncts;
-import static com.facebook.presto.expressions.DynamicFilters.extractStaticConjuncts;
 import static com.facebook.presto.expressions.LogicalRowExpressions.FALSE_CONSTANT;
 import static com.facebook.presto.expressions.LogicalRowExpressions.TRUE_CONSTANT;
 import static com.facebook.presto.expressions.LogicalRowExpressions.and;
-import static com.facebook.presto.expressions.LogicalRowExpressions.extractConjuncts;
 import static com.facebook.presto.expressions.RowExpressionNodeInliner.replaceExpression;
 import static com.facebook.presto.hive.HiveTableProperties.getHiveStorageFormat;
 import static com.facebook.presto.spi.StandardErrorCode.DIVISION_BY_ZERO;
@@ -251,12 +248,6 @@ public class HiveFilterPushdown
                 .collect(toImmutableMap(HiveColumnHandle::getName, Functions.identity()));
 
         SchemaTableName tableName = ((HiveTableHandle) tableHandle).getSchemaTableName();
-
-        LogicalRowExpressions logicalRowExpressions = new LogicalRowExpressions(rowExpressionService.getDeterminismEvaluator(), functionResolution, functionMetadataManager);
-        List<RowExpression> conjuncts = extractConjuncts(decomposedFilter.getRemainingExpression());
-        RowExpression dynamicFilterExpression = extractDynamicConjuncts(conjuncts, logicalRowExpressions);
-        RowExpression remainingExpression = extractStaticConjuncts(conjuncts, logicalRowExpressions);
-
         return new ConnectorPushdownFilterResult(
                 metadata.getTableLayout(
                         session,
@@ -268,7 +259,7 @@ public class HiveFilterPushdown
                                 hivePartitionResult.getTableParameters(),
                                 hivePartitionResult.getPartitions(),
                                 domainPredicate,
-                                remainingExpression,
+                                decomposedFilter.getRemainingExpression(),
                                 predicateColumns,
                                 hivePartitionResult.getEnforcedConstraint(),
                                 hivePartitionResult.getBucketHandle(),
@@ -283,7 +274,7 @@ public class HiveFilterPushdown
                                         decomposedFilter.getRemainingExpression(),
                                         domainPredicate),
                                 currentLayoutHandle.map(layout -> ((HiveTableLayoutHandle) layout).getRequestedColumns()).orElse(Optional.empty()))),
-                dynamicFilterExpression);
+                TRUE_CONSTANT);
     }
 
     public static class ConnectorPushdownFilterResult
