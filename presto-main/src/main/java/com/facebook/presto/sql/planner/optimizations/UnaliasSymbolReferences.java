@@ -527,8 +527,6 @@ public class UnaliasSymbolReferences
             Optional<VariableReferenceExpression> canonicalLeftHashVariable = canonicalize(node.getLeftHashVariable());
             Optional<VariableReferenceExpression> canonicalRightHashVariable = canonicalize(node.getRightHashVariable());
 
-            Map<String, VariableReferenceExpression> canonicalDynamicFilters = canonicalizeAndDistinct(node.getDynamicFilters());
-
             if (node.getType().equals(INNER)) {
                 canonicalCriteria.stream()
                         .filter(clause -> clause.getLeft().getType().equals(clause.getRight().getType()))
@@ -547,7 +545,7 @@ public class UnaliasSymbolReferences
                     canonicalLeftHashVariable,
                     canonicalRightHashVariable,
                     node.getDistributionType(),
-                    canonicalDynamicFilters);
+                    node.getDynamicFilters());
         }
 
         @Override
@@ -761,19 +759,6 @@ public class UnaliasSymbolReferences
                 VariableReferenceExpression canonical = canonicalize(variable);
                 if (added.add(canonical)) {
                     builder.add(canonical);
-                }
-            }
-            return builder.build();
-        }
-
-        private Map<String, VariableReferenceExpression> canonicalizeAndDistinct(Map<String, VariableReferenceExpression> dynamicFilters)
-        {
-            Set<VariableReferenceExpression> added = new HashSet<>();
-            ImmutableMap.Builder<String, VariableReferenceExpression> builder = ImmutableMap.builder();
-            for (Map.Entry<String, VariableReferenceExpression> entry : dynamicFilters.entrySet()) {
-                VariableReferenceExpression canonical = canonicalize(entry.getValue());
-                if (added.add(canonical)) {
-                    builder.put(entry.getKey(), canonical);
                 }
             }
             return builder.build();

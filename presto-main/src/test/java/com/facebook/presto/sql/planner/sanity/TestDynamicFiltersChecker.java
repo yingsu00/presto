@@ -98,7 +98,7 @@ public class TestDynamicFiltersChecker
         validatePlan(root);
     }
 
-    @Test(expectedExceptions = VerifyException.class, expectedExceptionsMessageRegExp = "Dynamic filters \\[DF\\] present in join were consumed by its build side. consumedBuildSide \\[DF\\], currentJoinDynamicFilters \\[DF\\]")
+    @Test(expectedExceptions = VerifyException.class, expectedExceptionsMessageRegExp = "Dynamic filters \\[DF\\] present in join were consumed by its build side.")
     public void testDynamicFilterConsumedOnBuildSide()
     {
         PlanNode root = builder.join(
