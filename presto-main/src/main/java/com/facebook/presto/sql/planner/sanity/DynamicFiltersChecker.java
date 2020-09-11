@@ -29,7 +29,6 @@ import com.facebook.presto.sql.planner.plan.JoinNode;
 import com.facebook.presto.sql.planner.plan.OutputNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.relational.Expressions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
@@ -74,13 +73,6 @@ public class DynamicFiltersChecker
             @Override
             public Set<String> visitJoin(JoinNode node, Void context)
             {
-                List<DynamicFilters.DynamicFilterPlaceholder> nonPushedDownFilters = node
-                        .getFilter()
-                        .map(DynamicFilters::extractDynamicFilters)
-                        .map(DynamicFilters.DynamicFilterExtractResult::getDynamicConjuncts)
-                        .orElse(ImmutableList.of());
-                verify(nonPushedDownFilters.isEmpty(), "Dynamic filters %s present in join's filter predicate were not pushed down.", nonPushedDownFilters);
-
                 return extractUnmatchedDynamicFilters(node, context);
             }
 
@@ -94,12 +86,14 @@ public class DynamicFiltersChecker
             {
                 Set<String> currentJoinDynamicFilters = node.getDynamicFilters().keySet();
                 Set<String> consumedProbeSide = node.getProbe().accept(this, context);
-                Set<String> unconsumedByProbeSide = difference(currentJoinDynamicFilters, consumedProbeSide);
-                verify(unconsumedByProbeSide.isEmpty(), "Dynamic filters %s present in join were not fully consumed by its probe side.", unconsumedByProbeSide);
+                verify(
+                        difference(currentJoinDynamicFilters, consumedProbeSide).isEmpty(),
+                        "Dynamic filters present in join were not fully consumed by its probe side.");
 
                 Set<String> consumedBuildSide = node.getBuild().accept(this, context);
-                Set<String> unconsumedByBuildSide = intersection(currentJoinDynamicFilters, consumedBuildSide);
-                verify(unconsumedByBuildSide.isEmpty(), "Dynamic filters %s present in join were consumed by its build side.", unconsumedByBuildSide);
+                verify(
+                        intersection(currentJoinDynamicFilters, consumedBuildSide).isEmpty(),
+                        "Dynamic filters present in join were consumed by its build side.");
 
                 Set<String> unmatched = new HashSet<>(consumedBuildSide);
                 unmatched.addAll(consumedProbeSide);
