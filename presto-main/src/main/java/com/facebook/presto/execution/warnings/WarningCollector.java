@@ -11,9 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.spi;
+package com.facebook.presto.execution.warnings;
 
-import java.util.Collections;
+import com.facebook.presto.spi.PrestoWarning;
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 public interface WarningCollector
@@ -27,7 +29,7 @@ public interface WarningCollector
                 @Override
                 public List<PrestoWarning> getWarnings()
                 {
-                    return Collections.unmodifiableList(Collections.emptyList());
+                    return ImmutableList.of();
                 }
 
                 @Override
