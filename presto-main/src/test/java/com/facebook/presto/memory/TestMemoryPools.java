@@ -96,7 +96,6 @@ public class TestMemoryPools
         QueryContext queryContext = new QueryContext(new QueryId("query"),
                 TEN_MEGABYTES,
                 new DataSize(20, MEGABYTE),
-                TEN_MEGABYTES,
                 userPool,
                 new TestingGcMonitor(),
                 localQueryRunner.getExecutor(),

@@ -31,12 +31,11 @@ class RootAggregatedMemoryContext
     }
 
     @Override
-    synchronized ListenableFuture<?> updateBytes(String allocationTag, long bytes, boolean enforceBroadcastMemoryLimit)
+    synchronized ListenableFuture<?> updateBytes(String allocationTag, long bytes)
     {
         checkState(!isClosed(), "RootAggregatedMemoryContext is already closed");
-        ListenableFuture<?> future = reservationHandler.reserveMemory(allocationTag, bytes, enforceBroadcastMemoryLimit);
+        ListenableFuture<?> future = reservationHandler.reserveMemory(allocationTag, bytes);
         addBytes(bytes);
-        addBroadcastBytes(bytes);
         // make sure we never block queries below guaranteedMemory
         if (getBytes() < guaranteedMemory) {
             future = NOT_BLOCKED;
@@ -45,11 +44,10 @@ class RootAggregatedMemoryContext
     }
 
     @Override
-    synchronized boolean tryUpdateBytes(String allocationTag, long delta, boolean enforceBroadcastMemoryLimit)
+    synchronized boolean tryUpdateBytes(String allocationTag, long delta)
     {
-        if (reservationHandler.tryReserveMemory(allocationTag, delta, enforceBroadcastMemoryLimit)) {
+        if (reservationHandler.tryReserveMemory(allocationTag, delta)) {
             addBytes(delta);
-            addBroadcastBytes(delta);
             return true;
         }
         return false;
@@ -64,6 +62,6 @@ class RootAggregatedMemoryContext
     @Override
     void closeContext()
     {
-        reservationHandler.reserveMemory(FORCE_FREE_TAG, -getBytes(), false);
+        reservationHandler.reserveMemory(FORCE_FREE_TAG, -getBytes());
     }
 }

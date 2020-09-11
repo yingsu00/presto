@@ -35,8 +35,6 @@ public abstract class AbstractAggregatedMemoryContext
     public static final String FORCE_FREE_TAG = "FORCE_FREE_OPERATION";
 
     @GuardedBy("this")
-    private long broadcastUsedBytes;
-    @GuardedBy("this")
     private long usedBytes;
     @GuardedBy("this")
     private boolean closed;
@@ -57,11 +55,6 @@ public abstract class AbstractAggregatedMemoryContext
     public synchronized long getBytes()
     {
         return usedBytes;
-    }
-
-    public synchronized long getBroadcastBytes()
-    {
-        return broadcastUsedBytes;
     }
 
     @Override
@@ -94,14 +87,9 @@ public abstract class AbstractAggregatedMemoryContext
         usedBytes = addExact(usedBytes, bytes);
     }
 
-    synchronized void addBroadcastBytes(long bytes)
-    {
-        broadcastUsedBytes = addExact(broadcastUsedBytes, bytes);
-    }
+    abstract ListenableFuture<?> updateBytes(String allocationTag, long bytes);
 
-    abstract ListenableFuture<?> updateBytes(String allocationTag, long bytes, boolean enforceBroadcastMemoryLimit);
-
-    abstract boolean tryUpdateBytes(String allocationTag, long delta, boolean enforceBroadcastMemoryLimit);
+    abstract boolean tryUpdateBytes(String allocationTag, long delta);
 
     @Nullable
     abstract AbstractAggregatedMemoryContext getParent();

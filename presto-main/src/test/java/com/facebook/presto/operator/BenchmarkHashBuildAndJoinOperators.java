@@ -308,8 +308,7 @@ public class BenchmarkHashBuildAndJoinOperators
                 10_000,
                 new PagesIndex.TestingFactory(false),
                 false,
-                SingleStreamSpillerFactory.unsupportedSingleStreamSpillerFactory(),
-                false);
+                SingleStreamSpillerFactory.unsupportedSingleStreamSpillerFactory());
 
         Operator operator = hashBuilderOperatorFactory.createOperator(driverContext);
         for (Page page : buildContext.getBuildPages()) {

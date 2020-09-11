@@ -79,7 +79,6 @@ public class MemoryLocalQueryRunner
                 new QueryId("test"),
                 new DataSize(1, GIGABYTE),
                 new DataSize(2, GIGABYTE),
-                new DataSize(1, GIGABYTE),
                 memoryPool,
                 new TestingGcMonitor(),
                 localQueryRunner.getExecutor(),

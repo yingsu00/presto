@@ -72,7 +72,6 @@ public class HashBuilderOperator
         private final Map<Lifespan, Integer> partitionIndexManager = new HashMap<>();
 
         private boolean closed;
-        private boolean enforceBroadcastMemoryLimit;
 
         public HashBuilderOperatorFactory(
                 int operatorId,
@@ -87,8 +86,7 @@ public class HashBuilderOperator
                 int expectedPositions,
                 PagesIndex.Factory pagesIndexFactory,
                 boolean spillEnabled,
-                SingleStreamSpillerFactory singleStreamSpillerFactory,
-                boolean enforceBroadcastMemoryLimit)
+                SingleStreamSpillerFactory singleStreamSpillerFactory)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -108,7 +106,6 @@ public class HashBuilderOperator
             this.singleStreamSpillerFactory = requireNonNull(singleStreamSpillerFactory, "singleStreamSpillerFactory is null");
 
             this.expectedPositions = expectedPositions;
-            this.enforceBroadcastMemoryLimit = enforceBroadcastMemoryLimit;
         }
 
         @Override
@@ -133,8 +130,7 @@ public class HashBuilderOperator
                     expectedPositions,
                     pagesIndexFactory,
                     spillEnabled,
-                    singleStreamSpillerFactory,
-                    enforceBroadcastMemoryLimit);
+                    singleStreamSpillerFactory);
         }
 
         @Override
@@ -229,8 +225,6 @@ public class HashBuilderOperator
 
     private Optional<Runnable> finishMemoryRevoke = Optional.empty();
 
-    private final boolean enforceBroadcastMemoryLimit;
-
     public HashBuilderOperator(
             OperatorContext operatorContext,
             PartitionedLookupSourceFactory lookupSourceFactory,
@@ -244,8 +238,7 @@ public class HashBuilderOperator
             int expectedPositions,
             PagesIndex.Factory pagesIndexFactory,
             boolean spillEnabled,
-            SingleStreamSpillerFactory singleStreamSpillerFactory,
-            boolean enforceBroadcastMemoryLimit)
+            SingleStreamSpillerFactory singleStreamSpillerFactory)
     {
         requireNonNull(pagesIndexFactory, "pagesIndexFactory is null");
 
@@ -270,7 +263,6 @@ public class HashBuilderOperator
 
         this.spillEnabled = spillEnabled;
         this.singleStreamSpillerFactory = requireNonNull(singleStreamSpillerFactory, "singleStreamSpillerFactory is null");
-        this.enforceBroadcastMemoryLimit = enforceBroadcastMemoryLimit;
     }
 
     @Override
@@ -349,9 +341,9 @@ public class HashBuilderOperator
             localRevocableMemoryContext.setBytes(index.getEstimatedSize().toBytes());
         }
         else {
-            if (!localUserMemoryContext.trySetBytes(index.getEstimatedSize().toBytes(), enforceBroadcastMemoryLimit)) {
+            if (!localUserMemoryContext.trySetBytes(index.getEstimatedSize().toBytes())) {
                 index.compact();
-                localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes(), enforceBroadcastMemoryLimit);
+                localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes());
             }
         }
         operatorContext.recordOutput(page.getSizeInBytes(), page.getPositionCount());
@@ -380,7 +372,7 @@ public class HashBuilderOperator
 
             finishMemoryRevoke = Optional.of(() -> {
                 index.clear();
-                localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes(), enforceBroadcastMemoryLimit);
+                localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes());
                 localRevocableMemoryContext.setBytes(0);
                 lookupSourceFactory.setPartitionSpilledLookupSourceHandle(partitionIndex, spilledLookupSourceHandle);
                 state = State.SPILLING_INPUT;
@@ -392,7 +384,7 @@ public class HashBuilderOperator
                 lookupSourceFactory.setPartitionSpilledLookupSourceHandle(partitionIndex, spilledLookupSourceHandle);
                 lookupSourceNotNeeded = Optional.empty();
                 index.clear();
-                localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes(), enforceBroadcastMemoryLimit);
+                localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes());
                 localRevocableMemoryContext.setBytes(0);
                 lookupSourceChecksum = OptionalLong.of(lookupSourceSupplier.checksum());
                 lookupSourceSupplier = null;
@@ -496,7 +488,7 @@ public class HashBuilderOperator
             localRevocableMemoryContext.setBytes(partition.get().getInMemorySizeInBytes());
         }
         else {
-            localUserMemoryContext.setBytes(partition.get().getInMemorySizeInBytes(), enforceBroadcastMemoryLimit);
+            localUserMemoryContext.setBytes(partition.get().getInMemorySizeInBytes());
         }
         lookupSourceNotNeeded = Optional.of(lookupSourceFactory.lendPartitionLookupSource(partitionIndex, partition));
 
@@ -513,7 +505,7 @@ public class HashBuilderOperator
 
         index.clear();
         localRevocableMemoryContext.setBytes(0);
-        localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes(), enforceBroadcastMemoryLimit);
+        localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes());
         lookupSourceSupplier = null;
         close();
     }
@@ -540,7 +532,7 @@ public class HashBuilderOperator
         verify(spiller.isPresent());
         verify(!unspillInProgress.isPresent());
 
-        localUserMemoryContext.setBytes(getSpiller().getSpilledPagesInMemorySize() + index.getEstimatedSize().toBytes(), enforceBroadcastMemoryLimit);
+        localUserMemoryContext.setBytes(getSpiller().getSpilledPagesInMemorySize() + index.getEstimatedSize().toBytes());
         unspillInProgress = Optional.of(getSpiller().getAllSpilledPages());
 
         state = State.INPUT_UNSPILLING;
@@ -559,20 +551,20 @@ public class HashBuilderOperator
         long memoryRetainedByRemainingPages = pages.stream()
                 .mapToLong(Page::getRetainedSizeInBytes)
                 .sum();
-        localUserMemoryContext.setBytes(memoryRetainedByRemainingPages + index.getEstimatedSize().toBytes(), enforceBroadcastMemoryLimit);
+        localUserMemoryContext.setBytes(memoryRetainedByRemainingPages + index.getEstimatedSize().toBytes());
 
         while (!pages.isEmpty()) {
             Page next = pages.remove();
             index.addPage(next);
             // There is no attempt to compact index, since unspilled pages are unlikely to have blocks with retained size > logical size.
             memoryRetainedByRemainingPages -= next.getRetainedSizeInBytes();
-            localUserMemoryContext.setBytes(memoryRetainedByRemainingPages + index.getEstimatedSize().toBytes(), enforceBroadcastMemoryLimit);
+            localUserMemoryContext.setBytes(memoryRetainedByRemainingPages + index.getEstimatedSize().toBytes());
         }
 
         LookupSourceSupplier partition = buildLookupSource();
         lookupSourceChecksum.ifPresent(checksum ->
                 checkState(partition.checksum() == checksum, "Unspilled lookupSource checksum does not match original one"));
-        localUserMemoryContext.setBytes(partition.get().getInMemorySizeInBytes(), enforceBroadcastMemoryLimit);
+        localUserMemoryContext.setBytes(partition.get().getInMemorySizeInBytes());
 
         spilledLookupSourceHandle.setLookupSource(partition);
 
@@ -587,7 +579,7 @@ public class HashBuilderOperator
         }
 
         index.clear();
-        localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes(), enforceBroadcastMemoryLimit);
+        localUserMemoryContext.setBytes(index.getEstimatedSize().toBytes());
 
         close();
     }
@@ -633,7 +625,7 @@ public class HashBuilderOperator
         try (Closer closer = Closer.create()) {
             closer.register(index::clear);
             spiller.ifPresent(closer::register);
-            closer.register(() -> localUserMemoryContext.setBytes(0, enforceBroadcastMemoryLimit));
+            closer.register(() -> localUserMemoryContext.setBytes(0));
             closer.register(() -> localRevocableMemoryContext.setBytes(0));
         }
         catch (IOException e) {

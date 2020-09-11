@@ -38,7 +38,7 @@ public class TestMemoryContexts
     public void testLocalMemoryContextClose()
             throws IOException
     {
-        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(1_000, 1_000);
+        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(1_000);
         AggregatedMemoryContext aggregateContext = newRootAggregatedMemoryContext(reservationHandler, GUARANTEED_MEMORY);
         LocalMemoryContext localContext = aggregateContext.newLocalMemoryContext("test");
         localContext.setBytes(100);
@@ -56,7 +56,7 @@ public class TestMemoryContexts
     @Test
     public void testMemoryContexts()
     {
-        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(1_000, 1_000);
+        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(1_000);
         AggregatedMemoryContext aggregateContext = newRootAggregatedMemoryContext(reservationHandler, GUARANTEED_MEMORY);
         LocalMemoryContext localContext = aggregateContext.newLocalMemoryContext("test");
 
@@ -79,28 +79,9 @@ public class TestMemoryContexts
     }
 
     @Test
-    public void testMemoryContextsEnforceBroadcastMemoryLimit()
-    {
-        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(1_000, 100);
-        AggregatedMemoryContext rootContext = newRootAggregatedMemoryContext(reservationHandler, GUARANTEED_MEMORY);
-        AggregatedMemoryContext firstIntermediateContext = rootContext.newAggregatedMemoryContext();
-        AggregatedMemoryContext secondIntermediateContext = rootContext.newAggregatedMemoryContext();
-        LocalMemoryContext localContext1 = firstIntermediateContext.newLocalMemoryContext("test1");
-        LocalMemoryContext localContext2 = firstIntermediateContext.newLocalMemoryContext("test2");
-        LocalMemoryContext localContext3 = secondIntermediateContext.newLocalMemoryContext("test3");
-        LocalMemoryContext localContext4 = secondIntermediateContext.newLocalMemoryContext("test4");
-        assertTrue(localContext1.trySetBytes(30, true));
-        assertTrue(localContext2.trySetBytes(30, true));
-        assertTrue(localContext3.trySetBytes(30, true));
-        assertFalse(localContext4.trySetBytes(30, true));
-        assertTrue(localContext1.trySetBytes(5, true));
-        assertTrue(localContext4.trySetBytes(30, true));
-    }
-
-    @Test
     public void testTryReserve()
     {
-        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(1_000, 1_000);
+        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(1_000);
         AggregatedMemoryContext parentContext = newRootAggregatedMemoryContext(reservationHandler, GUARANTEED_MEMORY);
         AggregatedMemoryContext aggregateContext1 = parentContext.newAggregatedMemoryContext();
         AggregatedMemoryContext aggregateContext2 = parentContext.newAggregatedMemoryContext();
@@ -124,7 +105,7 @@ public class TestMemoryContexts
     @Test
     public void testHieararchicalMemoryContexts()
     {
-        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(1_000, 1_000);
+        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(1_000);
         AggregatedMemoryContext parentContext = newRootAggregatedMemoryContext(reservationHandler, GUARANTEED_MEMORY);
         AggregatedMemoryContext aggregateContext1 = parentContext.newAggregatedMemoryContext();
         AggregatedMemoryContext aggregateContext2 = parentContext.newAggregatedMemoryContext();
@@ -144,7 +125,7 @@ public class TestMemoryContexts
     public void testGuaranteedMemoryDoesntBlock()
     {
         long maxMemory = 2 * GUARANTEED_MEMORY;
-        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(maxMemory, maxMemory);
+        TestMemoryReservationHandler reservationHandler = new TestMemoryReservationHandler(maxMemory);
         AggregatedMemoryContext parentContext = newRootAggregatedMemoryContext(reservationHandler, GUARANTEED_MEMORY);
         LocalMemoryContext childContext = parentContext.newLocalMemoryContext("test");
 
@@ -191,13 +172,11 @@ public class TestMemoryContexts
     {
         private long reservation;
         private final long maxMemory;
-        private final long maxBroadcastMemory;
         private SettableFuture<?> future;
 
-        public TestMemoryReservationHandler(long maxMemory, long maxBroadcastMemory)
+        public TestMemoryReservationHandler(long maxMemory)
         {
             this.maxMemory = maxMemory;
-            this.maxBroadcastMemory = maxBroadcastMemory;
         }
 
         public long getReservation()
@@ -206,11 +185,11 @@ public class TestMemoryContexts
         }
 
         @Override
-        public ListenableFuture<?> reserveMemory(String allocationTag, long delta, boolean enforceBroadcastMemoryLimit)
+        public ListenableFuture<?> reserveMemory(String allocationTag, long delta)
         {
             reservation += delta;
             if (delta >= 0) {
-                if (reservation >= maxMemory || (enforceBroadcastMemoryLimit && reservation >= maxBroadcastMemory)) {
+                if (reservation >= maxMemory) {
                     future = SettableFuture.create();
                     return future;
                 }
@@ -226,11 +205,8 @@ public class TestMemoryContexts
         }
 
         @Override
-        public boolean tryReserveMemory(String allocationTag, long delta, boolean enforceBroadcastMemoryLimit)
+        public boolean tryReserveMemory(String allocationTag, long delta)
         {
-            if (enforceBroadcastMemoryLimit && reservation + delta > maxBroadcastMemory) {
-                return false;
-            }
             if (reservation + delta > maxMemory) {
                 return false;
             }

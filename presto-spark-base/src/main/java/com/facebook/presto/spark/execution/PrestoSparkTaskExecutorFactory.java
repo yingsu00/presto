@@ -308,7 +308,6 @@ public class PrestoSparkTaskExecutorFactory
                 session.getQueryId(),
                 maxUserMemory,
                 maxTotalMemory,
-                maxUserMemory,
                 memoryPool,
                 new TestingGcMonitor(),
                 notificationExecutor,

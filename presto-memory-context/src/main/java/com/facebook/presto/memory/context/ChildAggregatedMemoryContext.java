@@ -31,26 +31,20 @@ class ChildAggregatedMemoryContext
     }
 
     @Override
-    synchronized ListenableFuture<?> updateBytes(String allocationTag, long bytes, boolean enforceBroadcastMemoryLimit)
+    synchronized ListenableFuture<?> updateBytes(String allocationTag, long bytes)
     {
         checkState(!isClosed(), "ChildAggregatedMemoryContext is already closed");
         // update the parent before updating usedBytes as it may throw a runtime exception (e.g., ExceededMemoryLimitException)
-        ListenableFuture<?> future = parentMemoryContext.updateBytes(allocationTag, bytes, enforceBroadcastMemoryLimit);
+        ListenableFuture<?> future = parentMemoryContext.updateBytes(allocationTag, bytes);
         addBytes(bytes);
-        if (enforceBroadcastMemoryLimit) {
-            addBroadcastBytes(bytes);
-        }
         return future;
     }
 
     @Override
-    synchronized boolean tryUpdateBytes(String allocationTag, long delta, boolean enforceBroadcastMemoryLimit)
+    synchronized boolean tryUpdateBytes(String allocationTag, long delta)
     {
-        if (parentMemoryContext.tryUpdateBytes(allocationTag, delta, enforceBroadcastMemoryLimit)) {
+        if (parentMemoryContext.tryUpdateBytes(allocationTag, delta)) {
             addBytes(delta);
-            if (enforceBroadcastMemoryLimit) {
-                addBroadcastBytes(delta);
-            }
             return true;
         }
         return false;
@@ -64,6 +58,6 @@ class ChildAggregatedMemoryContext
 
     void closeContext()
     {
-        parentMemoryContext.updateBytes(FORCE_FREE_TAG, -getBytes(), false);
+        parentMemoryContext.updateBytes(FORCE_FREE_TAG, -getBytes());
     }
 }

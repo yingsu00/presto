@@ -151,7 +151,6 @@ public final class TestingTaskContext
                     queryId,
                     queryMaxMemory,
                     queryMaxTotalMemory,
-                    queryMaxMemory,
                     memoryPool,
                     GC_MONITOR,
                     notificationExecutor,

@@ -1062,13 +1062,13 @@ public class TestBroadcastOutputBuffer
         }
 
         @Override
-        public ListenableFuture<?> reserveMemory(String allocationTag, long delta, boolean enforceBroadcastMemoryLimit)
+        public ListenableFuture<?> reserveMemory(String allocationTag, long delta)
         {
             return blockedFuture;
         }
 
         @Override
-        public boolean tryReserveMemory(String allocationTag, long delta, boolean enforceBroadcastMemoryLimit)
+        public boolean tryReserveMemory(String allocationTag, long delta)
         {
             return true;
         }

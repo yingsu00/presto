@@ -100,7 +100,6 @@ public class TestMemoryTracking
                 new QueryId("test_query"),
                 queryMaxMemory,
                 queryMaxTotalMemory,
-                queryMaxMemory,
                 memoryPool,
                 new TestingGcMonitor(),
                 notificationExecutor,

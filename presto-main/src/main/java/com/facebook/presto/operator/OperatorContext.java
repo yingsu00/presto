@@ -609,13 +609,7 @@ public class OperatorContext
         @Override
         public ListenableFuture<?> setBytes(long bytes)
         {
-            return setBytes(bytes, false);
-        }
-
-        @Override
-        public ListenableFuture<?> setBytes(long bytes, boolean enforceBroadcastMemoryLimit)
-        {
-            ListenableFuture<?> blocked = delegate.setBytes(bytes, enforceBroadcastMemoryLimit);
+            ListenableFuture<?> blocked = delegate.setBytes(bytes);
             updateMemoryFuture(blocked, memoryFuture);
             allocationListener.run();
             return blocked;
@@ -624,13 +618,7 @@ public class OperatorContext
         @Override
         public boolean trySetBytes(long bytes)
         {
-            return trySetBytes(bytes, false);
-        }
-
-        @Override
-        public boolean trySetBytes(long bytes, boolean enforceBroadcastMemoryLimit)
-        {
-            if (delegate.trySetBytes(bytes, enforceBroadcastMemoryLimit)) {
+            if (delegate.trySetBytes(bytes)) {
                 allocationListener.run();
                 return true;
             }
