@@ -131,8 +131,7 @@ public class TestDynamicBucketPruning
                         Optional.empty(),
                         false,
                         "layout",
-                        Optional.empty(),
-                        false)));
+                        Optional.empty())));
         HivePageSourceProvider provider = new HivePageSourceProvider(config, createTestHdfsEnvironment(config, metastoreClientConfig), getDefaultHiveRecordCursorProvider(config, metastoreClientConfig), getDefaultHiveBatchPageSourceFactories(config, metastoreClientConfig), getDefaultHiveSelectivePageSourceFactories(config, metastoreClientConfig), TYPE_MANAGER, ROW_EXPRESSION_SERVICE);
         return provider.createPageSource(transaction, getSession(config), split, tableHandle.getLayout().get(), ImmutableList.copyOf(getColumnHandles()), splitContext);
     }
@@ -147,7 +146,6 @@ public class TestDynamicBucketPruning
                                 parseTypeSignature(StandardTypes.VARCHAR),
                                 0,
                                 REGULAR,
-                                Optional.empty(),
                                 Optional.empty()),
                         Domain.singleValue(INTEGER, 10L)));
     }
@@ -162,7 +160,6 @@ public class TestDynamicBucketPruning
                                 parseTypeSignature(StandardTypes.VARCHAR),
                                 0,
                                 REGULAR,
-                                Optional.empty(),
                                 Optional.empty()),
                         Domain.singleValue(INTEGER, 1L)));
     }

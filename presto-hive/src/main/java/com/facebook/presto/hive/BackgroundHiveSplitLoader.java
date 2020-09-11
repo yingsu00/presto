@@ -119,7 +119,6 @@ public class BackgroundHiveSplitLoader
     private final Deque<Iterator<InternalHiveSplit>> fileIterators = new ConcurrentLinkedDeque<>();
     private final boolean schedulerUsesHostAddresses;
     private final Supplier<HoodieROTablePathFilter> hoodiePathFilterSupplier;
-    private final boolean partialAggregationsPushedDown;
 
     // Purpose of this lock:
     // * Write lock: when you need a consistent view across partitions, fileIterators, and hiveSplitSource.
@@ -153,8 +152,7 @@ public class BackgroundHiveSplitLoader
             Executor executor,
             int loaderConcurrency,
             boolean recursiveDirWalkerEnabled,
-            boolean schedulerUsesHostAddresses,
-            boolean partialAggregationsPushedDown)
+            boolean schedulerUsesHostAddresses)
     {
         this.table = requireNonNull(table, "table is null");
         this.pathDomain = requireNonNull(pathDomain, "pathDomain is null");
@@ -170,7 +168,6 @@ public class BackgroundHiveSplitLoader
         this.hdfsContext = new HdfsContext(session, table.getDatabaseName(), table.getTableName());
         this.schedulerUsesHostAddresses = schedulerUsesHostAddresses;
         this.hoodiePathFilterSupplier = Suppliers.memoize(HoodieROTablePathFilter::new)::get;
-        this.partialAggregationsPushedDown = partialAggregationsPushedDown;
     }
 
     @Override
@@ -387,11 +384,10 @@ public class BackgroundHiveSplitLoader
         }
         PathFilter pathFilter = isHudiParquetInputFormat(inputFormat) ? hoodiePathFilterSupplier.get() : path1 -> true;
         // S3 Select pushdown works at the granularity of individual S3 objects,
-        // Partial aggregation pushdown works at the granularity of individual files
-        // therefore we must not split files when either is enabled.
+        // therefore we must not split files when it is enabled.
         Properties schema = getHiveSchema(storage.getSerdeParameters(), table.getParameters());
         // Skip header / footer lines are not splittable except for a special case when skip.header.line.count=1
-        boolean splittable = !s3SelectPushdownEnabled && !partialAggregationsPushedDown && getFooterCount(schema) == 0 && getHeaderCount(schema) <= 1;
+        boolean splittable = !s3SelectPushdownEnabled && getFooterCount(schema) == 0 && getHeaderCount(schema) <= 1;
 
         // Bucketed partitions are fully loaded immediately since all files must be loaded to determine the file to bucket mapping
         if (tableBucketInfo.isPresent()) {

@@ -60,7 +60,6 @@ import java.util.function.Function;
 
 import static com.facebook.presto.hive.HiveBucketing.getHiveBucketFilter;
 import static com.facebook.presto.hive.HiveCoercer.createCoercer;
-import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.AGGREGATED;
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.SYNTHESIZED;
@@ -540,13 +539,6 @@ public class HivePageSourceProvider
             return new ColumnMapping(ColumnMappingKind.REGULAR, hiveColumnHandle, Optional.empty(), OptionalInt.of(index), coerceFrom);
         }
 
-        public static ColumnMapping aggregated(HiveColumnHandle hiveColumnHandle, int index)
-        {
-            checkArgument(hiveColumnHandle.getColumnType() == AGGREGATED);
-            // Pretend that it is a regular column so that the split manager can process it as normal
-            return new ColumnMapping(ColumnMappingKind.REGULAR, hiveColumnHandle, Optional.empty(), OptionalInt.of(index), Optional.empty());
-        }
-
         public static ColumnMapping prefilled(HiveColumnHandle hiveColumnHandle, String prefilledValue, Optional<HiveType> coerceFrom)
         {
             checkArgument(hiveColumnHandle.getColumnType() == PARTITION_KEY || hiveColumnHandle.getColumnType() == SYNTHESIZED);
@@ -627,10 +619,6 @@ public class HivePageSourceProvider
                     columnMappings.add(regular(column, regularIndex, coercionFrom));
                     regularIndex++;
                 }
-                else if (column.getColumnType() == AGGREGATED) {
-                    columnMappings.add(aggregated(column, regularIndex));
-                    regularIndex++;
-                }
                 else if (isPushedDownSubfield(column)) {
                     Optional<HiveType> coercionFromType = getHiveType(coercionFrom, getOnlyElement(column.getRequiredSubfields()));
                     HiveType coercionToType = column.getHiveType();
@@ -696,8 +684,7 @@ public class HivePageSourceProvider
                                 columnHandle.getHiveColumnIndex(),
                                 columnHandle.getColumnType(),
                                 Optional.empty(),
-                                columnHandle.getRequiredSubfields(),
-                                columnHandle.getPartialAggregation());
+                                columnHandle.getRequiredSubfields());
                     })
                     .collect(toList());
         }
@@ -708,7 +695,6 @@ public class HivePageSourceProvider
         REGULAR,
         PREFILLED,
         INTERIM,
-        AGGREGATED
     }
 
     private static final class RowExpressionCacheKey

@@ -2248,8 +2248,7 @@ public class HiveMetadata
                                 hivePartitionResult.getBucketFilter(),
                                 false,
                                 createTableLayoutString(session, handle.getSchemaTableName(), hivePartitionResult.getBucketHandle(), hivePartitionResult.getBucketFilter(), TRUE_CONSTANT, domainPredicate),
-                                desiredColumns.map(columns -> columns.stream().map(column -> (HiveColumnHandle) column).collect(toImmutableSet())),
-                                false)),
+                                desiredColumns.map(columns -> columns.stream().map(column -> (HiveColumnHandle) column).collect(toImmutableSet())))),
                 hivePartitionResult.getUnenforcedConstraint()));
     }
 
@@ -2485,8 +2484,7 @@ public class HiveMetadata
                 hiveLayoutHandle.getBucketFilter(),
                 hiveLayoutHandle.isPushdownFilterEnabled(),
                 hiveLayoutHandle.getLayoutString(),
-                hiveLayoutHandle.getRequestedColumns(),
-                hiveLayoutHandle.isPartialAggregationsPushedDown());
+                hiveLayoutHandle.getRequestedColumns());
     }
 
     @Override
@@ -3134,8 +3132,7 @@ public class HiveMetadata
                     column.getType().getTypeSignature(),
                     ordinal,
                     columnType,
-                    Optional.ofNullable(column.getComment()),
-                    Optional.empty()));
+                    Optional.ofNullable(column.getComment())));
             ordinal++;
         }
 

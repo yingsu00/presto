@@ -249,8 +249,7 @@ public class HiveSplitManager
                 executor,
                 splitLoaderConcurrency,
                 recursiveDfsWalkerEnabled,
-                splitSchedulingContext.schedulerUsesHostAddresses(),
-                layout.isPartialAggregationsPushedDown());
+                splitSchedulingContext.schedulerUsesHostAddresses());
 
         HiveSplitSource splitSource;
         CacheQuotaRequirement cacheQuotaRequirement = cacheQuotaRequirementProvider.getCacheQuotaRequirement(table.getDatabaseName(), table.getTableName());

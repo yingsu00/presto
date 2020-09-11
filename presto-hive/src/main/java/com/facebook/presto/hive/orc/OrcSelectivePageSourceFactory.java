@@ -103,7 +103,6 @@ import static com.facebook.presto.expressions.LogicalRowExpressions.binaryExpres
 import static com.facebook.presto.expressions.LogicalRowExpressions.extractConjuncts;
 import static com.facebook.presto.expressions.RowExpressionNodeInliner.replaceExpression;
 import static com.facebook.presto.hive.HiveBucketing.getHiveBucket;
-import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.AGGREGATED;
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_CANNOT_OPEN_SPLIT;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_INVALID_BUCKET_FILES;
@@ -257,7 +256,7 @@ public class OrcSelectivePageSourceFactory
                 NO_ENCRYPTION));
     }
 
-    public static ConnectorPageSource createOrcPageSource(
+    public static OrcSelectivePageSource createOrcPageSource(
             ConnectorSession session,
             OrcEncoding orcEncoding,
             HdfsEnvironment hdfsEnvironment,
@@ -334,11 +333,6 @@ public class OrcSelectivePageSourceFactory
             checkArgument(!domainPredicate.isNone(), "Unexpected NONE domain");
 
             List<HiveColumnHandle> physicalColumns = getPhysicalHiveColumnHandles(columns, useOrcColumnNames, reader, path);
-
-            if (!physicalColumns.isEmpty() && physicalColumns.get(0).getColumnType() == AGGREGATED) {
-                return new AggregatedOrcPageSource(physicalColumns, reader.getFooter(), typeManager, functionResolution);
-            }
-
             Map<Integer, Integer> indexMapping = IntStream.range(0, columns.size())
                     .boxed()
                     .collect(toImmutableMap(i -> columns.get(i).getHiveColumnIndex(), i -> physicalColumns.get(i).getHiveColumnIndex()));
