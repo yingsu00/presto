@@ -2471,7 +2471,7 @@ public abstract class AbstractTestHiveClient
         }
     }
 
-    protected ConnectorTableLayout getTableLayout(ConnectorSession session, ConnectorMetadata metadata, ConnectorTableHandle tableHandle, Constraint<ColumnHandle> constraint, Transaction transaction)
+    private ConnectorTableLayout getTableLayout(ConnectorSession session, ConnectorMetadata metadata, ConnectorTableHandle tableHandle, Constraint<ColumnHandle> constraint, Transaction transaction)
     {
         if (HiveSessionProperties.isPushdownFilterEnabled(session)) {
             assertTrue(constraint.getSummary().isAll());
