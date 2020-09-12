@@ -28,10 +28,8 @@ import com.facebook.presto.spi.ConnectorSplitSource;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.FixedSplitSource;
 import com.facebook.presto.spi.PrestoException;
-import com.facebook.presto.spi.PrestoWarning;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableNotFoundException;
-import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.google.common.collect.AbstractIterator;
@@ -63,8 +61,6 @@ import static com.facebook.presto.hive.HiveErrorCode.HIVE_PARTITION_SCHEMA_MISMA
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_TRANSACTION_NOT_FOUND;
 import static com.facebook.presto.hive.HivePartition.UNPARTITIONED_ID;
 import static com.facebook.presto.hive.HiveSessionProperties.isOfflineDataDebugModeEnabled;
-import static com.facebook.presto.hive.HiveSessionProperties.shouldIgnoreUnreadablePartition;
-import static com.facebook.presto.hive.HiveWarningCode.PARTITION_NOT_READABLE;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.getProtectMode;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.makePartName;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.verifyOnline;
@@ -227,15 +223,7 @@ public class HiveSplitManager
         // sort partitions
         partitions = Ordering.natural().onResultOf(HivePartition::getPartitionId).reverse().sortedCopy(partitions);
 
-        Iterable<HivePartitionMetadata> hivePartitions = getPartitionMetadata(
-                metastore,
-                table,
-                tableName,
-                partitions,
-                bucketHandle,
-                session,
-                splitSchedulingContext.getWarningCollector(),
-                layout.getRequestedColumns());
+        Iterable<HivePartitionMetadata> hivePartitions = getPartitionMetadata(metastore, table, tableName, partitions, bucketHandle, session, layout.getRequestedColumns());
 
         HiveSplitLoader hiveSplitLoader = new BackgroundHiveSplitLoader(
                 table,
@@ -324,7 +312,6 @@ public class HiveSplitManager
             List<HivePartition> hivePartitions,
             Optional<HiveBucketHandle> hiveBucketHandle,
             ConnectorSession session,
-            WarningCollector warningCollector,
             Optional<Set<HiveColumnHandle>> requestedColumns)
     {
         if (hivePartitions.isEmpty()) {
@@ -382,13 +369,7 @@ public class HiveSplitManager
                     // verify partition is not marked as non-readable
                     String partitionNotReadable = partition.getParameters().get(OBJECT_NOT_READABLE);
                     if (!isNullOrEmpty(partitionNotReadable)) {
-                        if (!shouldIgnoreUnreadablePartition(session)) {
-                            throw new HiveNotReadableException(tableName, Optional.of(partName), partitionNotReadable);
-                        }
-                        warningCollector.add(
-                                new PrestoWarning(PARTITION_NOT_READABLE,
-                                        format("Table '%s' partition '%s' is not readable: %s", tableName, partName, partitionNotReadable)));
-                        continue;
+                        throw new HiveNotReadableException(tableName, Optional.of(partName), partitionNotReadable);
                     }
                 }
 

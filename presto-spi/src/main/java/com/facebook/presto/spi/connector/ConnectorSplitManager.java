@@ -16,7 +16,6 @@ package com.facebook.presto.spi.connector;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorSplitSource;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
-import com.facebook.presto.spi.WarningCollector;
 
 import static java.util.Objects.requireNonNull;
 
@@ -39,7 +38,6 @@ public interface ConnectorSplitManager
     {
         private final SplitSchedulingStrategy splitSchedulingStrategy;
         private final boolean schedulerUsesHostAddresses;
-        private final WarningCollector warningCollector;
 
         /**
          * @param splitSchedulingStrategy the method by which splits are scheduled
@@ -49,11 +47,10 @@ public interface ConnectorSplitManager
          * splits without any performance loss.  Non-remotely accessible splits always
          * need to provide host addresses.
          */
-        public SplitSchedulingContext(SplitSchedulingStrategy splitSchedulingStrategy, boolean schedulerUsesHostAddresses, WarningCollector warningCollector)
+        public SplitSchedulingContext(SplitSchedulingStrategy splitSchedulingStrategy, boolean schedulerUsesHostAddresses)
         {
             this.splitSchedulingStrategy = requireNonNull(splitSchedulingStrategy, "splitSchedulingStrategy is null");
             this.schedulerUsesHostAddresses = schedulerUsesHostAddresses;
-            this.warningCollector = requireNonNull(warningCollector, "warningCollector is null ");
         }
 
         public SplitSchedulingStrategy getSplitSchedulingStrategy()
@@ -64,11 +61,6 @@ public interface ConnectorSplitManager
         public boolean schedulerUsesHostAddresses()
         {
             return schedulerUsesHostAddresses;
-        }
-
-        public WarningCollector getWarningCollector()
-        {
-            return warningCollector;
         }
     }
 }

@@ -822,8 +822,7 @@ public class LocalQueryRunner
             SplitSource splitSource = splitManager.getSplits(
                     session,
                     tableScan.getTable(),
-                    getSplitSchedulingStrategy(stageExecutionDescriptor, tableScan.getId()),
-                    WarningCollector.NOOP);
+                    getSplitSchedulingStrategy(stageExecutionDescriptor, tableScan.getId()));
 
             ImmutableSet.Builder<ScheduledSplit> scheduledSplits = ImmutableSet.builder();
             while (!splitSource.isFinished()) {

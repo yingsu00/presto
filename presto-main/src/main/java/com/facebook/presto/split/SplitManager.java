@@ -25,7 +25,6 @@ import com.facebook.presto.spi.ConnectorSplitSource;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.TableHandle;
-import com.facebook.presto.spi.WarningCollector;
 import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.connector.ConnectorSplitManager.SplitSchedulingContext;
 import com.facebook.presto.spi.connector.ConnectorSplitManager.SplitSchedulingStrategy;
@@ -68,7 +67,7 @@ public class SplitManager
         splitManagers.remove(connectorId);
     }
 
-    public SplitSource getSplits(Session session, TableHandle table, SplitSchedulingStrategy splitSchedulingStrategy, WarningCollector warningCollector)
+    public SplitSource getSplits(Session session, TableHandle table, SplitSchedulingStrategy splitSchedulingStrategy)
     {
         ConnectorId connectorId = table.getConnectorId();
         ConnectorSplitManager splitManager = getConnectorSplitManager(connectorId);
@@ -89,7 +88,7 @@ public class SplitManager
                 table.getTransaction(),
                 connectorSession,
                 layout,
-                new SplitSchedulingContext(splitSchedulingStrategy, preferSplitHostAddresses, warningCollector));
+                new SplitSchedulingContext(splitSchedulingStrategy, preferSplitHostAddresses));
 
         SplitSource splitSource = new ConnectorAwareSplitSource(connectorId, table.getTransaction(), source);
         if (minScheduleSplitBatchSize > 1) {
