@@ -190,81 +190,100 @@ public class SliceDirectSelectiveStreamReader
         int streamPosition = 0;
         int dataToSkip = 0;
 
-        for (int i = 0; i < positionCount; i++) {
-            int position = positions[i];
-            if (position > streamPosition) {
-                skipData(streamPosition, position - streamPosition);
-                streamPosition = position;
-            }
-
-            int offset = outputRequired ? offsets[outputPositionCount] : 0;
-            if (presentStream != null && isNullVector[position]) {
-                if ((nonDeterministicFilter && filter.testNull()) || nullsAllowed) {
-                    if (outputRequired) {
-                        offsets[outputPositionCount + 1] = offset;
-                        nulls[outputPositionCount] = true;
-                    }
-                    outputPositions[outputPositionCount] = position;
-                    outputPositionCount++;
+        try {
+            for (int i = 0; i < positionCount; i++) {
+                int position = positions[i];
+                if (position > streamPosition) {
+                    skipData(streamPosition, position - streamPosition);
+                    streamPosition = position;
                 }
-            }
-            else {
-                int length = lengthVector[lengthIndex];
-                int dataOffset = outputRequired ? offset : 0;
-                if (filter.testLength(length)) {
-                    if (dataStream != null) {
-                        dataStream.skip(dataToSkip);
-                        dataToSkip = 0;
-                        dataStream.next(data, dataOffset, dataOffset + length);
-                        if (filter.testBytes(data, dataOffset, length)) {
-                            if (outputRequired) {
-                                int truncatedLength = computeTruncatedLength(dataAsSlice, dataOffset, length, maxCodePointCount, isCharType);
-                                offsets[outputPositionCount + 1] = offset + truncatedLength;
-                                if (nullsAllowed && isNullVector != null) {
-                                    nulls[outputPositionCount] = false;
-                                }
-                            }
-                            outputPositions[outputPositionCount] = position;
-                            outputPositionCount++;
+
+                int offset = outputRequired ? offsets[outputPositionCount] : 0;
+                if (presentStream != null && isNullVector[position]) {
+                    if ((nonDeterministicFilter && filter.testNull()) || nullsAllowed) {
+                        if (outputRequired) {
+                            offsets[outputPositionCount + 1] = offset;
+                            nulls[outputPositionCount] = true;
                         }
-                    }
-                    else {
-                        assert length == 0;
-                        if (filter.testBytes("".getBytes(), 0, 0)) {
-                            if (outputRequired) {
-                                offsets[outputPositionCount + 1] = offset;
-                                if (nullsAllowed && isNullVector != null) {
-                                    nulls[outputPositionCount] = false;
-                                }
-                            }
-                            outputPositions[outputPositionCount] = position;
-                            outputPositionCount++;
-                        }
+                        outputPositions[outputPositionCount] = position;
+                        outputPositionCount++;
                     }
                 }
                 else {
-                    dataToSkip += length;
-                }
-                lengthIndex++;
-            }
+                    int length = lengthVector[lengthIndex];
+                    int dataOffset = outputRequired ? offset : 0;
+                    try {
+                        if (filter.testLength(length)) {
+                            if (dataStream != null) {
+                                dataStream.skip(dataToSkip);
+                                dataToSkip = 0;
+                                dataStream.next(data, dataOffset, dataOffset + length);
+                                if (filter.testBytes(data, dataOffset, length)) {
+                                    if (outputRequired) {
+                                        int truncatedLength = computeTruncatedLength(dataAsSlice, dataOffset, length, maxCodePointCount, isCharType);
 
-            streamPosition++;
-
-            if (filter != null) {
-                outputPositionCount -= filter.getPrecedingPositionsToFail();
-                int succeedingPositionsToFail = filter.getSucceedingPositionsToFail();
-                if (succeedingPositionsToFail > 0) {
-                    int positionsToSkip = 0;
-                    for (int j = 0; j < succeedingPositionsToFail; j++) {
-                        i++;
-                        int nextPosition = positions[i];
-                        positionsToSkip += 1 + nextPosition - streamPosition;
-                        streamPosition = nextPosition + 1;
+                                        offsets[outputPositionCount + 1] = offset + truncatedLength;
+                                        if (nullsAllowed && isNullVector != null) {
+                                            nulls[outputPositionCount] = false;
+                                        }
+                                    }
+                                    outputPositions[outputPositionCount] = position;
+                                    outputPositionCount++;
+                                }
+                            }
+                            else {
+                                assert length == 0;
+                                if (filter.testBytes("".getBytes(), 0, 0)) {
+                                    if (outputRequired) {
+                                        offsets[outputPositionCount + 1] = offset;
+                                        if (nullsAllowed && isNullVector != null) {
+                                            nulls[outputPositionCount] = false;
+                                        }
+                                    }
+                                    outputPositions[outputPositionCount] = position;
+                                    outputPositionCount++;
+                                }
+                            }
+                        }
+                        else {
+                            dataToSkip += length;
+                        }
+                        lengthIndex++;
                     }
-                    skipData(streamPosition, positionsToSkip);
+                    catch (Exception e) {
+                        String message = " filter " + filter + " presentStream == null " + (presentStream == null) +
+                                " nulls " + nulls + " offsets " + offsets + " outputPositions " + outputPositions +
+                                " lengthVector " + lengthVector + " data " + data;
+                        message += e.getStackTrace();
+
+                        throw new IOException(message);
+                    }
+                }
+
+                streamPosition++;
+
+                if (filter != null) {
+                    outputPositionCount -= filter.getPrecedingPositionsToFail();
+                    int succeedingPositionsToFail = filter.getSucceedingPositionsToFail();
+                    if (succeedingPositionsToFail > 0) {
+                        int positionsToSkip = 0;
+                        for (int j = 0; j < succeedingPositionsToFail; j++) {
+                            i++;
+                            int nextPosition = positions[i];
+                            positionsToSkip += 1 + nextPosition - streamPosition;
+                            streamPosition = nextPosition + 1;
+                        }
+                        skipData(streamPosition, positionsToSkip);
+                    }
                 }
             }
         }
+        catch (Exception e) {
+            String message = " filter " + filter + " presentStream == null " + (presentStream == null) + " nulls ==null" + (nulls == null) + " offsets " + offsets + " outputPositions " + outputPositions;
+            e.printStackTrace();
+            throw new IOException(message);
+        }
+
         if (dataToSkip > 0) {
             dataStream.skip(dataToSkip);
         }
@@ -360,6 +379,7 @@ public class SliceDirectSelectiveStreamReader
         data = null;
         offsets = null;
         nulls = null;
+        isNullVector = null;
         return block;
     }
 
