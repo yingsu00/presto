@@ -47,6 +47,7 @@ import static io.airlift.slice.SizeOf.sizeOf;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.String.format;
+import static java.lang.Math.toIntExact;
 
 public class VariableWidthBlockBuilder
         extends AbstractVariableWidthBlock
@@ -388,7 +389,9 @@ public class VariableWidthBlockBuilder
     {
         int newSize = max(calculateBlockResetSize(positions), expectedEntries);
         int currentSizeInBytes = offsets[positions];
-        return new VariableWidthBlockBuilder(blockBuilderStatus, newSize, BlockUtil.calculateNestedStructureResetSize(currentSizeInBytes, positions, newSize));
+        return new VariableWidthBlockBuilder(blockBuilderStatus,
+                newSize,
+                max(calculateBlockResetBytes(currentSizeInBytes), positions == 0 ? currentSizeInBytes : toIntExact((long) currentSizeInBytes * newSize / positions)));
     }
 
     private int getOffset(int position)

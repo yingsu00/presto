@@ -30,6 +30,7 @@ import static com.facebook.presto.common.block.BlockUtil.calculateBlockResetSize
 import static com.facebook.presto.common.block.MapBlock.createMapBlockInternal;
 import static io.airlift.slice.SizeOf.sizeOf;
 import static java.lang.Math.max;
+import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
@@ -458,7 +459,7 @@ public class MapBlockBuilder
     public BlockBuilder newBlockBuilderLike(BlockBuilderStatus blockBuilderStatus, int expectedEntries)
     {
         int newSize = max(calculateBlockResetSize(getPositionCount()), expectedEntries);
-        int nestedExpectedEntries = BlockUtil.calculateNestedStructureResetSize(offsets[positionCount], positionCount, expectedEntries);
+        int nestedExpectedEntries = positionCount == 0 ? expectedEntries : toIntExact((long) offsets[positionCount] * newSize / positionCount);
         return new MapBlockBuilder(
                 keyBlockEquals,
                 keyBlockHashCode,
