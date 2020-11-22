@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.function.BiConsumer;
 
 import static com.facebook.presto.common.block.BlockUtil.MAX_ARRAY_SIZE;
+import static com.facebook.presto.common.block.BlockUtil.calculateBlockResetBytes;
 import static com.facebook.presto.common.block.BlockUtil.calculateBlockResetSize;
 import static com.facebook.presto.common.block.BlockUtil.checkArrayRange;
 import static com.facebook.presto.common.block.BlockUtil.checkValidPosition;
@@ -379,7 +380,7 @@ public class VariableWidthBlockBuilder
     public BlockBuilder newBlockBuilderLike(BlockBuilderStatus blockBuilderStatus)
     {
         int currentSizeInBytes = positions == 0 ? positions : (getOffset(positions) - getOffset(0));
-        return new VariableWidthBlockBuilder(blockBuilderStatus, calculateBlockResetSize(positions), calculateBlockResetSize(currentSizeInBytes));
+        return new VariableWidthBlockBuilder(blockBuilderStatus, calculateBlockResetSize(positions), calculateBlockResetBytes(currentSizeInBytes));
     }
 
     @Override
