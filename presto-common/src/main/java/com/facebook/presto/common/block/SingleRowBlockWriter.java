@@ -230,12 +230,6 @@ public class SingleRowBlockWriter
     }
 
     @Override
-    public BlockBuilder newBlockBuilderLike(BlockBuilderStatus blockBuilderStatus, int expectedEntries)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public String toString()
     {
         if (!fieldBlockBuilderReturned) {

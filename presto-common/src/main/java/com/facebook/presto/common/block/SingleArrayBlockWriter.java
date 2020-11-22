@@ -168,12 +168,6 @@ public class SingleArrayBlockWriter
     }
 
     @Override
-    public BlockBuilder newBlockBuilderLike(BlockBuilderStatus blockBuilderStatus, int expectedEntries)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public String toString()
     {
         return format("SingleArrayBlockWriter(%d){positionCount=%d}", hashCode(), getPositionCount());

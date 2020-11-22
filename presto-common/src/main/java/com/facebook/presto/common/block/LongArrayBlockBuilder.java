@@ -57,6 +57,7 @@ public class LongArrayBlockBuilder
     {
         this.blockBuilderStatus = blockBuilderStatus;
         this.initialEntryCount = max(expectedEntries, 1);
+
         updateDataSize();
     }
 
@@ -113,12 +114,6 @@ public class LongArrayBlockBuilder
     public BlockBuilder newBlockBuilderLike(BlockBuilderStatus blockBuilderStatus)
     {
         return new LongArrayBlockBuilder(blockBuilderStatus, calculateBlockResetSize(positionCount));
-    }
-
-    @Override
-    public BlockBuilder newBlockBuilderLike(BlockBuilderStatus blockBuilderStatus, int expectedEntries)
-    {
-        return new LongArrayBlockBuilder(blockBuilderStatus, max(calculateBlockResetSize(positionCount), expectedEntries));
     }
 
     private void growCapacity()
