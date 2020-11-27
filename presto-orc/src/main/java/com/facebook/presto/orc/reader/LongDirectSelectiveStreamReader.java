@@ -36,6 +36,9 @@ import java.util.Optional;
 import static com.facebook.presto.common.block.ClosingBlockLease.newLease;
 import static com.facebook.presto.orc.metadata.Stream.StreamKind.DATA;
 import static com.facebook.presto.orc.metadata.Stream.StreamKind.PRESENT;
+import static com.facebook.presto.orc.reader.ReaderUtils.packLongs;
+import static com.facebook.presto.orc.reader.ReaderUtils.packLongsAndNulls;
+import static com.facebook.presto.orc.reader.ReaderUtils.unpackLongsWithNulls;
 import static com.facebook.presto.orc.reader.SelectiveStreamReaders.initializeOutputPositions;
 import static com.facebook.presto.orc.stream.MissingInputStreamSource.missingStreamSource;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -95,7 +98,15 @@ public class LongDirectSelectiveStreamReader
             openRowGroup();
         }
 
-        prepareNextRead(positionCount, nullsAllowed && presentStream != null);
+        if (useBatchMode()) {
+            // values need to be totalPositionCount,
+            // and nulls need to be allocated even nullsAllowed == false, and whether there is filter or not, or outputRequired == true or not,
+            // because values need to be unpacked with nulls
+            prepareNextRead(positions[positionCount - 1] + 1, presentStream != null, true);
+        }
+        else {
+            prepareNextRead(positionCount, nullsAllowed && presentStream != null);
+        }
 
         allNulls = false;
 
@@ -156,6 +167,41 @@ public class LongDirectSelectiveStreamReader
     private int readNoFilter(int[] positions, int positionCount)
             throws IOException
     {
+        if (useBatchMode()) {
+            int totalPositionCount = positions[positionCount - 1] + 1;
+            if (presentStream == null) {
+                dataStream.next(values, totalPositionCount);
+                if (totalPositionCount > positionCount) {
+                    packLongs(values, positions, positionCount);
+                }
+            }
+            else {
+                int nullCount = presentStream.getUnsetBits(totalPositionCount, nulls);
+
+                if (nullCount == totalPositionCount) {
+                    // all nulls
+                    allNulls = true;
+                }
+                else {
+                    // some nulls
+                    dataStream.next(values, totalPositionCount - nullCount);
+
+                    if (outputRequired) {
+                        if (nullCount != 0) {
+                            unpackLongsWithNulls(values, nulls, totalPositionCount, totalPositionCount - nullCount);
+                        }
+
+                        if (totalPositionCount > positionCount) {
+                            // Need to pack both values and nulls
+                            packLongsAndNulls(values, nulls, positions, positionCount);
+                        }
+                    }
+                }
+            }
+            outputPositionCount = positionCount;
+            return totalPositionCount;
+        }
+
         if (positions[positionCount - 1] == positionCount - 1) {
             // no skipping
             if (presentStream != null) {
@@ -215,6 +261,52 @@ public class LongDirectSelectiveStreamReader
     private int readWithFilter(int[] positions, int positionCount)
             throws IOException
     {
+        if (useBatchMode()) {
+            int totalPositionCount = positions[positionCount - 1] + 1;
+            int readCount = 0;
+            final int filteredPositionCount;
+
+            if (presentStream == null) {
+                dataStream.next(values, totalPositionCount);
+
+                filteredPositionCount = evaluateFilter(positions, positionCount);
+
+                if (outputRequired && totalPositionCount > filteredPositionCount) {
+                    packLongs(values, outputPositions, filteredPositionCount);
+                }
+            }
+            else {
+                int nullCount = presentStream.getUnsetBits(totalPositionCount, nulls);
+
+                if (nullCount == totalPositionCount) {
+                    // all nulls
+                    allNulls = true;
+                    filteredPositionCount = positionCount; // No positions were filtered out
+                }
+                else {
+                    // some nulls
+                    readCount = totalPositionCount - nullCount;
+                    dataStream.next(values, readCount);
+
+                    if (nullCount != 0) {
+                        // Note it should be totalPositionCount insted of positionCound
+                        unpackLongsWithNulls(values, nulls, totalPositionCount, readCount);
+                    }
+
+                    filteredPositionCount = evaluateFilterWithNulls(positions, positionCount);
+
+                    if (outputRequired && totalPositionCount > filteredPositionCount) {
+                        // both values and nulls need to be packed
+                        packLongsAndNulls(values, nulls, outputPositions, filteredPositionCount);
+                    }
+                }
+            }
+            outputPositionCount = filteredPositionCount;
+
+            // Should return totalPositionCount instead of readCount
+            return totalPositionCount;
+        }
+
         if (positions[positionCount - 1] == positionCount - 1) {
             // no skipping
             if (presentStream == null) {
@@ -279,11 +371,137 @@ public class LongDirectSelectiveStreamReader
                     positionsToSkip += 1 + nextPosition - streamPosition;
                     streamPosition = nextPosition + 1;
                 }
+
                 skip(positionsToSkip);
             }
+
+//            if (succeedingPositionsToFail > 0) {
+//                int positionsToSkip = positions[i + succeedingPositionsToFail] - positions[i];
+//                skip(positionsToSkip);
+//                streamPosition += positionsToSkip;
+//                i += succeedingPositionsToFail;
+//            }
         }
 
         return streamPosition;
+    }
+//
+//    private void printNulls(boolean[] nulls, int positionCount)
+//    {
+//        String str = "";
+//        for (int i = 0; i < positionCount; i++) {
+//            if (nulls[i]) {
+//                str += i + " ";
+//            }
+//        }
+//        System.out.println(str);
+//    }
+//
+//    private void printValues(long[] values, int positionCount)
+//    {
+//        String str = "";
+//        for (int i = 0; i < positionCount; i++) {
+//            str += i + ":" + values[i] + " ";
+//        }
+//        System.out.println(str);
+//    }
+//
+//    private void printPos(int[] values, int positionCount)
+//    {
+//        String str = "";
+//        for (int i = 0; i < positionCount; i++) {
+//            str += values[i] + " ";
+//        }
+//        System.out.println(str);
+//    }
+
+    protected boolean useBatchMode()
+    {
+        return true;
+    }
+
+//    private int evaluateFilter(int[] positions, int positionCount)
+//    {
+//        int positionsIndex = 0;
+//        for (int i = 0; i < positionCount; i++) {
+//            int position = positions[i];
+//            System.out.println("i=" + i + " position=" + position);
+//            if (filter.testLong(values[position])) {
+//                outputPositions[positionsIndex++] = position;  // compact positions on the fly
+//            }
+//        }
+//        return positionsIndex;
+//    }
+
+//    private int evaluateFilterWithNulls(int[] positions, int positionCount)
+//    {
+//        boolean testNull = (nonDeterministicFilter && filter.testNull()) || nullsAllowed;
+//
+//        int positionsIndex = 0;
+//        for (int i = 0; i < positionCount; i++) {
+//            int position = positions[i];
+//
+//            // Note it should not be nulls[position] && testNull
+//            if (nulls[position]) {
+//                if (testNull) {
+//                    outputPositions[positionsIndex++] = position;
+//                }
+//            }
+//            else {
+//                if (filter.testLong(values[position])) {
+//                    outputPositions[positionsIndex++] = position;  // compact positions on the fly
+//                }
+//            }
+//        }
+//        return positionsIndex;
+//    }
+
+    private int evaluateFilter(int[] positions, int positionCount)
+    {
+        int positionsIndex = 0;
+        int i = 0;
+        while (i < positionCount) {
+            int position = positions[i];
+//            System.out.println("i=" + i + " position=" + position);
+            if (filter.testLong(values[position])) {
+                outputPositions[positionsIndex++] = position;  // compact positions on the fly
+                i++;
+            }
+            else {
+                i += filter.getSucceedingPositionsToFail() + 1;
+                positionsIndex -= filter.getPrecedingPositionsToFail();
+            }
+        }
+        return positionsIndex;
+    }
+
+    private int evaluateFilterWithNulls(int[] positions, int positionCount)
+    {
+        boolean testNull = (nonDeterministicFilter && filter.testNull()) || nullsAllowed;
+
+        int positionsIndex = 0;
+        int i = 0;
+        while (i < positionCount) {
+            int position = positions[i];
+
+            // Note it should not be nulls[position] && testNull
+            if (nulls[position]) {
+                if (testNull) {
+                    outputPositions[positionsIndex++] = position;
+                }
+            }
+            else {
+                if (filter.testLong(values[position])) {
+                    outputPositions[positionsIndex++] = position;  // compact positions on the fly
+                }
+                else {
+                    i += filter.getSucceedingPositionsToFail();
+                    positionsIndex -= filter.getPrecedingPositionsToFail();
+                }
+            }
+            i++;
+        }
+        return positionsIndex;
     }
 
     private void skip(int items)
@@ -385,4 +603,12 @@ public class LongDirectSelectiveStreamReader
     {
         return INSTANCE_SIZE + super.getRetainedSizeInBytes();
     }
+
+//    protected boolean useBatchMode(int positionCount, int totalPositionCount)
+//    {
+//        return false;
+//        // maxCodePointCount < 0 means it's unbounded varchar VARCHAR.
+//        // If the types are VARCHAR(N) or CHAR(N), the length of the string need to be calculated and truncated.
+//
+//    }
 }

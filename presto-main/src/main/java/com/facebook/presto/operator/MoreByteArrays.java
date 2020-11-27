@@ -20,6 +20,8 @@ import sun.misc.Unsafe;
 import java.lang.reflect.Field;
 
 import static io.airlift.slice.SizeOf.SIZE_OF_BYTE;
+import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
+import static java.lang.Double.doubleToLongBits;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static sun.misc.Unsafe.ARRAY_BYTE_BASE_OFFSET;
@@ -49,6 +51,16 @@ public class MoreByteArrays
     {
         checkValidRange(index, SIZE_OF_BYTE, bytes.length);
         return unsafe.getByte(bytes, (long) index + ARRAY_BYTE_BASE_OFFSET);
+    }
+
+    public static void getDoubles(byte[] bytes, int bytesIndex, long[] values, int valuesIndex, int numOfLongs)
+    {
+        checkValidRange(bytesIndex, SIZE_OF_LONG * numOfLongs, bytes.length);
+
+        for (int i = 0; i < numOfLongs; i++) {
+            double readDouble = unsafe.getDouble(bytes, (long) bytesIndex + i * SIZE_OF_LONG + ARRAY_BYTE_BASE_OFFSET);
+            values[valuesIndex++] = doubleToLongBits(readDouble);
+        }
     }
 
     public static int fill(byte[] bytes, int index, int length, byte value)

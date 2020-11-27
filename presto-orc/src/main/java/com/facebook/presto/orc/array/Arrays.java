@@ -30,6 +30,15 @@ public class Arrays
 {
     private Arrays() {}
 
+    public static short[] ensureCapacity(short[] buffer, int capacity)
+    {
+        if (buffer == null || buffer.length < capacity) {
+            return new short[(int) (capacity * SMALL.expansionFactor)];
+        }
+
+        return buffer;
+    }
+
     public static int[] ensureCapacity(int[] buffer, int capacity)
     {
         return ensureCapacity(buffer, capacity, SMALL, NONE);

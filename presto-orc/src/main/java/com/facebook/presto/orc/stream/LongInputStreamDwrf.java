@@ -80,6 +80,21 @@ public class LongInputStreamDwrf
         }
     }
 
+//    @Override
+//    public void next(long[] values, int items)
+//            throws IOException
+//    {
+//        if (usesVInt) {
+//            // this is about 2x slower than just calling next()
+//            input.readVarints(values, items, signed);
+//        }
+//        else {
+//            for (int i = 0; i < items; i++) {
+//                values[i] = input.readDwrfLong(orcTypeKind);
+//            }
+//        }
+//    }
+
     @Override
     public void next(int[] values, int items)
             throws IOException

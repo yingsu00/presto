@@ -44,6 +44,9 @@ import static com.facebook.presto.orc.metadata.Stream.StreamKind.DATA;
 import static com.facebook.presto.orc.metadata.Stream.StreamKind.PRESENT;
 import static com.facebook.presto.orc.metadata.Stream.StreamKind.SECONDARY;
 import static com.facebook.presto.orc.reader.ApacheHiveTimestampDecoder.decodeTimestamp;
+import static com.facebook.presto.orc.reader.ReaderUtils.packLongs;
+import static com.facebook.presto.orc.reader.ReaderUtils.packLongsAndNulls;
+import static com.facebook.presto.orc.reader.ReaderUtils.unpackLongsWithNulls;
 import static com.facebook.presto.orc.reader.SelectiveStreamReaders.initializeOutputPositions;
 import static com.facebook.presto.orc.stream.MissingInputStreamSource.missingStreamSource;
 import static com.google.common.base.MoreObjects.toStringHelper;
@@ -80,6 +83,7 @@ public class TimestampSelectiveStreamReader
     private int readOffset;
     @Nullable
     private long[] values;
+    private long[] nanoValues;
     @Nullable
     private boolean[] nulls;
     @Nullable
@@ -162,7 +166,17 @@ public class TimestampSelectiveStreamReader
 
         allNulls = false;
 
-        if (outputRequired) {
+//        if (outputRequired) {
+//            ensureValuesCapacity(positionCount, nullsAllowed && presentStream != null);
+//        }
+
+        if (useBatchMode()) {
+            // values need to be totalPositionCount,
+            // and nulls need to be allocated even nullsAllowed == false, and whether there is filter or not, or outputRequired == true or not,
+            // because values need to be unpacked with nulls
+            ensureValuesCapacity(positions[positionCount - 1] + 1, presentStream != null);
+        }
+        else if (outputRequired) {
             ensureValuesCapacity(positionCount, nullsAllowed && presentStream != null);
         }
 
@@ -193,6 +207,53 @@ public class TimestampSelectiveStreamReader
     private int readWithFilter(int[] positions, int positionCount)
             throws IOException
     {
+        if (useBatchMode()) {
+            int totalPositionCount = positions[positionCount - 1] + 1;
+            int readCount = 0;
+
+            final int filteredPositionCount;
+
+            if (presentStream == null) {
+                readContinuousValues(totalPositionCount);
+
+                filteredPositionCount = evaluateFilter(positions, positionCount);
+
+                if (outputRequired && totalPositionCount > filteredPositionCount) {
+                    packLongs(values, outputPositions, filteredPositionCount);
+                }
+            }
+            else {
+                int nullCount = presentStream.getUnsetBits(totalPositionCount, nulls);
+
+                if (nullCount == totalPositionCount) {
+                    // all nulls
+                    allNulls = true;
+                    filteredPositionCount = positionCount; // No positions were filtered out
+                }
+                else {
+                    // some nulls
+                    readCount = totalPositionCount - nullCount;
+                    readContinuousValues(readCount);
+
+                    if (nullCount != 0) {
+                        // Note it should be totalPositionCount instead of positionCound
+                        unpackLongsWithNulls(values, nulls, totalPositionCount, readCount);
+                    }
+
+                    filteredPositionCount = evaluateFilterWithNulls(positions, positionCount);
+
+                    if (outputRequired && totalPositionCount > filteredPositionCount) {
+                        // both values and nulls need to be packed
+                        packLongsAndNulls(values, nulls, outputPositions, filteredPositionCount);
+                    }
+                }
+            }
+            outputPositionCount = filteredPositionCount;
+
+            // Should return totalPositionCount instead of readCount
+            return totalPositionCount;
+        }
+
         int streamPosition = 0;
         outputPositionCount = 0;
         for (int i = 0; i < positionCount; i++) {
@@ -277,6 +338,42 @@ public class TimestampSelectiveStreamReader
             throws IOException
     {
         // filter == null implies outputRequired == true
+
+        if (useBatchMode()) {
+            int totalPositionCount = positions[positionCount - 1] + 1;
+            if (presentStream == null) {
+                readContinuousValues(totalPositionCount);
+                if (totalPositionCount > positionCount) {
+                    packLongs(values, positions, positionCount);
+                }
+            }
+            else {
+                int nullCount = presentStream.getUnsetBits(totalPositionCount, nulls);
+
+                if (nullCount == totalPositionCount) {
+                    // all nulls
+                    allNulls = true;
+                }
+                else {
+                    // some nulls
+                    readContinuousValues(totalPositionCount - nullCount);
+
+                    if (outputRequired) {
+                        if (nullCount != 0) {
+                            unpackLongsWithNulls(values, nulls, totalPositionCount, totalPositionCount - nullCount);
+                        }
+
+                        if (totalPositionCount > positionCount) {
+                            // Need to pack both values and nulls
+                            packLongsAndNulls(values, nulls, positions, positionCount);
+                        }
+                    }
+                }
+            }
+            outputPositionCount = positionCount;
+            return totalPositionCount;
+        }
+
         int streamPosition = 0;
         for (int i = 0; i < positionCount; i++) {
             int position = positions[i];
@@ -320,6 +417,7 @@ public class TimestampSelectiveStreamReader
     private void ensureValuesCapacity(int capacity, boolean recordNulls)
     {
         values = ensureCapacity(values, capacity);
+        nanoValues = ensureCapacity(nanoValues, capacity);
 
         if (recordNulls) {
             nulls = ensureCapacity(nulls, capacity);
@@ -464,5 +562,78 @@ public class TimestampSelectiveStreamReader
     @Override
     public void throwAnyError(int[] positions, int positionCount)
     {
+    }
+
+    private boolean useBatchMode()
+    {
+        return true;
+    }
+
+    // With DWRF, this is about same performance as the below implementation because of readVarint cost in next().
+    // With ORC, the below one was about 5% faster.
+//    private void readContinuousValues(int positionCount)
+//            throws IOException
+//    {
+//        for (int i = 0; i < positionCount; i++) {
+//            values[i] = decodeTimestamp(secondsStream.next(), nanosStream.next(), decodeTimestampOptions);
+//        }
+//    }
+
+    private void readContinuousValues(int positionCount)
+            throws IOException
+    {
+        secondsStream.next(values, positionCount);
+        nanosStream.next(nanoValues, positionCount);
+
+        for (int i = 0; i < positionCount; i++) {
+            values[i] = decodeTimestamp(values[i], nanoValues[i], decodeTimestampOptions);
+        }
+    }
+
+    private int evaluateFilter(int[] positions, int positionCount)
+    {
+        int positionsIndex = 0;
+        int i = 0;
+        while (i < positionCount) {
+            int position = positions[i];
+            if (filter.testLong(values[position])) {
+                outputPositions[positionsIndex++] = position;  // compact positions on the fly
+                i++;
+            }
+            else {
+                i += filter.getSucceedingPositionsToFail() + 1;
+                positionsIndex -= filter.getPrecedingPositionsToFail();
+            }
+        }
+        return positionsIndex;
+    }
+
+    private int evaluateFilterWithNulls(int[] positions, int positionCount)
+    {
+        boolean testNull = (nonDeterministicFilter && filter.testNull()) || nullsAllowed;
+
+        int positionsIndex = 0;
+        int i = 0;
+        while (i < positionCount) {
+            int position = positions[i];
+
+            // Note it should not be nulls[position] && testNull
+            if (nulls[position]) {
+                if (testNull) {
+                    outputPositions[positionsIndex++] = position;
+                }
+            }
+            else {
+                if (filter.testLong(values[position])) {
+                    outputPositions[positionsIndex++] = position;  // compact positions on the fly
+                }
+                else {
+                    i += filter.getSucceedingPositionsToFail();
+                    positionsIndex -= filter.getPrecedingPositionsToFail();
+                }
+            }
+            i++;
+        }
+        return positionsIndex;
     }
 }

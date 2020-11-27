@@ -22,9 +22,11 @@ import com.facebook.presto.orc.OrcLocalMemoryContext;
 import com.facebook.presto.orc.metadata.OrcType.OrcTypeKind;
 import io.airlift.slice.ByteArrays;
 import io.airlift.slice.FixedLengthSliceInput;
+import sun.misc.Unsafe;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.Optional;
 
@@ -40,8 +42,13 @@ import static io.airlift.slice.SizeOf.SIZE_OF_INT;
 import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
 import static io.airlift.slice.SizeOf.SIZE_OF_SHORT;
 import static io.airlift.slice.Slices.EMPTY_SLICE;
+import static java.lang.Double.doubleToLongBits;
+import static java.lang.Float.floatToRawIntBits;
+import static java.lang.Math.min;
 import static java.lang.Math.toIntExact;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
+import static sun.misc.Unsafe.ARRAY_BYTE_BASE_OFFSET;
 
 public final class OrcInputStream
         extends InputStream
@@ -67,6 +74,23 @@ public final class OrcInputStream
     private byte[] temporaryBuffer = new byte[SIZE_OF_DOUBLE];
 
     private final OrcLocalMemoryContext bufferMemoryUsage;
+
+    private static final Unsafe unsafe;
+
+    static {
+        try {
+            // fetch theUnsafe object
+            Field field = Unsafe.class.getDeclaredField("theUnsafe");
+            field.setAccessible(true);
+            unsafe = (Unsafe) field.get(null);
+            if (unsafe == null) {
+                throw new RuntimeException("Unsafe access not available");
+            }
+        }
+        catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     public OrcInputStream(
             OrcDataSourceId orcDataSourceId,
@@ -155,7 +179,12 @@ public final class OrcInputStream
             }
         }
         length = Math.min(length, available());
-        System.arraycopy(buffer, position, b, off, length);
+        try {
+            System.arraycopy(buffer, position, b, off, length);
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
         position += length;
         return length;
     }
@@ -367,6 +396,44 @@ public final class OrcInputStream
         }
     }
 
+    // about 2x slower than calling readVarint() one by one
+    public void readVarints(long[] values, int items, boolean signed)
+            throws IOException
+    {
+        int valuesIndex = 0;
+
+        while (valuesIndex < items) {
+            long result = 0;
+            long offset = 0;
+            long b;
+            do {
+                if (available() == 0) {
+                    advance();
+                    if (available() == 0) {
+                        // All Stream Readers need to know how many to read before calling.
+                        throw new OrcCorruptionException(orcDataSourceId, "End of stream in RLE Integer");
+                    }
+                }
+
+                b = buffer[position++];
+
+                result |= (b & 0b0111_1111) << offset;
+                offset += 7;
+            }
+            while ((b & 0b1000_0000) != 0);
+
+            values[valuesIndex++] = result;
+//            System.out.println(valuesIndex + ":" + result);
+        }
+
+        if (signed) {
+            for (int i = 0; i < items; i++) {
+                values[i] = zigzagDecode(values[i]);
+//                System.out.println("zigzag " + i + ":" + values[i]);
+            }
+        }
+    }
+
     public void skipVarints(long items)
             throws IOException
     {
@@ -414,6 +481,28 @@ public final class OrcInputStream
         return ByteArrays.getDouble(buffer, readPosition);
     }
 
+    public void readDoubles(long[] values, int items)
+            throws IOException
+    {
+        int valuesIndex = 0;
+        while (items > 0) {
+            if (available() == 0) {
+                advance();
+                if (buffer == null) {
+                    return;
+                }
+            }
+
+            // Can available be not multiple of SIZE_OF_FLOAT?
+            int doubleCount = min(items, available() / SIZE_OF_DOUBLE);
+            getDoubles(buffer, position, values, valuesIndex, doubleCount);
+            position += doubleCount * SIZE_OF_DOUBLE;
+
+            items -= doubleCount;
+            valuesIndex += doubleCount;
+        }
+    }
+
     public float readFloat()
             throws IOException
     {
@@ -422,6 +511,28 @@ public final class OrcInputStream
             return ByteArrays.getFloat(temporaryBuffer, 0);
         }
         return ByteArrays.getFloat(buffer, readPosition);
+    }
+
+    public void readFloats(int[] values, int items)
+            throws IOException
+    {
+        int valuesIndex = 0;
+        while (items > 0) {
+            if (available() == 0) {
+                advance();
+                if (buffer == null) {
+                    return;
+                }
+            }
+
+            // Can available be not multiple of SIZE_OF_FLOAT?
+            int floatCount = min(items, available() / SIZE_OF_FLOAT);
+            getFloats(buffer, position, values, valuesIndex, floatCount);
+            position += floatCount * SIZE_OF_FLOAT;
+
+            items -= floatCount;
+            valuesIndex += floatCount;
+        }
     }
 
     private int ensureContiguousBytesAndAdvance(int bytes)
@@ -531,5 +642,32 @@ public final class OrcInputStream
                 .add("decompressor", decompressor.map(Object::toString).orElse("none"))
                 .add("decryptor", dwrfDecryptor.map(Object::toString).orElse("none"))
                 .toString();
+    }
+
+    private static void getDoubles(byte[] bytes, int bytesIndex, long[] values, int valuesIndex, int numOfDoubles)
+    {
+        checkValidRange(bytesIndex, SIZE_OF_DOUBLE * numOfDoubles, bytes.length);
+
+        for (int i = 0; i < numOfDoubles; i++) {
+            double readDouble = unsafe.getDouble(bytes, (long) bytesIndex + i * SIZE_OF_DOUBLE + ARRAY_BYTE_BASE_OFFSET);
+            values[valuesIndex++] = doubleToLongBits(readDouble);
+        }
+    }
+
+    private static void getFloats(byte[] bytes, int bytesIndex, int[] values, int valuesIndex, int numOfDoubles)
+    {
+        checkValidRange(bytesIndex, SIZE_OF_FLOAT * numOfDoubles, bytes.length);
+
+        for (int i = 0; i < numOfDoubles; i++) {
+            float readFloat = unsafe.getFloat(bytes, (long) bytesIndex + i * SIZE_OF_FLOAT + ARRAY_BYTE_BASE_OFFSET);
+            values[valuesIndex++] = floatToRawIntBits(readFloat);
+        }
+    }
+
+    private static void checkValidRange(int start, int length, int size)
+    {
+        if (start < 0 || length < 0 || start + length > size) {
+            throw new IndexOutOfBoundsException(format("Invalid start %s and length %s with array size %s", start, length, size));
+        }
     }
 }

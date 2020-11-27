@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.orc;
 
+import com.facebook.presto.common.NotSupportedException;
 import com.google.common.annotations.VisibleForTesting;
 
 import java.util.Arrays;
@@ -68,6 +69,11 @@ public interface TupleDomainFilter
     boolean testDecimal(long low, long high);
 
     boolean testBoolean(boolean value);
+
+    default boolean testBoolean(byte value)
+    {
+        throw new NotSupportedException("testBoolean(value) is not supported");
+    }
 
     boolean testBytes(byte[] buffer, int offset, int length);
 
@@ -235,6 +241,12 @@ public interface TupleDomainFilter
         }
 
         @Override
+        public boolean testBoolean(byte value)
+        {
+            return false;
+        }
+
+        @Override
         public boolean testBytes(byte[] buffer, int offset, int length)
         {
             return false;
@@ -293,6 +305,12 @@ public interface TupleDomainFilter
 
         @Override
         public boolean testBoolean(boolean value)
+        {
+            return false;
+        }
+
+        @Override
+        public boolean testBoolean(byte value)
         {
             return false;
         }
@@ -361,6 +379,12 @@ public interface TupleDomainFilter
         }
 
         @Override
+        public boolean testBoolean(byte value)
+        {
+            return true;
+        }
+
+        @Override
         public boolean testBytes(byte[] buffer, int offset, int length)
         {
             return true;
@@ -383,11 +407,13 @@ public interface TupleDomainFilter
             extends AbstractTupleDomainFilter
     {
         private final boolean value;
+        private final byte byteValue;
 
         private BooleanValue(boolean value, boolean nullAllowed)
         {
             super(true, nullAllowed);
             this.value = value;
+            this.byteValue = (byte) (value ? 1 : 0);
         }
 
         public static BooleanValue of(boolean value, boolean nullAllowed)
@@ -399,6 +425,12 @@ public interface TupleDomainFilter
         public boolean testBoolean(boolean value)
         {
             return this.value == value;
+        }
+
+        @Override
+        public boolean testBoolean(byte value)
+        {
+            return this.byteValue == value;
         }
 
         @Override
@@ -1546,12 +1578,18 @@ public interface TupleDomainFilter
 
         protected void advance()
         {
-            while (filterIndex == offsets[offsetIndex]) {
-                // start of the next top-level position
-                precedingPositionsToFail = 0;
-                succeedingPositionsToFail = 0;
-                failed[offsetIndex] = false;
-                offsetIndex++;
+            try {
+                while (filterIndex == offsets[offsetIndex]) {
+                    // start of the next top-level position
+                    precedingPositionsToFail = 0;
+                    succeedingPositionsToFail = 0;
+                    failed[offsetIndex] = false;
+                    offsetIndex++;
+                }
+//                System.out.println("offsetIndex=" + offsetIndex + " filterIndex=" + filterIndex);
+            }
+            catch (Exception e) {
+                e.printStackTrace();
             }
         }
 

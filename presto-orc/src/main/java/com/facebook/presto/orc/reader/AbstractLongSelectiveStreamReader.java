@@ -69,9 +69,14 @@ abstract class AbstractLongSelectiveStreamReader
 
     protected void prepareNextRead(int positionCount, boolean withNulls)
     {
+        prepareNextRead(positionCount, withNulls, false);
+    }
+
+    protected void prepareNextRead(int positionCount, boolean withNulls, boolean useBatchMode)
+    {
         checkState(!valuesInUse, "BlockLease hasn't been closed yet");
 
-        if (outputRequired) {
+        if (outputRequired || useBatchMode) {
             ensureValuesCapacity(positionCount, withNulls);
         }
         intValuesPopulated = false;
@@ -335,4 +340,9 @@ abstract class AbstractLongSelectiveStreamReader
 
         outputPositionCount = positionCount;
     }
+
+//    protected boolean useBatchMode()
+//    {
+//        return true;
+//    }
 }

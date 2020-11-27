@@ -710,7 +710,7 @@ public class SliceDirectSelectiveStreamReader
 
     private boolean useBatchMode(int positionCount, int totalPositionCount)
     {
-        return true;
+        return maxCodePointCount < 0;
         // maxCodePointCount < 0 means it's unbounded varchar VARCHAR.
         // If the types are VARCHAR(N) or CHAR(N), the length of the string need to be calculated and truncated.
 //        if (lengthStream == null || maxCodePointCount >= 0) {

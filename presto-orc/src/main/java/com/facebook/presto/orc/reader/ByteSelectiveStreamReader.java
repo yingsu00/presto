@@ -38,6 +38,8 @@ import static com.facebook.presto.common.type.TinyintType.TINYINT;
 import static com.facebook.presto.orc.array.Arrays.ensureCapacity;
 import static com.facebook.presto.orc.metadata.Stream.StreamKind.DATA;
 import static com.facebook.presto.orc.metadata.Stream.StreamKind.PRESENT;
+import static com.facebook.presto.orc.reader.ReaderUtils.packBytes;
+import static com.facebook.presto.orc.reader.ReaderUtils.packBytesAndNulls;
 import static com.facebook.presto.orc.reader.ReaderUtils.unpackByteNulls;
 import static com.facebook.presto.orc.reader.SelectiveStreamReaders.initializeOutputPositions;
 import static com.facebook.presto.orc.stream.MissingInputStreamSource.missingStreamSource;
@@ -143,8 +145,17 @@ public class ByteSelectiveStreamReader
         }
 
         allNulls = false;
+//        if (outputRequired) {
+//            ensureValuesCapacity(positionCount, nullsAllowed && presentStream != null);
+//        }
 
-        if (outputRequired) {
+        if (useBatchMode(positionCount, positions[positionCount - 1] + 1)) {
+            // values need to be totalPositionCount,
+            // and nulls need to be allocated even nullsAllowed == false, and whether there is filter or not, or outputRequired == true or not,
+            // because values need to be unpacked with nulls
+            ensureValuesCapacity(positions[positionCount - 1] + 1, presentStream != null);
+        }
+        else if (outputRequired) {
             ensureValuesCapacity(positionCount, nullsAllowed && presentStream != null);
         }
 
@@ -175,6 +186,53 @@ public class ByteSelectiveStreamReader
     private int readWithFilter(int[] positions, int positionCount)
             throws IOException
     {
+        int totalPositionCount = positions[positionCount - 1] + 1;
+        if (useBatchMode(positionCount, totalPositionCount)) {
+            int readCount = 0;
+
+            final int filteredPositionCount;
+
+            if (presentStream == null) {
+                dataStream.next(values, totalPositionCount);
+
+                filteredPositionCount = evaluateFilter(positions, positionCount);
+
+                if (outputRequired && totalPositionCount > filteredPositionCount) {
+                    packBytes(values, outputPositions, filteredPositionCount);
+                }
+            }
+            else {
+                int nullCount = presentStream.getUnsetBits(totalPositionCount, nulls);
+
+                if (nullCount == totalPositionCount) {
+                    // all nulls
+                    allNulls = true;
+                    filteredPositionCount = positionCount; // No positions were filtered out
+                }
+                else {
+                    // some nulls
+                    readCount = totalPositionCount - nullCount;
+                    dataStream.next(values, readCount);
+
+                    if (nullCount != 0) {
+                        // Note it should be totalPositionCount instead of positionCound
+                        unpackByteNulls(values, nulls, totalPositionCount, readCount);
+                    }
+
+                    filteredPositionCount = evaluateFilterWithNulls(positions, positionCount);
+
+                    if (outputRequired && totalPositionCount > filteredPositionCount) {
+                        // both values and nulls need to be packed
+                        packBytesAndNulls(values, nulls, outputPositions, filteredPositionCount);
+                    }
+                }
+            }
+            outputPositionCount = filteredPositionCount;
+
+            // Should return totalPositionCount instead of readCount
+            return totalPositionCount;
+        }
+
         int streamPosition = 0;
         outputPositionCount = 0;
         for (int i = 0; i < positionCount; i++) {
@@ -258,18 +316,53 @@ public class ByteSelectiveStreamReader
             throws IOException
     {
         // filter == null implies outputRequired == true
-        if (positions[positionCount - 1] == positionCount - 1) {
-            if (presentStream != null) {
-                int nonNullCount = positionCount - presentStream.getUnsetBits(positionCount, nulls);
-                dataStream.next(values, nonNullCount);
-                unpackByteNulls(values, nulls, positionCount, nonNullCount);
+//        if (positions[positionCount - 1] == positionCount - 1) {
+//            if (presentStream != null) {
+//                int nonNullCount = positionCount - presentStream.getUnsetBits(positionCount, nulls);
+//                dataStream.next(values, nonNullCount);
+//                unpackByteNulls(values, nulls, positionCount, nonNullCount);
+//            }
+//            else {
+//                // contiguous chunk of rows, no nulls
+//                dataStream.next(values, positionCount);
+//            }
+//            outputPositionCount = positionCount;
+//            return positionCount;
+//        }
+
+        int totalPositionCount = positions[positionCount - 1] + 1;
+        if (useBatchMode(positionCount, totalPositionCount)) {
+            if (presentStream == null) {
+                dataStream.next(values, totalPositionCount);
+                if (totalPositionCount > positionCount) {
+                    packBytes(values, positions, positionCount);
+                }
             }
             else {
-                // contiguous chunk of rows, no nulls
-                dataStream.next(values, positionCount);
+                int nullCount = presentStream.getUnsetBits(totalPositionCount, nulls);
+
+                if (nullCount == totalPositionCount) {
+                    // all nulls
+                    allNulls = true;
+                }
+                else {
+                    // some nulls
+                    dataStream.next(values, totalPositionCount - nullCount);
+
+                    if (outputRequired) {
+                        if (nullCount != 0) {
+                            unpackByteNulls(values, nulls, totalPositionCount, totalPositionCount - nullCount);
+                        }
+
+                        if (totalPositionCount > positionCount) {
+                            // Need to pack both values and nulls
+                            packBytesAndNulls(values, nulls, positions, positionCount);
+                        }
+                    }
+                }
             }
             outputPositionCount = positionCount;
-            return positionCount;
+            return totalPositionCount;
         }
 
         int streamPosition = 0;
@@ -455,5 +548,61 @@ public class ByteSelectiveStreamReader
         dataStreamSource = null;
 
         systemMemoryContext.close();
+    }
+
+    private boolean useBatchMode(int positionCount, int totalPositionCount)
+    {
+        if (presentStream == null || filter == null) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private int evaluateFilter(int[] positions, int positionCount)
+    {
+        int positionsIndex = 0;
+        int i = 0;
+        while (i < positionCount) {
+            int position = positions[i];
+            if (filter.testLong(values[position])) {
+                outputPositions[positionsIndex++] = position;  // compact positions on the fly
+                i++;
+            }
+            else {
+                i += filter.getSucceedingPositionsToFail() + 1;
+                positionsIndex -= filter.getPrecedingPositionsToFail();
+            }
+        }
+        return positionsIndex;
+    }
+
+    private int evaluateFilterWithNulls(int[] positions, int positionCount)
+    {
+        boolean testNull = (nonDeterministicFilter && filter.testNull()) || nullsAllowed;
+
+        int positionsIndex = 0;
+        int i = 0;
+        while (i < positionCount) {
+            int position = positions[i];
+
+            // Note it should not be nulls[position] && testNull
+            if (nulls[position]) {
+                if (testNull) {
+                    outputPositions[positionsIndex++] = position;
+                }
+            }
+            else {
+                if (filter.testLong(values[position])) {
+                    outputPositions[positionsIndex++] = position;  // compact positions on the fly
+                }
+                else {
+                    i += filter.getSucceedingPositionsToFail();
+                    positionsIndex -= filter.getPrecedingPositionsToFail();
+                }
+            }
+            i++;
+        }
+        return positionsIndex;
     }
 }
