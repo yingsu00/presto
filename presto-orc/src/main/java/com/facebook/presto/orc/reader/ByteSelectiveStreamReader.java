@@ -570,8 +570,6 @@ public class ByteSelectiveStreamReader
 
     private int evaluateFilterWithNulls(int[] positions, int positionCount, boolean testNull)
     {
-
-
         int positionsIndex = 0;
         int i = 0;
         while (i < positionCount) {
