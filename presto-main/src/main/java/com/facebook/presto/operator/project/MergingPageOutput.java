@@ -104,6 +104,7 @@ public class MergingPageOutput
 
     @Nullable
     public Page getOutput()
+            throws Exception
     {
         if (!outputQueue.isEmpty()) {
             return outputQueue.poll();
@@ -146,6 +147,7 @@ public class MergingPageOutput
     }
 
     private void process(Page page)
+            throws Exception
     {
         requireNonNull(page, "page is null");
 
@@ -160,6 +162,7 @@ public class MergingPageOutput
     }
 
     private void buffer(Page page)
+            throws Exception
     {
         pageBuilder.declarePositions(page.getPositionCount());
         for (int channel = 0; channel < types.size(); channel++) {

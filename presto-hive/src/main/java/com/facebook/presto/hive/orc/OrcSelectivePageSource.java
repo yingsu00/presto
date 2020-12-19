@@ -14,6 +14,7 @@
 package com.facebook.presto.hive.orc;
 
 import com.facebook.presto.common.InvalidFunctionArgumentException;
+import com.facebook.presto.common.NotSupportedException;
 import com.facebook.presto.common.Page;
 import com.facebook.presto.hive.FileFormatDataSourceStats;
 import com.facebook.presto.orc.OrcAggregatedMemoryContext;
@@ -37,7 +38,7 @@ public class OrcSelectivePageSource
         implements ConnectorPageSource
 {
     private final OrcSelectiveRecordReader recordReader;
-    private final OrcDataSource orcDataSource;
+    public final OrcDataSource orcDataSource;
     private final OrcAggregatedMemoryContext systemMemoryContext;
     private final FileFormatDataSourceStats stats;
 
@@ -149,5 +150,10 @@ public class OrcSelectivePageSource
                 throwable.addSuppressed(e);
             }
         }
+    }
+
+    public String getDataSource()
+    {
+        return orcDataSource.toString();
     }
 }

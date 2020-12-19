@@ -28,6 +28,7 @@ import com.facebook.presto.operator.project.MergingPageOutput;
 import com.facebook.presto.operator.project.PageProcessor;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPageSource;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.RecordPageSource;
 import com.facebook.presto.spi.TableHandle;
@@ -52,6 +53,7 @@ import java.util.function.Supplier;
 
 import static com.facebook.airlift.concurrent.MoreFutures.toListenableFuture;
 import static com.facebook.presto.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
+import static com.facebook.presto.spi.StandardErrorCode.GENERIC_USER_ERROR;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
@@ -291,7 +293,15 @@ public class ScanFilterAndProjectOperator
             }
         }
 
-        Page result = mergingOutput.getOutput();
+        Page result = null;
+        try {
+             result = mergingOutput.getOutput();
+        }
+        catch(Exception e) {
+//            System.out.println("caught!");
+//            System.out.println(this.pageSource.getDataSource());
+            throw new PrestoException(GENERIC_USER_ERROR, this.pageSource.getDataSource());
+        }
         outputMemoryContext.setBytes(mergingOutput.getRetainedSizeInBytes() + pageProcessorMemoryContext.getBytes());
         return result;
     }

@@ -99,7 +99,13 @@ public class FilterAndProjectOperator
     @Override
     public final Page getOutput()
     {
-        return mergingOutput.getOutput();
+        try {
+            return mergingOutput.getOutput();
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
     public static class FilterAndProjectOperatorFactory
