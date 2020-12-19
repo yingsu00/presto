@@ -646,7 +646,7 @@ public class SliceDirectSelectiveStreamReader
         if (lengthStream != null) {
             int nonNullCount = totalPositions - nullCount;
             lengthVector = ensureCapacity(lengthVector, nonNullCount);
-            lengthStream.next(lengthVector, nonNullCount);
+            lengthStream.nextIntVector(nonNullCount, lengthVector, 0);
 
             if (useBatchMode(positionCount, totalPositions)) {
                 for (int i = 0; i < nonNullCount; i++) {
