@@ -221,7 +221,11 @@ public class VariableWidthBlock
     @Override
     public String toString()
     {
-        return format("VariableWidthBlock(%d){positionCount=%d,slice=%s}", hashCode(), getPositionCount(), slice);
+        String info = format("VariableWidthBlock(%d){positionCount=%d,slice=%s,arrayOffset=%d}\n", hashCode(), getPositionCount(), slice, arrayOffset);
+        for (int i = 0; i < getPositionCount(); i++) {
+            info += format("i=%d, offset=%d, length=%d\n", i, getPositionOffset(i), getSliceLength(i));
+        }
+        return info;
     }
 
     @Override

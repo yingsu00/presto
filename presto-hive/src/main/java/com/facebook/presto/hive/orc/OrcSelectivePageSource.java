@@ -37,7 +37,7 @@ public class OrcSelectivePageSource
         implements ConnectorPageSource
 {
     private final OrcSelectiveRecordReader recordReader;
-    private final OrcDataSource orcDataSource;
+    public final OrcDataSource orcDataSource;
     private final OrcAggregatedMemoryContext systemMemoryContext;
     private final FileFormatDataSourceStats stats;
 
@@ -149,5 +149,10 @@ public class OrcSelectivePageSource
                 throwable.addSuppressed(e);
             }
         }
+    }
+
+    public String getDataSource()
+    {
+        return orcDataSource.toString();
     }
 }
