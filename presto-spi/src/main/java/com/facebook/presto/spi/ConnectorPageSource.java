@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.spi;
 
+import com.facebook.presto.common.NotSupportedException;
 import com.facebook.presto.common.Page;
 
 import java.io.Closeable;
@@ -75,5 +76,10 @@ public interface ConnectorPageSource
     default CompletableFuture<?> isBlocked()
     {
         return NOT_BLOCKED;
+    }
+
+    default String getDataSource()
+    {
+        throw new NotSupportedException("getDataSource not supported");
     }
 }
