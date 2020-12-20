@@ -236,7 +236,13 @@ public class VariableWidthBlockBuilder
         if (!initialized) {
             initializeCapacity();
         }
-        sliceOutput.writeBytes(source, sourceIndex, length);
+        try {
+            sliceOutput.writeBytes(source, sourceIndex, length);
+        }
+        catch (IndexOutOfBoundsException e) {
+            String info = "yingsu source=" + source + " sourceIndex=" + sourceIndex + " length=" + length + " slice.length()=" + source.length() + "\n";
+            throw new IndexOutOfBoundsException(info);
+        }
         currentEntrySize += length;
         return this;
     }

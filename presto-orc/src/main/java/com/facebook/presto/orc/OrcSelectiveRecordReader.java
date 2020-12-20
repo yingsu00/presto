@@ -619,6 +619,7 @@ public class OrcSelectiveRecordReader
     public Page getNextPage()
             throws IOException
     {
+        System.out.println("yingsu");
         if (constantFilterIsFalse) {
             return null;
         }
