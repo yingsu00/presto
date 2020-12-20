@@ -225,6 +225,23 @@ public class VariableWidthBlock
         for (int i = 0; i < getPositionCount(); i++) {
             info += format("i=%d, offset=%d, length=%d\n", i, getPositionOffset(i), getSliceLength(i));
         }
+
+        info += "nulls " + valueIsNull + "\n";
+        if (valueIsNull != null) {
+            info += "alueIsNull.length " + valueIsNull.length + "\n";
+            for (int i = 0; i < valueIsNull.length; i++) {
+                info += valueIsNull[i] + " ";
+            }
+        }
+
+        info += "\noffsets " + offsets + "\n";
+        if (offsets != null) {
+            info += "offsets.length " + offsets.length + "\n";
+            for (int i = 0; i < offsets.length; i++) {
+                info += offsets[i] + " ";
+            }
+        }
+
         return info;
     }
 

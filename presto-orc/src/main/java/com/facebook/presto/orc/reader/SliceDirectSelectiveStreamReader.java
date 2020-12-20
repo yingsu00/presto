@@ -98,6 +98,8 @@ public class SliceDirectSelectiveStreamReader
     private Slice dataAsSlice;          // data array wrapped in Slice
     private boolean valuesInUse;
 
+    private String msg = "";
+
     public SliceDirectSelectiveStreamReader(StreamDescriptor streamDescriptor, Optional<TupleDomainFilter> filter, Optional<Type> outputType, OrcLocalMemoryContext newLocalMemoryContext)
     {
         this.streamDescriptor = requireNonNull(streamDescriptor, "streamDescriptor is null");
@@ -156,32 +158,53 @@ public class SliceDirectSelectiveStreamReader
         // filter == null implies outputRequired == true
 
         int totalPositionCount = positions[positionCount - 1] + 1;
+
+        msg = "\nreadNoFilter positionCount=" + positionCount + " totalPositionCount=" + totalPositionCount + " dataLength=" + dataLength + "\n";
+        msg += "positions: \n" + getString(positions) + "\n";
+        msg += "lengthVector: \n" + getString(lengthVector) + "\n";
+        msg += "isNullVector: \n" + getString(isNullVector) + "\n";
+
         if (useBatchMode(positionCount, totalPositionCount)) {
             if (presentStream == null) {
+                msg += "presentStream == null: \n";
+
                 if (dataStream != null) {
                     dataStream.next(data, 0, dataLength);
+
+                    msg += "read dataLength=" + dataLength + "\n";
+
                     convertLengthVectorToOffsetVector(lengthVector, totalPositionCount, offsets);
+                    msg += "converted lengthVector to offsets: \n" + getString(lengthVector) + "\n";
 
                     if (totalPositionCount > positionCount) {
                         packByteArrayAndOffsets(data, offsets, positions, positionCount);
+                        msg += "offsets after packing: \n" + getString(lengthVector) + "\n";
                     }
                 }
             }
             else {
+                msg += "presentStream != null: \n";
+
                 if (dataStream != null) {
                     dataStream.next(data, 0, dataLength);
+                    msg += "read dataLength=" + dataLength + "\n";
                     convertLengthVectorToOffsetVector(lengthVector, isNullVector, totalPositionCount, offsets);
+                    msg += "converted lengthVector to offsets: \n" + getString(lengthVector) + "\n";
                 }
 
                 if (totalPositionCount > positionCount) {
                     packByteArrayOffsetsAndNulls(data, offsets, isNullVector, positions, positionCount);
+                    msg += "offsets after packing: \n" + getString(lengthVector) + "\n";
                 }
 
                 if (nullsAllowed) {
                     System.arraycopy(isNullVector, 0, nulls, 0, positionCount);
+                    msg += "copied nulls: \n" + getString(nulls) + "\n";
                 }
             }
             outputPositionCount = positionCount;
+
+            msg += "outputPositionCount: \n" + outputPositionCount+ "\n";
             return totalPositionCount;
         }
 
@@ -223,14 +246,23 @@ public class SliceDirectSelectiveStreamReader
             throws IOException
     {
         int totalPositionCount = positions[positionCount - 1] + 1;
+
+        msg = "\nreadWithFilter positionCount=" + positionCount + " totalPositionCount=" + totalPositionCount + " dataLength=" + dataLength + "\n";
+        msg += "positions: \n" + getString(positions) + "\n";
+        msg += "lengthVector: \n" + getString(lengthVector) + "\n";
+        msg += "isNullVector: \n" + getString(isNullVector) + "\n";
+
         if (useBatchMode(positionCount, totalPositionCount)) {
             if (dataStream != null) {
                 dataStream.next(data, 0, dataLength);
+                msg += "read dataLength=" + dataLength + "\n";
             }
 
             final int filteredPositionCount;
             if (presentStream == null) {
+                msg += "presentStream == null: \n";
                 filteredPositionCount = evaluateFilter(positions, positionCount);
+                msg += "filteredPositionCount=" + filteredPositionCount;
 
                 if (outputRequired && totalPositionCount > filteredPositionCount && filteredPositionCount > 0 && dataStream != null) {
                     packByteArrayAndOffsets(data, offsets, outputPositions, filteredPositionCount);
@@ -411,6 +443,9 @@ public class SliceDirectSelectiveStreamReader
             }
         }
 
+        msg += "evaluateFilter after testLength, positionsIndex=" + positionsIndex + "\n";
+        msg += "evaluateFilter outputPositions " + getString(outputPositions) + "\n";
+
         int filteredPositionCount = 0;
         if (positionsIndex > 0) {
             if (dataStream == null) {
@@ -419,8 +454,15 @@ public class SliceDirectSelectiveStreamReader
             }
             else {
                 int totalPositionCount = outputPositions[positionsIndex - 1] + 1;
+
+                msg += "evaluateFilter dataStream != null, totalPositionCount= " + totalPositionCount + "\n";
+
                 convertLengthVectorToOffsetVector(lengthVector, totalPositionCount, offsets);
+                msg += "converted lengthVector to offsets: \n" + getString(lengthVector) + "\n";
+
                 filteredPositionCount = testBytes(outputPositions, positionsIndex);
+                msg += "evaluateFilter after testBytes, filteredPositionCount=" + filteredPositionCount + "\n";
+                msg += "evaluateFilter outputPositions " + getString(outputPositions) + "\n";
             }
         }
 
@@ -434,14 +476,14 @@ public class SliceDirectSelectiveStreamReader
             convertLengthVectorToOffsetVector(lengthVector, isNullVector, totalPositionCount, offsets);
         }
 
-        boolean testNull = (nonDeterministicFilter && filter.testNull()) || nullsAllowed;
+//        boolean testNull = (nonDeterministicFilter && filter.testNull()) || nullsAllowed;
 
         int positionsIndex = 0;
         for (int i = 0; i < positionCount; i++) {
             int position = positions[i];
 
             if (isNullVector[position]) {
-                if (testNull) {
+                if ((nonDeterministicFilter && filter.testNull()) || nullsAllowed) {
                     outputPositions[positionsIndex++] = position;
                 }
             }
@@ -516,16 +558,68 @@ public class SliceDirectSelectiveStreamReader
             int len = variableWidthBlock.getSliceLength(i);
             try {
                 checkPositionIndexes(offset, offset + len, slice.length());
-//                throw new IndexOutOfBoundsException("test");
+//                throw new Exception("test");
             }
             catch (Exception e) {
-                String info = variableWidthBlock.toString();
+                String info = "";
+                info += "\npresentStream: " + presentStream + "\n";
+                info += "lengthStream: " + lengthStream + "\n";
+                info += "presentStream: " + presentStream + "\n";
+                info += "filter: " + filter + "\n";
+                info += "nonDeterministicFilter: " + nonDeterministicFilter + "\n";
+                info += "nullsAllowed: " + nullsAllowed + "\n";
+                info += "outputRequired: " + outputRequired + "\n";
+
+                info += msg;
+
+                info += variableWidthBlock.toString();
                 info += "yingsu failed position=" + i + " positionOffset=" + offset + " getSliceLength=" + len + " slice.length()=" + slice.length() + "\n";
                 info += badPositionIndexes(offset, offset + len, slice.length()) + "\n";
                 info += streamDescriptor.getOrcDataSource() + "\n";
+
                 throw new IndexOutOfBoundsException(info);
             }
         }
+    }
+
+    private String getString(int[] array)
+    {
+        if (array == null) {
+            return "null";
+        }
+
+        String str = "size=" + array.length + "\n";
+
+        for (int i = 0; i < array.length; i++) {
+            str += array[i] + " ";
+            if  (i % 10 == 0) {
+                str += " ";
+            }
+            if  (i % 100 == 0) {
+                str += "\n";
+            }
+        }
+        return str;
+    }
+
+    private String getString(boolean[] array)
+    {
+        if (array == null) {
+            return "null";
+        }
+
+        String str = "size=" + array.length + "\n";
+
+        for (int i = 0; i < array.length; i++) {
+            str += array[i] + " ";
+            if  (i % 10 == 0) {
+                str += " ";
+            }
+            if  (i % 100 == 0) {
+                str += "\n";
+            }
+        }
+        return str;
     }
 
     private void compactValues(int[] positions, int positionCount, boolean includeNulls)
