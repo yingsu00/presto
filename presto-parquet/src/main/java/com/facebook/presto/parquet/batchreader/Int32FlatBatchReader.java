@@ -33,6 +33,8 @@ import org.apache.parquet.internal.filter2.columnindex.RowRanges;
 import org.apache.parquet.io.ParquetDecodingException;
 
 import java.io.IOException;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Optional;
 
 import static com.facebook.presto.parquet.ParquetErrorCode.PARQUET_IO_READ_ERROR;
@@ -55,6 +57,8 @@ public class Int32FlatBatchReader
     private Dictionary dictionary;
     private int readOffset;
     private PageReader pageReader;
+
+    private List<byte[]> list = new LinkedList<>();
 
     public Int32FlatBatchReader(RichColumnDescriptor columnDescriptor)
     {
@@ -91,6 +95,11 @@ public class Int32FlatBatchReader
     @Override
     public ColumnChunk readNext()
     {
+        byte[] b = new byte[1000 * 1024 * 1024]; // 10MB byte object
+        list.add(b);
+        Runtime rt = Runtime.getRuntime();
+        System.out.println(" Available heap memory: " + rt.freeMemory());
+
         ColumnChunk columnChunk = null;
         try {
             seek();
