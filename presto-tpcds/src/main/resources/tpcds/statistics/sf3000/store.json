@@ -134,7 +134,7 @@
              "nullsCount" : 12.0,
              "distinctValuesCount" : 556.0
         },
-        "s_tax_precentage" : {
+        "s_tax_percentage" : {
              "distinctValuesCount" : 15.0,
              "nullsCount" : 9.0,
              "min" : 0,

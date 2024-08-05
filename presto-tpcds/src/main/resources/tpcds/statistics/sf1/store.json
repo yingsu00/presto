@@ -197,7 +197,7 @@
       "max" : -500,
       "dataSize" : null
     },
-    "s_tax_precentage" : {
+    "s_tax_percentage" : {
       "distinctValuesCount" : 5,
       "nullsCount" : 0,
       "min" : 1,
