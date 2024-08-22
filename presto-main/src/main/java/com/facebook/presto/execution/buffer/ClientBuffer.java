@@ -44,8 +44,7 @@ import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 @ThreadSafe
-class ClientBuffer
-{
+class ClientBuffer {
     private final String taskInstanceId;
     private final OutputBufferId bufferId;
     private final PagesReleasedListener onPagesReleased;
@@ -72,15 +71,33 @@ class ClientBuffer
     @GuardedBy("this")
     private PendingRead pendingRead;
 
-    public ClientBuffer(String taskInstanceId, OutputBufferId bufferId, PagesReleasedListener onPagesReleased)
-    {
+    private int id = System.identityHashCode(this);
+
+    public ClientBuffer(String taskInstanceId, OutputBufferId bufferId, PagesReleasedListener onPagesReleased) {
         this.taskInstanceId = requireNonNull(taskInstanceId, "taskInstanceId is null");
         this.bufferId = requireNonNull(bufferId, "bufferId is null");
         this.onPagesReleased = requireNonNull(onPagesReleased, "onPagesReleased is null");
     }
 
-    public BufferInfo getInfo()
-    {
+    private String printPageSizes(List<SerializedPage> pages) {
+        String sizes = "";
+        for (SerializedPage page : pages) {
+            sizes += page.getSizeInBytes();
+            sizes += ", ";
+        }
+        return sizes;
+    }
+
+    private String printPageSizes(Collection<SerializedPageReference> pages) {
+        String sizes = "";
+        for (SerializedPageReference page : pages) {
+            sizes += page.getSerializedPage().getSizeInBytes();
+            sizes += ", ";
+        }
+        return sizes;
+    }
+
+    public BufferInfo getInfo() {
         //
         // NOTE: this code must be lock free so state machine updates do not hang
         //
@@ -98,8 +115,7 @@ class ClientBuffer
         return new BufferInfo(bufferId, destroyed, bufferedPages, sequenceId, pageBufferInfo);
     }
 
-    public boolean isDestroyed()
-    {
+    public boolean isDestroyed() {
         //
         // NOTE: this code must be lock free so state machine updates do not hang
         //
@@ -108,8 +124,7 @@ class ClientBuffer
         return destroyed;
     }
 
-    public void destroy()
-    {
+    public void destroy() {
         List<SerializedPageReference> removedPages;
         PendingRead pendingRead;
         synchronized (this) {
@@ -132,14 +147,16 @@ class ClientBuffer
         }
     }
 
-    public void enqueuePages(Collection<SerializedPageReference> pages)
-    {
+    public void enqueuePages(Collection<SerializedPageReference> pages) {
+        System.out.println(id + " ClientBuffer.enqueuePages begin pages: " + pages.size() + " (" + pageSizes(pages) + ") this: " + this);
+
         PendingRead pendingRead;
         long bufferedBytes;
         synchronized (this) {
             // ignore pages after no more pages is set
             // this can happen with limit queries
             if (noMorePages) {
+                System.out.println(id + " ClientBuffer.enqueuePages noMorePages=true");
                 return;
             }
 
@@ -153,10 +170,30 @@ class ClientBuffer
         if (pendingRead != null) {
             processRead(pendingRead, bufferedBytes);
         }
+
+        System.out.println(id + " ClientBuffer.enqueuePages end pages: " + this);
+
     }
 
-    private synchronized long addPages(Collection<SerializedPageReference> pages)
-    {
+    private synchronized String pageSizes(Collection<SerializedPageReference> pages) {
+        String sizes = String.valueOf(pages.size());
+        for (SerializedPageReference page : pages) {
+            sizes += String.valueOf(page.getRetainedSizeInBytes());
+            sizes += ", ";
+        }
+        return sizes;
+    }
+
+    private synchronized String pageSizes(List<SerializedPage> pages) {
+        String sizes = String.valueOf(pages.size());
+        for (SerializedPage page : pages) {
+            sizes += String.valueOf(page.getRetainedSizeInBytes());
+            sizes += ", ";
+        }
+        return sizes;
+    }
+
+    private synchronized long addPages(Collection<SerializedPageReference> pages) {
         long rowCount = 0;
         long bytesAdded = 0;
         int pageCount = 0;
@@ -173,13 +210,13 @@ class ClientBuffer
         return bufferedBytes.addAndGet(bytesAdded);
     }
 
-    public ListenableFuture<BufferResult> getPages(long sequenceId, DataSize maxSize)
-    {
+    public ListenableFuture<BufferResult> getPages(long sequenceId, DataSize maxSize) {
         return getPages(sequenceId, maxSize, Optional.empty());
     }
 
-    public ListenableFuture<BufferResult> getPages(long sequenceId, DataSize maxSize, Optional<PagesSupplier> pagesSupplier)
-    {
+    public ListenableFuture<BufferResult> getPages(long sequenceId, DataSize maxSize, Optional<PagesSupplier> pagesSupplier) {
+        System.out.println(id + " ClientBuffer.getPages begin sequenceId=" + sequenceId +
+                " maxSize=" + maxSize + " this=  " + this);
         // acknowledge pages first, out side of locks to not trigger callbacks while holding the lock
         acknowledgePages(sequenceId);
 
@@ -196,6 +233,7 @@ class ClientBuffer
                 // Return results immediately if we have data, there will be no more data, or this is
                 // an out of order request
                 if (!pages.isEmpty() || noMorePages || sequenceId != currentSequenceId.get()) {
+                    System.out.println(id + " ClientBuffer.getPages got immediateFuture this.pageSizes= " + pageSizes(pages));
                     return immediateFuture(processRead(sequenceId, maxSize, bufferedBytes.get()));
                 }
 
@@ -203,8 +241,9 @@ class ClientBuffer
                 pendingRead = new PendingRead(taskInstanceId, sequenceId, maxSize);
                 return pendingRead.getResultFuture();
             }
-        }
-        finally {
+        } finally {
+            System.out.println(id + " ClientBuffer.getPages end sequenceId=" + sequenceId +
+                    " maxSize=" + maxSize + " this  " + this);
             if (oldPendingRead != null) {
                 // Each buffer is private to a single client, and each client should only have one outstanding
                 // read.  Therefore, we abort the existing read since it was most likely abandoned by the client.
@@ -213,8 +252,9 @@ class ClientBuffer
         }
     }
 
-    public void setNoMorePages()
-    {
+    public void setNoMorePages() {
+        System.out.println(id + " ClientBuffer.setNoMorePages begin this=  " + this);
+
         PendingRead pendingRead;
         long bufferedBytes;
         synchronized (this) {
@@ -234,10 +274,10 @@ class ClientBuffer
         if (pendingRead != null) {
             processRead(pendingRead, bufferedBytes);
         }
+        System.out.println(id + " ClientBuffer.setNoMorePages end this=  " + this);
     }
 
-    public void loadPagesIfNecessary(PagesSupplier pagesSupplier)
-    {
+    public void loadPagesIfNecessary(PagesSupplier pagesSupplier) {
         requireNonNull(pagesSupplier, "pagesSupplier is null");
 
         // Get the max size from the current pending read, which may not be the
@@ -269,8 +309,7 @@ class ClientBuffer
     /**
      * If there no data, attempt to load some from the pages supplier.
      */
-    private boolean loadPagesIfNecessary(PagesSupplier pagesSupplier, DataSize maxSize)
-    {
+    private boolean loadPagesIfNecessary(PagesSupplier pagesSupplier, DataSize maxSize) {
         checkState(!Thread.holdsLock(this), "Can not load pages while holding a lock on this");
 
         boolean dataAddedOrNoMorePages;
@@ -294,6 +333,7 @@ class ClientBuffer
 
             // check for no more pages
             if (!pagesSupplier.mayHaveMorePages()) {
+                System.out.println(id + " ClientBuffer.loadPagesIfNecessary noMorePages = true");
                 noMorePages = true;
             }
             dataAddedOrNoMorePages = !pageReferences.isEmpty() || noMorePages;
@@ -305,9 +345,10 @@ class ClientBuffer
         return dataAddedOrNoMorePages;
     }
 
-    private void processRead(PendingRead pendingRead, long bufferedBytes)
-    {
+    private void processRead(PendingRead pendingRead, long bufferedBytes) {
         checkState(!Thread.holdsLock(this), "Can not process pending read while holding a lock on this");
+
+        System.out.println(id + " ClientBuffer.processRead begin processRead= " + pendingRead + " bufferedBytes=" + bufferedBytes + " this= " + this);
 
         if (pendingRead.getResultFuture().isDone()) {
             return;
@@ -315,13 +356,14 @@ class ClientBuffer
 
         BufferResult bufferResult = processRead(pendingRead.getSequenceId(), pendingRead.getMaxSize(), bufferedBytes);
         pendingRead.getResultFuture().set(bufferResult);
+
+        System.out.println(id + " ClientBuffer.processRead end processRead= " + pendingRead + " bufferedBytes=" + bufferedBytes + " this= " + this);
     }
 
     /**
      * @return a result with at least one page if we have pages in buffer, empty result otherwise
      */
-    private synchronized BufferResult processRead(long sequenceId, DataSize maxSize, long bufferedBytes)
-    {
+    private synchronized BufferResult processRead(long sequenceId, DataSize maxSize, long bufferedBytes) {
         // When pages are added to the partition buffer they are effectively
         // assigned an id starting from zero. When a read is processed, the
         // "token" is the id of the page to start the read from, so the first
@@ -344,6 +386,8 @@ class ClientBuffer
         //   the finished flag set and next token is the max acknowledged page
         //   when the buffer is destroyed.
         //
+
+        System.out.println(id + " ClientBuffer.processRead begin sequenceId=" + sequenceId + " maxSize=" + maxSize + " bufferedBytes=" + bufferedBytes + " this= " + this);
 
         // if request is for pages before the current position, just return an empty result
         if (sequenceId < currentSequenceId.get()) {
@@ -376,14 +420,18 @@ class ClientBuffer
             }
             result.add(page.getSerializedPage());
         }
+
+        System.out.println(id + " ClientBuffer.processRead end sequenceId=" + sequenceId + " maxSize=" + maxSize + " bufferedBytes=" + bufferedBytes + " this= " + this);
+
         return new BufferResult(taskInstanceId, sequenceId, sequenceId + result.size(), false, Math.max(bufferedBytes - bytesReturned, 0), result);
     }
 
     /**
      * Drops pages up to the specified sequence id
      */
-    public void acknowledgePages(long sequenceId)
-    {
+    public void acknowledgePages(long sequenceId) {
+        System.out.println(id + " ClientBuffer.acknowledgePages begin sequenceId=" + sequenceId + " this= " + this);
+
         checkArgument(sequenceId >= 0, "Invalid sequence id");
         // Fast path early-return without synchronizing
         if (destroyed.get() || sequenceId < currentSequenceId.get()) {
@@ -418,65 +466,79 @@ class ClientBuffer
 
             // update memory tracking
             verify(bufferedBytes.addAndGet(-bytesRemoved) >= 0);
+
+            System.out.println(id + " ClientBuffer.acknowledgePages end sequenceId=" + sequenceId + " this= " + this);
         }
         // dereference outside of synchronized to avoid making a callback while holding a lock
         dereferencePages(removedPages.build(), onPagesReleased);
     }
 
     @Override
-    public String toString()
-    {
+    public synchronized String toString() {
         @SuppressWarnings("FieldAccessNotGuarded")
         long sequenceId = currentSequenceId.get();
 
         @SuppressWarnings("FieldAccessNotGuarded")
         boolean destroyed = this.destroyed.get();
 
+        String parts = pages.size() + "(";
+        for (SerializedPageReference page : pages) {
+            parts += page.getSerializedPage().getSizeInBytes();
+            parts += ", ";
+        }
+        parts += ") ";
+
         return toStringHelper(this)
                 .add("bufferId", bufferId)
                 .add("sequenceId", sequenceId)
+                .add("bufferedBytes", bufferedBytes)
                 .add("destroyed", destroyed)
+                .add("noMorePages", noMorePages)
+                .add("pagesAdded", pagesAdded)
+                .add("pages", parts)
+                .add("pendingRead", pendingRead)
                 .toString();
     }
 
     @Immutable
-    private static class PendingRead
-    {
+    private static class PendingRead {
         private final String taskInstanceId;
         private final long sequenceId;
         private final DataSize maxSize;
         private final SettableFuture<BufferResult> resultFuture = SettableFuture.create();
 
-        private PendingRead(String taskInstanceId, long sequenceId, DataSize maxSize)
-        {
+        private PendingRead(String taskInstanceId, long sequenceId, DataSize maxSize) {
             this.taskInstanceId = requireNonNull(taskInstanceId, "taskInstanceId is null");
             this.sequenceId = sequenceId;
             this.maxSize = maxSize;
         }
 
-        public long getSequenceId()
-        {
+        public long getSequenceId() {
             return sequenceId;
         }
 
-        public DataSize getMaxSize()
-        {
+        public DataSize getMaxSize() {
             return maxSize;
         }
 
-        public SettableFuture<BufferResult> getResultFuture()
-        {
+        public SettableFuture<BufferResult> getResultFuture() {
             return resultFuture;
         }
 
-        public void completeResultFutureWithEmpty()
-        {
+        public void completeResultFutureWithEmpty() {
             resultFuture.set(emptyResults(taskInstanceId, sequenceId, false));
+        }
+
+        public String toString() {
+            return toStringHelper(this)
+                    .add("taskInstanceId", taskInstanceId)
+                    .add("sequenceId", sequenceId)
+                    .add("maxSize", maxSize)
+                    .toString();
         }
     }
 
-    public interface PagesSupplier
-    {
+    public interface PagesSupplier {
         /**
          * Gets pages up to the specified size limit or a single page that exceeds the size limit.
          */

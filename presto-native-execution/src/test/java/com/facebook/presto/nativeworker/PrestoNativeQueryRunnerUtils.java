@@ -466,7 +466,7 @@ public class PrestoNativeQueryRunnerUtils
                                 format("connector.name=tpch%n").getBytes());
 
                         // Disable stack trace capturing as some queries (using TRY) generate a lot of exceptions.
-                        return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=1")
+                        return new ProcessBuilder(prestoServerPath, "--logtostderr=1", "--v=3")
                                 .directory(tempDirectoryPath.toFile())
                                 .redirectErrorStream(true)
                                 .redirectOutput(ProcessBuilder.Redirect.to(tempDirectoryPath.resolve("worker." + workerIndex + ".out").toFile()))

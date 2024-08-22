@@ -29,6 +29,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.Random;
 
 import static com.facebook.presto.execution.buffer.BufferState.FAILED;
 import static com.facebook.presto.execution.buffer.BufferState.FINISHED;
@@ -38,13 +39,13 @@ import static com.facebook.presto.execution.buffer.BufferState.NO_MORE_PAGES;
 import static com.facebook.presto.execution.buffer.BufferState.OPEN;
 import static com.facebook.presto.execution.buffer.OutputBuffers.BufferType.PARTITIONED;
 import static com.facebook.presto.execution.buffer.SerializedPageReference.dereferencePages;
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 public class PartitionedOutputBuffer
-        implements OutputBuffer
-{
+        implements OutputBuffer {
     private final StateMachine<BufferState> state;
     private final OutputBuffers outputBuffers;
     private final OutputBufferMemoryManager memoryManager;
@@ -54,6 +55,8 @@ public class PartitionedOutputBuffer
 
     private final AtomicLong totalPagesAdded = new AtomicLong();
     private final AtomicLong totalRowsAdded = new AtomicLong();
+    private int id = System.identityHashCode(this);
+    private Random random = new Random();
 
     public PartitionedOutputBuffer(
             String taskInstanceId,
@@ -61,8 +64,7 @@ public class PartitionedOutputBuffer
             OutputBuffers outputBuffers,
             DataSize maxBufferSize,
             Supplier<LocalMemoryContext> systemMemoryContextSupplier,
-            Executor notificationExecutor)
-    {
+            Executor notificationExecutor) {
         this.state = requireNonNull(state, "state is null");
 
         requireNonNull(outputBuffers, "outputBuffers is null");
@@ -89,32 +91,46 @@ public class PartitionedOutputBuffer
     }
 
     @Override
-    public void addStateChangeListener(StateChangeListener<BufferState> stateChangeListener)
-    {
+    public void addStateChangeListener(StateChangeListener<BufferState> stateChangeListener) {
         state.addStateChangeListener(stateChangeListener);
     }
 
     @Override
-    public boolean isFinished()
-    {
+    public boolean isFinished() {
         return state.get() == FINISHED;
     }
 
     @Override
-    public double getUtilization()
-    {
+    public double getUtilization() {
         return memoryManager.getUtilization();
     }
 
     @Override
-    public boolean isOverutilized()
-    {
+    public boolean isOverutilized() {
         return memoryManager.isOverutilized();
     }
 
     @Override
-    public OutputBufferInfo getInfo()
+    public synchronized String toString()
     {
+        @SuppressWarnings("FieldAccessNotGuarded")
+        String parts = "";
+        for (ClientBuffer partition : partitions) {
+            parts += partition;
+            parts += "\n";
+        }
+
+        return toStringHelper(this)
+                .add("state", this.state.get())
+                .add("partitions", partitions.size())
+                .add("totalPagesAdded", totalPagesAdded.get())
+                .add("totalRowsAdded", totalRowsAdded.get())
+                .add("partitions", parts)
+                .toString();
+    }
+
+    @Override
+    public OutputBufferInfo getInfo() {
         //
         // NOTE: this code must be lock free so we do not hang for state machine updates
         //
@@ -144,8 +160,7 @@ public class PartitionedOutputBuffer
     }
 
     @Override
-    public void setOutputBuffers(OutputBuffers newOutputBuffers)
-    {
+    public void setOutputBuffers(OutputBuffers newOutputBuffers) {
         requireNonNull(newOutputBuffers, "newOutputBuffers is null");
 
         // ignore buffers added after query finishes, which can happen when a query is canceled
@@ -159,30 +174,39 @@ public class PartitionedOutputBuffer
     }
 
     @Override
-    public ListenableFuture<?> isFull()
-    {
+    public ListenableFuture<?> isFull() {
         return memoryManager.getBufferBlockedFuture();
     }
 
     @Override
-    public void registerLifespanCompletionCallback(Consumer<Lifespan> callback)
-    {
+    public void registerLifespanCompletionCallback(Consumer<Lifespan> callback) {
         pageTracker.registerLifespanCompletionCallback(callback);
     }
 
     @Override
-    public void enqueue(Lifespan lifespan, List<SerializedPage> pages)
-    {
+    public void enqueue(Lifespan lifespan, List<SerializedPage> pages) {
         checkState(partitions.size() == 1, "Expected exactly one partition");
         enqueue(lifespan, 0, pages);
     }
 
+    private String printPageSizes(List<SerializedPage> pages) {
+        String sizes = "";
+        for (SerializedPage page : pages) {
+            sizes += page.getSizeInBytes();
+            sizes += ", ";
+        }
+        return sizes;
+    }
+
     @Override
-    public void enqueue(Lifespan lifespan, int partitionNumber, List<SerializedPage> pages)
-    {
+    public void enqueue(Lifespan lifespan, int partitionNumber, List<SerializedPage> pages) {
         requireNonNull(lifespan, "lifespan is null");
         requireNonNull(pages, "pages is null");
         checkState(pageTracker.isLifespanCompletionCallbackRegistered(), "lifespanCompletionCallback must be set before enqueueing data");
+
+        System.out.println(id + " PartitionedOutputBuffer.enqueue begin partitionNumber=" + partitionNumber + 
+                " pages.size=" + pages.size() + "(" + printPageSizes(pages) + "). " + this);
+
 
         // ignore pages after "no more pages" is set
         // this can happen with a limit query
@@ -210,46 +234,60 @@ public class PartitionedOutputBuffer
         totalPagesAdded.addAndGet(serializedPageReferences.size());
         pageTracker.incrementLifespanPageCount(lifespan, serializedPageReferences.size());
 
+        if (totalPagesAdded.get() == 1) {
+            try {
+                if (random.nextInt(10) > 5) {
+                    System.out.println(id + "  sleeping ");
+                    Thread.sleep(10000);
+                }
+
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
         // add pages to the buffer (this will increase the reference count by one)
         partitions.get(partitionNumber).enqueuePages(serializedPageReferences);
 
         // drop the initial reference
         dereferencePages(serializedPageReferences, pageTracker);
+
+        System.out.println(id + " PartitionedOutputBuffer.enqueue end partitionNumber=" + partitionNumber + this);
     }
 
     @Override
-    public void setNoMorePagesForLifespan(Lifespan lifespan)
-    {
+    public void setNoMorePagesForLifespan(Lifespan lifespan) {
         pageTracker.setNoMorePagesForLifespan(lifespan);
     }
 
     @Override
-    public boolean isFinishedForLifespan(Lifespan lifespan)
-    {
+    public boolean isFinishedForLifespan(Lifespan lifespan) {
         return pageTracker.isFinishedForLifespan(lifespan);
     }
 
     @Override
-    public ListenableFuture<BufferResult> get(OutputBufferId outputBufferId, long startingSequenceId, DataSize maxSize)
-    {
+    public ListenableFuture<BufferResult> get(OutputBufferId outputBufferId, long startingSequenceId, DataSize maxSize) {
         requireNonNull(outputBufferId, "outputBufferId is null");
         checkArgument(maxSize.toBytes() > 0, "maxSize must be at least 1 byte");
+
+        System.out.println(id + " PartitionedOutputBuffer.get outputBufferId=" + outputBufferId +
+                "  startingSequenceId=" + startingSequenceId + "  maxSize=" + maxSize);
 
         return partitions.get(outputBufferId.getId()).getPages(startingSequenceId, maxSize);
     }
 
     @Override
-    public void acknowledge(OutputBufferId outputBufferId, long sequenceId)
-    {
+    public void acknowledge(OutputBufferId outputBufferId, long sequenceId) {
         requireNonNull(outputBufferId, "bufferId is null");
+
+        System.out.println(id + " PartitionedOutputBuffer.acknowledge outputBufferId=" + outputBufferId + "  sequenceId=" + sequenceId);
 
         partitions.get(outputBufferId.getId()).acknowledgePages(sequenceId);
     }
 
     @Override
-    public void abort(OutputBufferId bufferId)
-    {
+    public void abort(OutputBufferId bufferId) {
         requireNonNull(bufferId, "bufferId is null");
+        System.out.println(id + " PartitionedOutputBuffer.abort outputBufferId=" + bufferId);
 
         partitions.get(bufferId.getId()).destroy();
 
@@ -257,8 +295,9 @@ public class PartitionedOutputBuffer
     }
 
     @Override
-    public void setNoMorePages()
-    {
+    public void setNoMorePages() {
+        System.out.println(id + " PartitionedOutputBuffer.setNoMorePages begin " + this);
+
         state.compareAndSet(OPEN, NO_MORE_PAGES);
         state.compareAndSet(NO_MORE_BUFFERS, FLUSHING);
         memoryManager.setNoBlockOnFull();
@@ -266,22 +305,23 @@ public class PartitionedOutputBuffer
         partitions.forEach(ClientBuffer::setNoMorePages);
 
         checkFlushComplete();
+        System.out.println(id + " PartitionedOutputBuffer.setNoMorePages end " + this);
     }
 
     @Override
-    public void destroy()
-    {
+    public void destroy() {
+        System.out.println(id + " PartitionedOutputBuffer.destroy begin " + this);
         // ignore destroy if the buffer already in a terminal state.
         if (state.setIf(FINISHED, oldState -> !oldState.isTerminal())) {
             partitions.forEach(ClientBuffer::destroy);
             memoryManager.setNoBlockOnFull();
             forceFreeMemory();
         }
+        System.out.println(id + " PartitionedOutputBuffer.destroy end " + this);
     }
 
     @Override
-    public void fail()
-    {
+    public void fail() {
         // ignore fail if the buffer already in a terminal state.
         if (state.setIf(FAILED, oldState -> !oldState.isTerminal())) {
             memoryManager.setNoBlockOnFull();
@@ -291,19 +331,16 @@ public class PartitionedOutputBuffer
     }
 
     @Override
-    public long getPeakMemoryUsage()
-    {
+    public long getPeakMemoryUsage() {
         return memoryManager.getPeakMemoryUsage();
     }
 
     @VisibleForTesting
-    void forceFreeMemory()
-    {
+    void forceFreeMemory() {
         memoryManager.close();
     }
 
-    private void checkFlushComplete()
-    {
+    private void checkFlushComplete() {
         if (state.get() != FLUSHING && state.get() != NO_MORE_BUFFERS) {
             return;
         }
@@ -314,8 +351,7 @@ public class PartitionedOutputBuffer
     }
 
     @VisibleForTesting
-    OutputBufferMemoryManager getMemoryManager()
-    {
+    OutputBufferMemoryManager getMemoryManager() {
         return memoryManager;
     }
 }
