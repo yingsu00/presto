@@ -178,7 +178,8 @@ void PrestoExchangeSource::doRequest(
   }
 
   auto path = fmt::format("{}/{}", basePath_, sequence_);
-  VLOG(1) << "Fetching data from " << host_ << ":" << port_ << " " << path;
+  VLOG(1) << "Fetching data from " << host_ << ":" << port_ << " " << path
+          << " maxBytes: " << maxBytes;
   auto self = getSelfPtr();
   auto requestBuilder =
       http::RequestBuilder().method(proxygen::HTTPMethod::GET).url(path);
@@ -269,20 +270,6 @@ void PrestoExchangeSource::processDataResponse(
   VELOX_CHECK(
       !headers->getIsChunked(),
       "Chunked http transferring encoding is not supported.")
-  uint64_t contentLength =
-      atol(headers->getHeaders()
-               .getSingleOrEmpty(proxygen::HTTP_HEADER_CONTENT_LENGTH)
-               .c_str());
-  VLOG(1) << "Fetched data for " << basePath_ << "/" << sequence_ << ": "
-          << contentLength << " bytes";
-
-  auto complete = headers->getHeaders()
-                      .getSingleOrEmpty(protocol::PRESTO_BUFFER_COMPLETE_HEADER)
-                      .compare("true") == 0;
-  if (complete) {
-    VLOG(1) << "Received buffer-complete header for " << basePath_ << "/"
-            << sequence_;
-  }
 
   std::vector<int64_t> remainingBytes;
   auto remainingBytesString = headers->getHeaders().getSingleOrEmpty(
@@ -299,6 +286,23 @@ void PrestoExchangeSource::processDataResponse(
       atol(headers->getHeaders()
                .getSingleOrEmpty(protocol::PRESTO_PAGE_NEXT_TOKEN_HEADER)
                .c_str());
+
+  uint64_t contentLength =
+      atol(headers->getHeaders()
+               .getSingleOrEmpty(proxygen::HTTP_HEADER_CONTENT_LENGTH)
+               .c_str());
+  VLOG(1) << "Fetched data from " << basePath_ << "/" << sequence_ << ": "
+          << contentLength << " bytes"
+          << " remainingBytes: " << remainingBytesString
+          << " ackSequence: " << ackSequence;
+
+  auto complete = headers->getHeaders()
+                      .getSingleOrEmpty(protocol::PRESTO_BUFFER_COMPLETE_HEADER)
+                      .compare("true") == 0;
+  if (complete) {
+    VLOG(1) << "Received buffer-complete header for " << basePath_ << "/"
+            << sequence_;
+  }
 
   std::unique_ptr<exec::SerializedPage> page;
   const bool empty = response->empty();
