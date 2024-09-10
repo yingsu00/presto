@@ -343,7 +343,7 @@ const QueryContextManager* TaskManager::getQueryContextManager() const {
 }
 
 void TaskManager::abortResults(const TaskId& taskId, long bufferId) {
-  VLOG(1) << "TaskManager::abortResults " << taskId;
+  VLOG(1) << "TaskManager::abortResults " << taskId << "/" << bufferId;
 
   bufferManager_->deleteResults(taskId, bufferId);
 }
