@@ -133,7 +133,7 @@ void getData(
       [taskId = taskId, bufferId = destination, promiseHolder, startMs](
           std::vector<std::unique_ptr<folly::IOBuf>> pages,
           int64_t sequence,
-          std::vector<int64_t> remainingBytes) mutable {
+          int64_t remainingBytes) mutable {
         bool complete = false;
         int64_t nextSequence = sequence;
         std::unique_ptr<folly::IOBuf> iobuf;
@@ -158,7 +158,7 @@ void getData(
         VLOG(1) << "Task " << taskId << ", buffer " << bufferId << ", sequence "
                 << sequence << " Results size: " << bytes
                 << ", page count: " << pages.size()
-                << ", remaining: " << folly::join(',', remainingBytes)
+                << ", remaining: " << std::to_string(remainingBytes)
                 << ", complete: " << std::boolalpha << complete;
 
         auto result = std::make_unique<Result>();
@@ -166,7 +166,7 @@ void getData(
         result->nextSequence = nextSequence;
         result->complete = complete;
         result->data = std::move(iobuf);
-        result->remainingBytes = std::move(remainingBytes);
+        result->remainingBytes = remainingBytes;
 
         promiseHolder->promise.setValue(std::move(result));
 

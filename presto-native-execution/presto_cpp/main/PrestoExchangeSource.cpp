@@ -271,16 +271,9 @@ void PrestoExchangeSource::processDataResponse(
       !headers->getIsChunked(),
       "Chunked http transferring encoding is not supported.")
 
-  std::vector<int64_t> remainingBytes;
-  auto remainingBytesString = headers->getHeaders().getSingleOrEmpty(
-      protocol::PRESTO_BUFFER_REMAINING_BYTES_HEADER);
-  if (!remainingBytesString.empty()) {
-    folly::split(',', remainingBytesString, remainingBytes);
-    if (!remainingBytes.empty() && remainingBytes[0] == 0) {
-      VELOX_CHECK_EQ(remainingBytes.size(), 1);
-      remainingBytes.clear();
-    }
-  }
+  int64_t remainingBytes =
+      atol(headers->getHeaders().getSingleOrEmpty(
+            protocol::PRESTO_BUFFER_REMAINING_BYTES_HEADER).c_str());
 
   int64_t ackSequence =
       atol(headers->getHeaders()
@@ -293,7 +286,7 @@ void PrestoExchangeSource::processDataResponse(
                .c_str());
   VLOG(1) << "Fetched data from " << basePath_ << "/" << sequence_ << ": "
           << contentLength << " bytes"
-          << " remainingBytes: " << remainingBytesString
+          << " remainingBytes: " << std::to_string(remainingBytes)
           << " ackSequence: " << ackSequence;
 
   auto complete = headers->getHeaders()
@@ -374,8 +367,7 @@ void PrestoExchangeSource::processDataResponse(
   }
 
   if (requestPromise.valid() && !requestPromise.isFulfilled()) {
-    requestPromise.setValue(
-        Response{pageSize, complete, std::move(remainingBytes)});
+    requestPromise.setValue(Response{pageSize, complete, remainingBytes});
   } else {
     // The source must have been closed.
     VELOX_CHECK(closed_.load());

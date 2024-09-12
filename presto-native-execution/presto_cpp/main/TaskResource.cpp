@@ -458,8 +458,9 @@ proxygen::RequestHandler* TaskResource::getResults(
             : protocol::PRESTO_MAX_SIZE_DEFAULT);
   }
 
-  VLOG(1) << "Received getResults request for " << taskId << "/" << bufferId
-          << "/" << token << " maxSize: " << maxSize << " maxWait:" << maxWait;
+  VLOG(1) << "Received getResults request for " << taskId << "/results/"
+          << bufferId << "/" << token << " maxSize: " << maxSize
+          << " maxWait:" << maxWait;
 
   return new http::CallbackRequestHandler(
       [this, taskId, bufferId, token, maxSize, maxWait](
@@ -507,12 +508,11 @@ proxygen::RequestHandler* TaskResource::getResults(
                             std::to_string(result->nextSequence))
                         .header(
                             protocol::PRESTO_BUFFER_COMPLETE_HEADER,
-                            result->complete ? "true" : "false");
-                    if (!result->remainingBytes.empty()) {
-                      builder.header(
-                          protocol::PRESTO_BUFFER_REMAINING_BYTES_HEADER,
-                          folly::join(',', result->remainingBytes));
-                    }
+                            result->complete ? "true" : "false")
+                        .header(
+                            protocol::PRESTO_BUFFER_REMAINING_BYTES_HEADER,
+                            std::to_string(result->remainingBytes));
+
                     builder.body(std::move(result->data)).sendWithEOM();
                   })
                   .thenError(

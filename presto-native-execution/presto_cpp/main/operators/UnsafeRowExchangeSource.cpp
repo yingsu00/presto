@@ -76,14 +76,14 @@ UnsafeRowExchangeSource::request(
 folly::SemiFuture<UnsafeRowExchangeSource::Response>
 UnsafeRowExchangeSource::requestDataSizes(
     std::chrono::microseconds /*maxWait*/) {
-  std::vector<int64_t> remainingBytes;
+  int64_t remainingBytes = 0;
   if (!atEnd_) {
     // Use default value of ExchangeClient::getAveragePageSize() for now.
     //
-    // TODO: Change ShuffleReader to return the next batch size.
-    remainingBytes.push_back(1 << 20);
+    // TODO: Change BroadcastFileReader to return the next batch size.
+    remainingBytes = (1 << 20);
   }
-  return folly::makeSemiFuture(Response{0, atEnd_, std::move(remainingBytes)});
+  return folly::makeSemiFuture(Response{0, atEnd_, remainingBytes});
 }
 
 folly::F14FastMap<std::string, int64_t> UnsafeRowExchangeSource::stats() const {
