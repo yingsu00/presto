@@ -761,6 +761,28 @@ void TaskManager::cancelAbandonedTasks() {
   cancelAbandonedTasksInternal(taskMap, oldTaskCleanUpMs_);
 }
 
+std::string bufferInfoToString(const protocol::OutputBufferInfo& bufferInfo) {
+  std::stringstream str;
+  str << "bufferInfo.type: " << bufferInfo.type;
+  switch (bufferInfo.state) {
+    case protocol::BufferState::OPEN:
+      str << "OPEN";
+    case protocol::BufferState::NO_MORE_BUFFERS:
+      str << "NO_MORE_BUFFERS";
+    case protocol::BufferState::NO_MORE_PAGES:
+      str << "NO_MORE_PAGES";
+    case protocol::BufferState::FLUSHING:
+      str << "FLUSHING";
+    case protocol::BufferState::FINISHED:
+      str << "FINISHED";
+    case protocol::BufferState::FAILED:
+      str << "FAILED";
+  }
+  str << " bufferInfo.canAddBuffers: " << bufferInfo.canAddBuffers;
+  str << " bufferInfo.canAddPages: " << bufferInfo.canAddPages;
+  return str.str();
+}
+
 folly::Future<std::unique_ptr<protocol::TaskInfo>> TaskManager::getTaskInfo(
     const TaskId& taskId,
     bool summarize,
@@ -783,6 +805,7 @@ folly::Future<std::unique_ptr<protocol::TaskInfo>> TaskManager::getTaskInfo(
   protocol::TaskInfo info;
   {
     std::lock_guard<std::mutex> l(prestoTask->mutex);
+    VLOG(1) << "TaskManager::getTaskInfo acquired lock: " << taskId;
     prestoTask->updateHeartbeatLocked();
     prestoTask->updateCoordinatorHeartbeatLocked();
     if (!prestoTask->task) {
@@ -792,14 +815,44 @@ folly::Future<std::unique_ptr<protocol::TaskInfo>> TaskManager::getTaskInfo(
       keepPromiseAlive(promiseHolder, state);
       prestoTask->infoRequest = folly::to_weak_ptr(promiseHolder);
 
+      //      return std::move(future)
+      //          .via(httpSrvCpuExecutor_)
+      //          .onTimeout(std::chrono::microseconds(maxWaitMicros),
+      //          [prestoTask]() {
+      //            return std::make_unique<protocol::TaskInfo>(
+      //                prestoTask->updateInfo());
+      //          });
+
       return std::move(future)
           .via(httpSrvCpuExecutor_)
           .onTimeout(std::chrono::microseconds(maxWaitMicros), [prestoTask]() {
-            return std::make_unique<protocol::TaskInfo>(
-                prestoTask->updateInfo());
+            auto info =
+                std::make_unique<protocol::TaskInfo>(prestoTask->updateInfo());
+            if (info) {
+              VLOG(1)
+                  << "TaskManager::getTaskInfo timeout. Final TaskInfo for: "
+                  << prestoTask->id.toString()
+                  << " finalState: " << isFinalState(info->taskStatus.state)
+                  << " taskFailures: " << info->taskStatus.failures.size()
+                  << " noMoreSplits:" << info->noMoreSplits.size()
+                  << " outputBuffers"
+                  << bufferInfoToString(info->outputBuffers);
+            } else {
+              VLOG(1)
+                  << "TaskManager::getTaskInfo timeout. Final TaskInfo for: "
+                  << prestoTask->id.toString() << " is null";
+            }
+
+            return info;
           });
     }
     info = prestoTask->updateInfoLocked();
+
+    VLOG(1) << "TaskManager::getTaskInfo got TaskInfo for: " << taskId
+            << " isFinalState?: " << isFinalState(info.taskStatus.state)
+            << " taskFailures: " << info.taskStatus.failures.size()
+            << " noMoreSplits:" << info.noMoreSplits.size() << " outputBuffers"
+            << bufferInfoToString(info.outputBuffers);
   }
   if (currentState.value() != info.taskStatus.state ||
       isFinalState(info.taskStatus.state)) {

@@ -402,6 +402,7 @@ void PrestoTask::updateOutputBufferInfoLocked(
     const velox::exec::TaskStats& veloxTaskStats,
     std::unordered_map<std::string, RuntimeMetric>& taskRuntimeStats) {
   if (!veloxTaskStats.outputBufferStats.has_value()) {
+    VLOG(1) << "veloxTaskStats.outputBufferStats doesn't have value";
     return;
   }
   const auto& outputBufferStats = veloxTaskStats.outputBufferStats.value();
@@ -421,7 +422,40 @@ void PrestoTask::updateOutputBufferInfoLocked(
        fromMillis(outputBufferStats.averageBufferTimeMs)});
   taskRuntimeStats["numTopOutputBuffers"].addValue(
       outputBufferStats.numTopBuffers);
+
+  VLOG(1) << "updateOutputBufferInfoLocked end";
 }
+
+namespace {
+std::string taskStatusToString(protocol::TaskStatus taskStatus) {
+  std::stringstream ss;
+  ss << "[URI: " << taskStatus.self << "state: ";
+  switch (taskStatus.state) {
+    case protocol::TaskState::PLANNED:
+      ss << "PLANNED";
+      break;
+    case protocol::TaskState::RUNNING:
+      ss << "RUNNING";
+      break;
+    case protocol::TaskState::FINISHED:
+      ss << "FINISHED";
+      break;
+    case protocol::TaskState::CANCELED:
+      ss << "CANCELED";
+      break;
+    case protocol::TaskState::ABORTED:
+      ss << "ABORTED";
+      break;
+    case protocol::TaskState::FAILED:
+      ss << "FAILED";
+      break;
+  }
+  ss << " completedDriverGroups: " << taskStatus.completedDriverGroups.size();
+  ss << " failures: " << taskStatus.failures.size();
+  ss << "]";
+  return ss.str();
+}
+} // namespace
 
 protocol::TaskInfo PrestoTask::updateInfoLocked() {
   const protocol::TaskStatus prestoTaskStatus = updateStatusLocked();
@@ -430,6 +464,10 @@ protocol::TaskInfo PrestoTask::updateInfoLocked() {
   if (task == nullptr) {
     return info;
   }
+
+  VLOG(1) << task->taskId()
+          << " TaskStatus: " << taskStatusToString(prestoTaskStatus);
+
   const velox::exec::TaskStats veloxTaskStats = task->taskStats();
   const uint64_t currentTimeMs = velox::getCurrentTimeMs();
   // Set 'lastTaskStatsUpdateMs' to execution start time if it is 0.

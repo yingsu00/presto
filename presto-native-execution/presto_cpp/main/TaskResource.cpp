@@ -619,7 +619,7 @@ proxygen::RequestHandler* TaskResource::getTaskInfo(
   auto maxWait = getMaxWait(message);
   bool summarize = message->hasQueryParam("summarize");
 
-  VLOG(1) << "Received getTaskStatus request for " << taskId
+  VLOG(1) << "Received getTaskInfo request for " << taskId
           << " currentState: "
           << (currentState.has_value() ? to_string(currentState.value())
                                        : "null")
