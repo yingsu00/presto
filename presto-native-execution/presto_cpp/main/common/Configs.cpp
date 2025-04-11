@@ -46,14 +46,11 @@ int getThreadCount() {
   return numThreads;
 }
 
-#define STR_PROP(_key_, _val_) \
-  { std::string(_key_), std::string(_val_) }
+#define STR_PROP(_key_, _val_) {std::string(_key_), std::string(_val_)}
 #define NUM_PROP(_key_, _val_) \
-  { std::string(_key_), folly::to<std::string>(_val_) }
-#define BOOL_PROP(_key_, _val_) \
-  { std::string(_key_), bool2String(_val_) }
-#define NONE_PROP(_key_) \
-  { std::string(_key_), folly::none }
+  {std::string(_key_), folly::to<std::string>(_val_)}
+#define BOOL_PROP(_key_, _val_) {std::string(_key_), bool2String(_val_)}
+#define NONE_PROP(_key_) {std::string(_key_), folly::none}
 } // namespace
 
 void ConfigBase::initialize(const std::string& filePath, bool optionalConfig) {
@@ -634,8 +631,9 @@ std::string SystemConfig::sharedArbitratorFastExponentialGrowthCapacityLimit()
       kSharedArbitratorFastExponentialGrowthCapacityLimitDefault = "512MB";
   return optionalProperty<std::string>(
              kSharedArbitratorFastExponentialGrowthCapacityLimit)
-      .value_or(std::string(
-          kSharedArbitratorFastExponentialGrowthCapacityLimitDefault));
+      .value_or(
+          std::string(
+              kSharedArbitratorFastExponentialGrowthCapacityLimitDefault));
 }
 
 std::string SystemConfig::sharedArbitratorSlowCapacityGrowPct() const {
@@ -685,8 +683,9 @@ std::string SystemConfig::sharedArbitratorMemoryReclaimThreadsHwMultiplier()
       kSharedArbitratorMemoryReclaimThreadsHwMultiplierDefault = "0.5";
   return optionalProperty<std::string>(
              kSharedArbitratorMemoryReclaimThreadsHwMultiplier)
-      .value_or(std::string(
-          kSharedArbitratorMemoryReclaimThreadsHwMultiplierDefault));
+      .value_or(
+          std::string(
+              kSharedArbitratorMemoryReclaimThreadsHwMultiplierDefault));
 }
 
 std::string SystemConfig::sharedArbitratorGlobalArbitrationMemoryReclaimPct()
@@ -695,8 +694,9 @@ std::string SystemConfig::sharedArbitratorGlobalArbitrationMemoryReclaimPct()
       kSharedArbitratorGlobalArbitrationMemoryReclaimPctDefault = "10";
   return optionalProperty<std::string>(
              kSharedArbitratorGlobalArbitrationMemoryReclaimPct)
-      .value_or(std::string(
-          kSharedArbitratorGlobalArbitrationMemoryReclaimPctDefault));
+      .value_or(
+          std::string(
+              kSharedArbitratorGlobalArbitrationMemoryReclaimPctDefault));
 }
 
 std::string SystemConfig::sharedArbitratorGlobalArbitrationAbortTimeRatio()
@@ -934,6 +934,9 @@ BaseVeloxQueryConfig::BaseVeloxQueryConfig() {
               QueryConfig::kOperatorTrackCpuUsage, c.operatorTrackCpuUsage()),
           BOOL_PROP(
               QueryConfig::kCastMatchStructByName, c.isMatchStructByName()),
+          BOOL_PROP(
+              QueryConfig::kOptimizedRepartitioningEnabled,
+              c.optimizedRepartitioningEnabled()),
           NUM_PROP(
               QueryConfig::kMaxLocalExchangeBufferSize,
               c.maxLocalExchangeBufferSize()),

@@ -329,6 +329,14 @@ SessionProperties::SessionProperties() {
       c.opTraceDirectoryCreateConfig());
 
   addSessionProperty(
+      kOptimizedRepartitioningEnabled,
+      "Use optimized partitioned output for partitioned output operator.",
+      BOOLEAN(),
+      false,
+      QueryConfig::kOptimizedRepartitioningEnabled,
+      "true");
+
+  addSessionProperty(
       kMaxOutputBufferSize,
       "The maximum size in bytes for the task's buffered output. The buffer is"
       " shared among all drivers.",

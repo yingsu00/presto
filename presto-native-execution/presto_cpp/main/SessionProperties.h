@@ -255,6 +255,9 @@ class SessionProperties {
   static constexpr const char* kQueryTraceShardId =
       "native_query_trace_shard_id";
 
+  static constexpr const char* kOptimizedRepartitioningEnabled =
+      "native_optimized_repartitioning";
+
   /// The maximum size in bytes for the task's buffered output. The buffer is
   /// shared among all drivers.
   static constexpr const char* kMaxOutputBufferSize =
