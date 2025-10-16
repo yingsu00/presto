@@ -87,6 +87,8 @@ const char* const PRESTO_BUFFER_COMPLETE_HEADER = "X-Presto-Buffer-Complete";
 const char* const PRESTO_GET_DATA_SIZE_HEADER = "X-Presto-Get-Data-Size";
 const char* const PRESTO_BUFFER_REMAINING_BYTES_HEADER =
     "X-Presto-Buffer-Remaining-Bytes";
+const char* const PRESTO_BUFFER_TOTAL_NUM_ROWS_HEADER =
+    "X-Presto-Buffer-Total-Rows";
 const char* const PRESTO_BUFFER_REMAINING_FROM_SPILL_HEADER =
     "X-Presto-Buffer-Remaining-From-Spill";
 

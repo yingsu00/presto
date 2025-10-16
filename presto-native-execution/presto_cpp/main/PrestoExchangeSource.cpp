@@ -309,6 +309,11 @@ void PrestoExchangeSource::processDataResponse(
     }
   }
 
+  int64_t numRows =
+      atol(headers->getHeaders()
+               .getSingleOrEmpty(protocol::PRESTO_BUFFER_TOTAL_NUM_ROWS_HEADER)
+               .c_str());
+
   std::optional<int64_t> ackSequenceOpt;
   const auto nextTokenStr = headers->getHeaders().getSingleOrEmpty(
       protocol::PRESTO_PAGE_NEXT_TOKEN_HEADER);
@@ -352,7 +357,8 @@ void PrestoExchangeSource::processDataResponse(
 
     if (enableBufferCopy_) {
       page = std::make_unique<exec::SerializedPage>(
-          std::move(singleChain), [pool = pool_](folly::IOBuf& iobuf) {
+          std::move(singleChain),
+          [pool = pool_](folly::IOBuf& iobuf) {
             int64_t freedBytes{0};
             // Free the backed memory from MemoryAllocator on page dtor
             folly::IOBuf* start = &iobuf;
@@ -363,12 +369,15 @@ void PrestoExchangeSource::processDataResponse(
               curr = curr->next();
             } while (curr != start);
             PrestoExchangeSource::updateMemoryUsage(-freedBytes);
-          });
+          },
+          numRows);
     } else {
       page = std::make_unique<exec::SerializedPage>(
-          std::move(singleChain), [totalBytes](folly::IOBuf& iobuf) {
+          std::move(singleChain),
+          [totalBytes](folly::IOBuf& iobuf) {
             PrestoExchangeSource::updateMemoryUsage(-totalBytes);
-          });
+          },
+          numRows);
     }
   }
 
@@ -379,10 +388,17 @@ void PrestoExchangeSource::processDataResponse(
     std::lock_guard<std::mutex> l(queue_->mutex());
     if (page) {
       VLOG(1) << "Enqueuing page for " << basePath_ << "/" << sequence_ << ": "
-              << pageSize << " bytes";
+              << pageSize << " bytes, " << numPages_ << " pages, "
+              << totalBytes_ << " total bytes, " << totalRows_
+              << " total rows before enqueue";
       ++numPages_;
       totalBytes_ += pageSize;
+      totalRows_ += numRows;
       queue_->enqueueLocked(std::move(page), queuePromises);
+      VLOG(1) << "Enqueued page for " << basePath_ << "/" << sequence_ << ": "
+              << pageSize << " bytes, " << numPages_ << " pages, "
+              << totalBytes_ << " total bytes, " << totalRows_
+              << " total rows after enqueue";
     }
     if (complete) {
       VLOG(1) << "Enqueuing empty page for " << basePath_ << "/" << sequence_;

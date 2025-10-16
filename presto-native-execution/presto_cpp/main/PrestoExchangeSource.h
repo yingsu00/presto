@@ -283,6 +283,7 @@ class PrestoExchangeSource : public velox::exec::ExchangeSource {
   // The number of pages received from this presto exchange source.
   uint64_t numPages_{0};
   uint64_t totalBytes_{0};
+  uint64_t totalRows_{0};
   std::atomic_bool closed_{false};
   // A boolean indicating whether abortResults() call was issued
   std::atomic_bool abortResultsIssued_{false};

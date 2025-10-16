@@ -539,7 +539,10 @@ proxygen::RequestHandler* TaskResource::getResults(
                             std::to_string(result->nextSequence))
                         .header(
                             protocol::PRESTO_BUFFER_COMPLETE_HEADER,
-                            result->complete ? "true" : "false");
+                            result->complete ? "true" : "false")
+                        .header(
+                            protocol::PRESTO_BUFFER_TOTAL_NUM_ROWS_HEADER,
+                            std::to_string(result->totalNumRows));
                     if (!result->remainingBytes.empty()) {
                       builder.header(
                           protocol::PRESTO_BUFFER_REMAINING_BYTES_HEADER,
