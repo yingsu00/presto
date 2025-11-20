@@ -662,6 +662,14 @@ SessionProperties::SessionProperties() {
       QueryConfig::kAggregationMemoryCompactionReclaimEnabled,
       util::boolToLowerCaseString(
           c.aggregationMemoryCompactionReclaimEnabled()));
+
+  addSessionProperty(
+      kPushdownIntegerUpcastsToSource,
+      "Enable pushdown of integer upcasts to the source operators.",
+      BOOLEAN(),
+      false,
+      QueryConfig::kPushdownIntegerUpcastsToSource,
+      boolToString(c.pushdownIntegerUpcastsToSource()));
 }
 
 bool SessionProperties::useVeloxGeospatialJoin() const {

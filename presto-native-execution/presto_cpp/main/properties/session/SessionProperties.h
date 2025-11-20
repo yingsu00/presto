@@ -383,6 +383,10 @@ class SessionProperties : public SessionPropertiesProvider {
   static constexpr const char* kAggregationMemoryCompactionReclaimEnabled =
       "native_aggregation_memory_compaction_reclaim_enabled";
 
+  /// Enable pushdown of integer upcasts to the source operators.
+  static constexpr const char* kPushdownIntegerUpcastsToSource =
+      "native_pushdown_integer_upcasts_to_source";
+
   static SessionProperties* instance();
 
   SessionProperties();

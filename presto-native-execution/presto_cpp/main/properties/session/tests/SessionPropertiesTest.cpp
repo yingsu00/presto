@@ -145,7 +145,9 @@ TEST_F(SessionPropertiesTest, validateMapping) {
       {SessionProperties::kAggregationMemoryCompactionReclaimEnabled,
        core::QueryConfig::kAggregationMemoryCompactionReclaimEnabled},
       {SessionProperties::kMergeJoinOutputBatchStartSize,
-       core::QueryConfig::kMergeJoinOutputBatchStartSize}};
+       core::QueryConfig::kMergeJoinOutputBatchStartSize},
+      {SessionProperties::kPushdownIntegerUpcastsToSource,
+       core::QueryConfig::kPushdownIntegerUpcastsToSource}};
 
   const auto sessionProperties = SessionProperties::instance();
   for (const auto& [sessionProperty, expectedVeloxConfig] : expectedMappings) {
