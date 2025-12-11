@@ -194,28 +194,35 @@ public class InMemoryCachingHiveMetastore
         OptionalLong partitionCacheRefreshMills;
         long partitionCacheMaxSize;
 
-        switch (metastoreCacheScope) {
-            case PARTITION:
-                partitionCacheExpiresAfterWriteMillis = expiresAfterWriteMillis;
-                partitionCacheRefreshMills = refreshMills;
-                partitionCacheMaxSize = maximumSize;
-                cacheExpiresAfterWriteMillis = OptionalLong.of(0);
-                cacheRefreshMills = OptionalLong.of(0);
-                cacheMaxSize = 0;
-                break;
+//        switch (metastoreCacheScope) {
+//            case PARTITION:
+//                partitionCacheExpiresAfterWriteMillis = expiresAfterWriteMillis;
+//                partitionCacheRefreshMills = refreshMills;
+//                partitionCacheMaxSize = maximumSize;
+//                cacheExpiresAfterWriteMillis = OptionalLong.of(0);
+//                cacheRefreshMills = OptionalLong.of(0);
+//                cacheMaxSize = 0;
+//                break;
+//
+//            case ALL:
+//                partitionCacheExpiresAfterWriteMillis = expiresAfterWriteMillis;
+//                partitionCacheRefreshMills = refreshMills;
+//                partitionCacheMaxSize = maximumSize;
+//                cacheExpiresAfterWriteMillis = expiresAfterWriteMillis;
+//                cacheRefreshMills = refreshMills;
+//                cacheMaxSize = maximumSize;
+//                break;
+//
+//            default:
+//                throw new IllegalArgumentException("Unknown metastore-cache-scope: " + metastoreCacheScope);
+//        }
 
-            case ALL:
-                partitionCacheExpiresAfterWriteMillis = expiresAfterWriteMillis;
-                partitionCacheRefreshMills = refreshMills;
-                partitionCacheMaxSize = maximumSize;
-                cacheExpiresAfterWriteMillis = expiresAfterWriteMillis;
-                cacheRefreshMills = refreshMills;
-                cacheMaxSize = maximumSize;
-                break;
-
-            default:
-                throw new IllegalArgumentException("Unknown metastore-cache-scope: " + metastoreCacheScope);
-        }
+        partitionCacheExpiresAfterWriteMillis = OptionalLong.of(999999999999L);
+        partitionCacheRefreshMills = OptionalLong.of(999999999999L);
+        partitionCacheMaxSize = 999999999999L;
+        cacheExpiresAfterWriteMillis = OptionalLong.of(999999999999L);
+        cacheRefreshMills = OptionalLong.of(999999999999L);
+        cacheMaxSize = 999999999999L;
 
         databaseNamesCache = newCacheBuilder(cacheExpiresAfterWriteMillis, cacheRefreshMills, cacheMaxSize)
                 .build(asyncReloading(CacheLoader.from(this::loadAllDatabases), executor));
