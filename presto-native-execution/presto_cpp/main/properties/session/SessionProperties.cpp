@@ -621,6 +621,17 @@ SessionProperties::SessionProperties() {
       "true");
 
   addSessionProperty(
+      kUseOptimizedDriver,
+      "Native Execution only. Use OptimizedDriver instead of the base Driver "
+      "for query execution. OptimizedDriver uses a bitmask-based active "
+      "operator set for O(1) operator selection instead of an O(N) backward "
+      "scan. Enabled by default.",
+      BOOLEAN(),
+      false,
+      QueryConfig::kUseOptimizedDriver,
+      util::boolToLowerCaseString(c.useOptimizedDriver()));
+
+  addSessionProperty(
       kAggregationCompactionBytesThreshold,
       "Memory threshold in bytes for triggering string compaction during global "
       "aggregation. When total string storage exceeds this limit with high unused "

@@ -136,6 +136,8 @@ TEST_F(SessionPropertiesTest, validateMapping) {
        core::QueryConfig::kUnnestSplitOutput},
       {SessionProperties::kUseVeloxGeospatialJoin,
        SessionProperties::kUseVeloxGeospatialJoin},
+      {SessionProperties::kUseOptimizedDriver,
+       core::QueryConfig::kUseOptimizedDriver},
       {SessionProperties::kAggregationCompactionBytesThreshold,
        core::QueryConfig::kAggregationCompactionBytesThreshold},
       {SessionProperties::kAggregationCompactionUnusedMemoryRatio,

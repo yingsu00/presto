@@ -92,6 +92,7 @@ public class NativeWorkerSessionPropertyProvider
     public static final String NATIVE_INDEX_LOOKUP_JOIN_SPLIT_OUTPUT = "native_index_lookup_join_split_output";
     public static final String NATIVE_UNNEST_SPLIT_OUTPUT = "native_unnest_split_output";
     public static final String NATIVE_USE_VELOX_GEOSPATIAL_JOIN = "native_use_velox_geospatial_join";
+    public static final String NATIVE_USE_OPTIMIZED_DRIVER = "native_use_optimized_driver";
     public static final String NATIVE_AGGREGATION_COMPACTION_BYTES_THRESHOLD = "native_aggregation_compaction_bytes_threshold";
     public static final String NATIVE_AGGREGATION_COMPACTION_UNUSED_MEMORY_RATIO = "native_aggregation_compaction_unused_memory_ratio";
     public static final String NATIVE_AGGREGATION_MEMORY_COMPACTION_RECLAIM_ENABLED = "native_aggregation_memory_compaction_reclaim_enabled";
@@ -463,6 +464,13 @@ public class NativeWorkerSessionPropertyProvider
                         "If this is true, then the protocol::SpatialJoinNode is converted to a " +
                                 "velox::core::SpatialJoinNode. Otherwise, it is converted to a " +
                                 "velox::core::NestedLoopJoinNode.",
+                        true,
+                        !nativeExecution),
+                booleanProperty(
+                        NATIVE_USE_OPTIMIZED_DRIVER,
+                        "Native Execution only. Use OptimizedDriver instead of the base Driver for query execution. " +
+                                "OptimizedDriver replaces the O(N) backward scan with a bitmask-based active operator set " +
+                                "for O(1) operator selection. Enabled by default.",
                         true,
                         !nativeExecution),
                 longProperty(

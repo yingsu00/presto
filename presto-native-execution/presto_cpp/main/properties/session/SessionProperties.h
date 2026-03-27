@@ -354,6 +354,12 @@ class SessionProperties : public SessionPropertiesProvider {
   static constexpr const char* kUseVeloxGeospatialJoin =
       "native_use_velox_geospatial_join";
 
+  /// Use OptimizedDriver instead of the base Driver for query execution.
+  /// OptimizedDriver replaces the O(N) backward scan with a bitmask-based
+  /// active operator set for O(1) operator selection. Enabled by default.
+  static constexpr const char* kUseOptimizedDriver =
+      "native_use_optimized_driver";
+
   /// Memory threshold in bytes for triggering string compaction during global
   /// aggregation. When total string storage exceeds this limit with high unused
   /// memory ratio, compaction is triggered to reclaim dead strings. Disabled by
