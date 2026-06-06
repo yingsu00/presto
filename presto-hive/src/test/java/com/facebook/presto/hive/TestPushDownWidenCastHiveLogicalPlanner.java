@@ -39,6 +39,7 @@ import static com.facebook.presto.common.type.TinyintType.TINYINT;
 import static com.facebook.presto.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
 import static io.airlift.tpch.TpchTable.LINE_ITEM;
 import static io.airlift.tpch.TpchTable.ORDERS;
+import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
@@ -439,5 +440,92 @@ public class TestPushDownWidenCastHiveLogicalPlanner
         TableScanNode scanWith = findTableScan(planWith, "orders");
         assertTrue(scanOutputsType(scanWith, BIGINT),
                 "Expected BIGINT scan output even with a filter present");
+    }
+
+    /**
+     * Verifies the post-fragmentation invariant the rule is now structured to give us: a
+     * widening cast that sits above an Exchange does not propagate the wider type past the
+     * fragment boundary. The producing fragment's PartitioningScheme outputLayout (= the
+     * wire format) must stay on the narrow type. The consuming fragment is then free to
+     * land the cast on its own TableScan / RemoteSourceNode internally.
+     *
+     * <p>The previous pre-fragmentation registration of {@link
+     * com.facebook.presto.sql.planner.optimizations.PushDownWidenCast} would substitute
+     * narrowVar with wideVar throughout the whole logical plan, including upstream of an
+     * ExchangeNode, which made the wire-format type wider after fragmentation.
+     */
+    @Test
+    public void testCastAboveExchangeDoesNotWidenWireFormat()
+    {
+        // Aggregation forces a remote exchange between the partial- and final-aggregate
+        // fragments. The widening cast sits above the aggregate, so the original rule
+        // would have widened the partial-agg output → Exchange would carry BIGINT.
+        // With per-fragment pushdown the producer fragment's outputLayout stays INTEGER
+        // (the aggregate's narrow output) and the cast lands inside the consumer fragment.
+        String sql = "SELECT CAST(MIN(shippriority) AS BIGINT) FROM orders";
+
+        com.facebook.presto.sql.planner.SubPlan subPlan =
+                subplan(sql, widenCastEnabledForPlan());
+
+        // Walk every fragment and assert: for any RemoteSourceNode, all of its declared
+        // outputVariables come straight from a child fragment's outputLayout. The pre-
+        // fragmentation rule would have changed one of them to BIGINT; the per-fragment
+        // rule cannot, because it can only rewrite within a fragment.
+        java.util.Map<com.facebook.presto.spi.plan.PlanFragmentId,
+                java.util.List<com.facebook.presto.spi.relation.VariableReferenceExpression>>
+                producerLayouts = new java.util.HashMap<>();
+        collectFragmentOutputLayouts(subPlan, producerLayouts);
+        verifyNoWidenedWireFormat(subPlan, producerLayouts);
+    }
+
+    private static void collectFragmentOutputLayouts(
+            com.facebook.presto.sql.planner.SubPlan subPlan,
+            java.util.Map<com.facebook.presto.spi.plan.PlanFragmentId,
+                    java.util.List<com.facebook.presto.spi.relation.VariableReferenceExpression>>
+                    out)
+    {
+        out.put(
+                subPlan.getFragment().getId(),
+                subPlan.getFragment().getPartitioningScheme().getOutputLayout());
+        for (com.facebook.presto.sql.planner.SubPlan child : subPlan.getChildren()) {
+            collectFragmentOutputLayouts(child, out);
+        }
+    }
+
+    private static void verifyNoWidenedWireFormat(
+            com.facebook.presto.sql.planner.SubPlan subPlan,
+            java.util.Map<com.facebook.presto.spi.plan.PlanFragmentId,
+                    java.util.List<com.facebook.presto.spi.relation.VariableReferenceExpression>>
+                    producerLayouts)
+    {
+        for (com.facebook.presto.sql.planner.plan.RemoteSourceNode remote :
+                subPlan.getFragment().getRemoteSourceNodes()) {
+            for (com.facebook.presto.spi.plan.PlanFragmentId fragmentId :
+                    remote.getSourceFragmentIds()) {
+                java.util.List<com.facebook.presto.spi.relation.VariableReferenceExpression>
+                        producerOutput = producerLayouts.get(fragmentId);
+                assertTrue(producerOutput != null,
+                        "Missing producer layout for fragment " + fragmentId);
+                assertEquals(
+                        producerOutput.size(),
+                        remote.getOutputVariables().size(),
+                        "RemoteSourceNode arity differs from producer outputLayout");
+                for (int i = 0; i < producerOutput.size(); i++) {
+                    assertEquals(
+                            remote.getOutputVariables().get(i).getType(),
+                            producerOutput.get(i).getType(),
+                            "RemoteSourceNode column " + i + " type ("
+                                    + remote.getOutputVariables().get(i).getType()
+                                    + ") differs from producer outputLayout type ("
+                                    + producerOutput.get(i).getType()
+                                    + "). The cast-pushdown rule widened the wire format "
+                                    + "across a fragment boundary, which is exactly the "
+                                    + "regression the per-fragment pass exists to prevent.");
+                }
+            }
+        }
+        for (com.facebook.presto.sql.planner.SubPlan child : subPlan.getChildren()) {
+            verifyNoWidenedWireFormat(child, producerLayouts);
+        }
     }
 }
