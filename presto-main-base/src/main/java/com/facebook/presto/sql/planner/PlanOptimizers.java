@@ -206,7 +206,6 @@ import com.facebook.presto.sql.planner.optimizations.PlanOptimizer;
 import com.facebook.presto.sql.planner.optimizations.PredicatePushDown;
 import com.facebook.presto.sql.planner.optimizations.PrefilterForLimitingAggregation;
 import com.facebook.presto.sql.planner.optimizations.PruneUnreferencedOutputs;
-import com.facebook.presto.sql.planner.optimizations.PushDownWidenCast;
 import com.facebook.presto.sql.planner.optimizations.PushdownSubfields;
 import com.facebook.presto.sql.planner.optimizations.RandomizeNullKeyInOuterJoin;
 import com.facebook.presto.sql.planner.optimizations.RemoveRedundantDistinctAggregation;
@@ -929,14 +928,14 @@ public class PlanOptimizers
                                 new PruneRedundantProjectionAssignments(),
                                 // Re-run RemoveRedundantTableFunctionProcessor after SimplifyPlanWithEmptyInput to optimize empty input tables to empty ValueNode
                                 new RemoveRedundantTableFunctionProcessor())),
-                new PushdownSubfields(metadata, expressionOptimizerManager),
-                // Push widening casts (e.g., INTEGER->BIGINT, DATE->TIMESTAMP) down to TableScan nodes.
-                // This allows scan operators to apply the type coercion inline during column reading.
-                // Run after PushdownSubfields so subfield pruning has already been applied, and
-                // before predicatePushDown so widened-type predicates can be pushed to scans.
-                new PushDownWidenCast(metadata));
+                new PushdownSubfields(metadata, expressionOptimizerManager));
+        // PushDownWidenCast intentionally NOT registered here. It runs per-fragment inside
+        // PlanFragmenterUtils.finalizeSubPlan(): if it ran on the whole logical plan, the
+        // narrow→wide variable substitution would walk past ExchangeNodes and widen the
+        // wire-format types between fragments, regressing Exchange and downstream Hash Join.
 
-        // After pushing casts to TableScan, clean up identity assignments introduced by PushDownWidenCast
+        // Clean up identity assignments left behind by other rules (was also used to clean up
+        // PushDownWidenCast, which now runs post-fragmentation and gets its own cleanup).
         builder.add(new IterativeOptimizer(
                 metadata,
                 ruleStats,
