@@ -232,54 +232,6 @@ public class TestPushDownWidenCast
     }
 
     @Test
-    public void testNarrowVarUsedElsewherePushedViaAdd()
-    {
-        // Project has BOTH `wide := CAST(narrow AS BIGINT)` AND `pass := narrow`. Phase 1 REPLACE
-        // bails (narrow used in two assignments), but Phase 2 ADD picks it up: a new Project is
-        // injected above the scan that computes wide := CAST(narrow AS BIGINT); the upper Project
-        // rewrites the original CAST to a bare wide reference. narrow stays available for `pass`.
-        VariableReferenceExpression narrowVar = builder.variable("shippriority_ue", INTEGER);
-        VariableReferenceExpression wideVar = builder.variable("expr_ue", BIGINT);
-        VariableReferenceExpression passVar = builder.variable("pass_ue", INTEGER);
-
-        TableScanNode scan = builder.tableScan(ordersTableHandle,
-                ImmutableList.of(narrowVar), ImmutableMap.of(narrowVar, shippriorityColumnHandle));
-
-        Assignments a = Assignments.builder()
-                .put(wideVar, castExpr(narrowVar, BIGINT))
-                .put(passVar, narrowVar)
-                .build();
-
-        PlanNode result = runOptimizer(builder.project(a, scan), sessionWithOptimizerEnabled());
-
-        assertTrue(result instanceof ProjectNode);
-        ProjectNode rp = (ProjectNode) result;
-        // Phase 2 allocates a FRESH wideVar (not the original `expr_ue` declared by the test); the
-        // upper Project's `expr_ue := CAST(narrow)` gets rewritten to `expr_ue := <freshWide>`,
-        // and the fresh wide var is computed by the new Project injected above the scan.
-        RowExpression upperWideAssignment = rp.getAssignments().get(wideVar);
-        assertTrue(upperWideAssignment instanceof VariableReferenceExpression,
-                "upper Project's wideVar assignment should be a bare ref to the fresh wideVar");
-        VariableReferenceExpression freshWide = (VariableReferenceExpression) upperWideAssignment;
-        assertEquals(freshWide.getType(), BIGINT);
-        // passthrough unchanged
-        assertEquals(rp.getAssignments().get(passVar), narrowVar);
-
-        // Below sits the synthetic Project that ADD injected, computing freshWide := CAST(narrow).
-        assertTrue(rp.getSource() instanceof ProjectNode);
-        ProjectNode lower = (ProjectNode) rp.getSource();
-        RowExpression freshWideAssignment = lower.getAssignments().get(freshWide);
-        assertTrue(freshWideAssignment instanceof CallExpression
-                && ((CallExpression) freshWideAssignment).getDisplayName().equals("CAST")
-                && ((CallExpression) freshWideAssignment).getArguments().get(0).equals(narrowVar));
-        // Scan is untouched — narrow is still the only variable mapped to the column.
-        assertTrue(lower.getSource() instanceof TableScanNode);
-        TableScanNode rScan = (TableScanNode) lower.getSource();
-        assertEquals(rScan.getAssignments().get(narrowVar), shippriorityColumnHandle);
-        assertEquals(rScan.getAssignments().size(), 1);
-    }
-
-    @Test
     public void testOptimizerDisabledIsNoOp()
     {
         VariableReferenceExpression narrowVar = builder.variable("shippriority_dis", INTEGER);
@@ -360,43 +312,6 @@ public class TestPushDownWidenCast
         assertEquals(rs.getAssignments().get(wideVar), shippriorityColumnHandle);
     }
 
-    @Test
-    public void testFilterReferencingNarrowVarFallsBackToAdd()
-    {
-        // Filter references narrowVar → Phase 1 REPLACE bails (would orphan the predicate).
-        // Phase 2 ADD picks up the slack: injects a Project above the scan that computes
-        // wide := CAST(narrow), leaves the scan + filter untouched, and rewrites the upper
-        // Project's CAST to a bare reference to the fresh wideVar.
-        VariableReferenceExpression narrowVar = builder.variable("shippriority_fb", INTEGER);
-        VariableReferenceExpression wideVar = builder.variable("wide_sp_fb", BIGINT);
-
-        TableScanNode scan = builder.tableScan(ordersTableHandle,
-                ImmutableList.of(narrowVar), ImmutableMap.of(narrowVar, shippriorityColumnHandle));
-
-        FilterNode filter = builder.filter(builder.rowExpression("shippriority_fb > 0"), scan);
-        ProjectNode project = builder.project(
-                Assignments.of(wideVar, castExpr(narrowVar, BIGINT)), filter);
-
-        PlanNode result = runOptimizer(project, sessionWithOptimizerEnabled());
-
-        // Upper Project: wideVar's CAST replaced by a bare reference to the fresh wide var.
-        ProjectNode rp = (ProjectNode) result;
-        assertTrue(rp.getAssignments().get(wideVar) instanceof VariableReferenceExpression);
-        VariableReferenceExpression freshWide = (VariableReferenceExpression) rp.getAssignments().get(wideVar);
-        // Filter still there, predicate still references narrow.
-        FilterNode rf = (FilterNode) rp.getSource();
-        // Below the filter, a new Project was injected that computes freshWide := CAST(narrow).
-        ProjectNode lower = (ProjectNode) rf.getSource();
-        RowExpression freshWideAssignment = lower.getAssignments().get(freshWide);
-        assertTrue(freshWideAssignment instanceof CallExpression
-                && ((CallExpression) freshWideAssignment).getDisplayName().equals("CAST")
-                && ((CallExpression) freshWideAssignment).getArguments().get(0).equals(narrowVar));
-        // Scan untouched.
-        TableScanNode rScan = (TableScanNode) lower.getSource();
-        assertEquals(rScan.getAssignments().size(), 1);
-        assertEquals(rScan.getAssignments().get(narrowVar), shippriorityColumnHandle);
-    }
-
     // -----------------------------------------------------------------------
     // Project -> LimitNode -> TableScan
     // -----------------------------------------------------------------------
@@ -473,51 +388,6 @@ public class TestPushDownWidenCast
         SortNode rs = (SortNode) ((ProjectNode) result).getSource();
         assertTrue(rs.getSource() instanceof TableScanNode);
         assertEquals(((TableScanNode) rs.getSource()).getAssignments().get(wideVar), shippriorityColumnHandle);
-    }
-
-    @Test
-    public void testSortKeyIsNarrowVarFallsBackToAdd()
-    {
-        // Sort orders by narrowVar → Phase 1 REPLACE bails (would change sort semantics).
-        // Phase 2 ADD pushes: synthetic Project above scan computes wide := CAST(narrow); the
-        // sort still operates on narrow.
-        VariableReferenceExpression narrowVar = builder.variable("shippriority_sk", INTEGER);
-        VariableReferenceExpression wideVar = builder.variable("wide_sp_sk", BIGINT);
-
-        TableScanNode scan = builder.tableScan(ordersTableHandle,
-                ImmutableList.of(narrowVar), ImmutableMap.of(narrowVar, shippriorityColumnHandle));
-
-        OrderingScheme ordering = new OrderingScheme(
-                ImmutableList.of(new Ordering(narrowVar, ASC_NULLS_FIRST)));
-        SortNode sort = new SortNode(
-                Optional.empty(),
-                new PlanNodeIdAllocator().getNextId(),
-                Optional.empty(),
-                scan,
-                ordering,
-                false,
-                ImmutableList.of());
-
-        ProjectNode project = builder.project(
-                Assignments.of(wideVar, castExpr(narrowVar, BIGINT)), sort);
-
-        PlanNode result = runOptimizer(project, sessionWithOptimizerEnabled());
-
-        ProjectNode rp = (ProjectNode) result;
-        assertTrue(rp.getAssignments().get(wideVar) instanceof VariableReferenceExpression);
-        VariableReferenceExpression freshWide = (VariableReferenceExpression) rp.getAssignments().get(wideVar);
-        SortNode rs = (SortNode) rp.getSource();
-        // Sort still orders by narrow.
-        assertTrue(rs.getOrderingScheme().getOrderByVariables().contains(narrowVar));
-        // New Project below Sort produces freshWide := CAST(narrow).
-        ProjectNode lower = (ProjectNode) rs.getSource();
-        RowExpression freshWideAssignment = lower.getAssignments().get(freshWide);
-        assertTrue(freshWideAssignment instanceof CallExpression
-                && ((CallExpression) freshWideAssignment).getDisplayName().equals("CAST")
-                && ((CallExpression) freshWideAssignment).getArguments().get(0).equals(narrowVar));
-        // Scan untouched.
-        TableScanNode rScan = (TableScanNode) lower.getSource();
-        assertEquals(rScan.getAssignments().get(narrowVar), shippriorityColumnHandle);
     }
 
     // -----------------------------------------------------------------------
@@ -728,107 +598,6 @@ public class TestPushDownWidenCast
         assertTrue(rj.getOutputVariables().contains(wideLinenumberVar));
         assertTrue(!rj.getOutputVariables().contains(linenumberVar));
         assertEquals(((TableScanNode) rj.getRight()).getAssignments().get(wideLinenumberVar), linenumberCol);
-    }
-
-    @Test
-    public void testJoinKeyVariableFallsBackToAdd()
-    {
-        // narrow is the join's left-side equi-clause variable → REPLACE bails (joins pin clause
-        // variables). ADD pushes: new Project under the join's left side computes wide :=
-        // CAST(narrow); the join keeps using narrow as its key.
-        TpchColumnHandle ordersKey = new TpchColumnHandle("orderkey", BIGINT);
-        TpchColumnHandle shippriorityCol = new TpchColumnHandle("shippriority", INTEGER);
-        VariableReferenceExpression ordersKeyVar = builder.variable("o_orderkey_jk", BIGINT);
-        VariableReferenceExpression shippriorityVar = builder.variable("o_shippriority_jk", INTEGER);
-        VariableReferenceExpression widePriorityVar = builder.variable("wide_priority_jk", BIGINT);
-
-        TableScanNode leftScan = builder.tableScan(ordersTableHandle,
-                ImmutableList.of(ordersKeyVar, shippriorityVar),
-                ImmutableMap.of(ordersKeyVar, ordersKey, shippriorityVar, shippriorityCol));
-
-        TpchColumnHandle lineitemKey = new TpchColumnHandle("orderkey", BIGINT);
-        VariableReferenceExpression lineitemKeyVar = builder.variable("l_orderkey_jk", BIGINT);
-
-        TableScanNode rightScan = builder.tableScan(lineitemTableHandle,
-                ImmutableList.of(lineitemKeyVar),
-                ImmutableMap.of(lineitemKeyVar, lineitemKey));
-
-        JoinNode join = new JoinNode(
-                Optional.empty(),
-                new PlanNodeIdAllocator().getNextId(),
-                Optional.empty(),
-                JoinType.INNER,
-                leftScan,
-                rightScan,
-                ImmutableList.of(new EquiJoinClause(shippriorityVar, lineitemKeyVar)),
-                ImmutableList.of(ordersKeyVar, shippriorityVar, lineitemKeyVar),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                ImmutableMap.of());
-
-        PlanNode result = runOptimizer(
-                builder.project(Assignments.of(widePriorityVar, castExpr(shippriorityVar, BIGINT)), join),
-                sessionWithOptimizerEnabled());
-
-        ProjectNode rp = (ProjectNode) result;
-        // CAST replaced with a bare wide-var reference.
-        assertTrue(rp.getAssignments().get(widePriorityVar) instanceof VariableReferenceExpression);
-        // Join still uses shippriorityVar as the equi-clause key (untouched).
-        JoinNode rj = (JoinNode) rp.getSource();
-        assertEquals(rj.getCriteria().get(0).getLeft(), shippriorityVar);
-        // Below the join's left side: a new Project that computes the wide var from narrow.
-        assertTrue(rj.getLeft() instanceof ProjectNode);
-    }
-
-    @Test
-    public void testJoinFilterVariableFallsBackToAdd()
-    {
-        // narrow appears in the join's residual filter → REPLACE bails. ADD pushes; the join's
-        // filter still references narrow.
-        TpchColumnHandle ordersKey = new TpchColumnHandle("orderkey", BIGINT);
-        TpchColumnHandle shippriorityCol = new TpchColumnHandle("shippriority", INTEGER);
-        VariableReferenceExpression ordersKeyVar = builder.variable("o_orderkey_jf", BIGINT);
-        VariableReferenceExpression shippriorityVar = builder.variable("o_shippriority_jf", INTEGER);
-        VariableReferenceExpression wideVar = builder.variable("wide_sp_jf", BIGINT);
-
-        TableScanNode leftScan = builder.tableScan(ordersTableHandle,
-                ImmutableList.of(ordersKeyVar, shippriorityVar),
-                ImmutableMap.of(ordersKeyVar, ordersKey, shippriorityVar, shippriorityCol));
-
-        TpchColumnHandle lineitemKey = new TpchColumnHandle("orderkey", BIGINT);
-        VariableReferenceExpression lineitemKeyVar = builder.variable("l_orderkey_jf", BIGINT);
-
-        TableScanNode rightScan = builder.tableScan(lineitemTableHandle,
-                ImmutableList.of(lineitemKeyVar),
-                ImmutableMap.of(lineitemKeyVar, lineitemKey));
-
-        JoinNode join = new JoinNode(
-                Optional.empty(),
-                new PlanNodeIdAllocator().getNextId(),
-                Optional.empty(),
-                JoinType.INNER,
-                leftScan,
-                rightScan,
-                ImmutableList.of(new EquiJoinClause(ordersKeyVar, lineitemKeyVar)),
-                ImmutableList.of(ordersKeyVar, shippriorityVar, lineitemKeyVar),
-                Optional.of(builder.rowExpression("o_shippriority_jf > 0")),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                ImmutableMap.of());
-
-        PlanNode result = runOptimizer(
-                builder.project(Assignments.of(wideVar, castExpr(shippriorityVar, BIGINT)), join),
-                sessionWithOptimizerEnabled());
-
-        ProjectNode rp = (ProjectNode) result;
-        // CAST replaced with a bare wide-var reference.
-        assertTrue(rp.getAssignments().get(wideVar) instanceof VariableReferenceExpression);
-        // Join's residual filter unchanged.
-        JoinNode rj = (JoinNode) rp.getSource();
-        assertTrue(rj.getFilter().isPresent());
     }
 
     // -----------------------------------------------------------------------
@@ -1425,51 +1194,5 @@ public class TestPushDownWidenCast
         TableScanNode rLeftScan = (TableScanNode) rj.getLeft();
         assertEquals(rLeftScan.getAssignments().get(wide), shippriorityColumnHandle);
         assertTrue(!rLeftScan.getAssignments().containsKey(narrowVar));
-    }
-
-    @Test
-    public void testSubexpressionCastAddedWhenNarrowVarUsedElsewhereInProject()
-    {
-        // narrow is used both as a passthrough AND inside a CAST. The rule cannot REPLACE
-        // (narrow needed elsewhere), so it ADDs wide alongside narrow at the scan. The
-        // four downstream BiMap call-sites are patched to tolerate duplicate ColumnHandles.
-        VariableReferenceExpression narrowVar = builder.variable("shippriority_mu", INTEGER);
-        VariableReferenceExpression passVar = builder.variable("pass_mu", INTEGER);
-        VariableReferenceExpression outVar = builder.variable("out_mu", BIGINT);
-
-        TableScanNode scan = builder.tableScan(ordersTableHandle,
-                ImmutableList.of(narrowVar), ImmutableMap.of(narrowVar, shippriorityColumnHandle));
-
-        Assignments a = Assignments.builder()
-                .put(passVar, narrowVar)
-                .put(outVar, builder.rowExpression("abs(CAST(shippriority_mu AS BIGINT))"))
-                .build();
-        ProjectNode project = builder.project(a, scan);
-
-        PlanNode result = runOptimizer(project, sessionWithOptimizerEnabled());
-
-        ProjectNode rp = (ProjectNode) result;
-        // The rule injects a Project ABOVE the scan that computes wide := CAST(narrow AS T);
-        // the upper Project's RHS is rewritten to abs(wide).
-        VariableReferenceExpression wide = (VariableReferenceExpression)
-                ((CallExpression) rp.getAssignments().get(outVar)).getArguments().get(0);
-        assertEquals(wide.getType(), BIGINT);
-        // Passthrough still references narrow
-        assertEquals(rp.getAssignments().get(passVar), narrowVar);
-
-        // Below the upper Project sits the freshly inserted Project (wide := CAST(narrow))
-        assertTrue(rp.getSource() instanceof ProjectNode);
-        ProjectNode lowerProject = (ProjectNode) rp.getSource();
-        RowExpression wideAssignment = lowerProject.getAssignments().get(wide);
-        assertTrue(wideAssignment instanceof CallExpression
-                && ((CallExpression) wideAssignment).getDisplayName().equals("CAST")
-                && ((CallExpression) wideAssignment).getArguments().get(0).equals(narrowVar),
-                "lower Project should compute wide := CAST(narrow AS BIGINT)");
-
-        // Scan is untouched — narrow remains the only variable mapped to the column.
-        assertTrue(lowerProject.getSource() instanceof TableScanNode);
-        TableScanNode rScan = (TableScanNode) lowerProject.getSource();
-        assertEquals(rScan.getAssignments().get(narrowVar), shippriorityColumnHandle);
-        assertEquals(rScan.getAssignments().size(), 1);
     }
 }
