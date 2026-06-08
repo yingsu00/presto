@@ -68,61 +68,38 @@ import static java.util.Objects.requireNonNull;
  * native (Velox) scan can apply the coercion inline at column-read time, avoiding a separate
  * per-row CAST operator.
  *
- * <h3>Two push modes</h3>
+ * <h3>REPLACE-only push</h3>
  *
- * <p><b>Mode 1 — REPLACE (whole-RHS bare cast).</b> Pattern:
+ * <p>Pattern:
  * <pre>
- *   ProjectNode(wideVar := CAST(narrowVar AS T), ...)
+ *   ProjectNode(... CAST(narrowVar AS T) ...)
  *     &lt;zero or more transparent intermediate nodes&gt;
  *       TableScanNode(narrowVar -&gt; columnHandle, ...)
  * </pre>
- * The whole RHS of an assignment <em>is</em> the cast and {@code narrowVar} has no other uses.
- * We swap {@code narrowVar} for {@code wideVar} (same {@code ColumnHandle}) in the scan and turn
- * the cast assignment into {@code wideVar := wideVar} (cleaned up by {@link
- * com.facebook.presto.sql.planner.iterative.rule.InlineProjections}).
- *
- * <p><b>Mode 2 — ADD (nested subexpression cast).</b> Pattern:
- * <pre>
- *   ProjectNode(out := f(CAST(narrowVar AS T), ...), ...)
- *     &lt;intermediates&gt;
- *       TableScanNode(narrowVar -&gt; columnHandle, ...)
- * </pre>
- * The CAST is nested inside a wrapping expression, and {@code narrowVar} may be used elsewhere
- * (in this Project, in upstream nodes, in a Filter predicate, etc.). We allocate a fresh
- * {@code wideVar}, insert a new {@link ProjectNode} <em>directly above the scan</em> that computes
- * {@code wideVar := CAST(narrowVar AS T)} (the scan itself is untouched), thread {@code wideVar}
- * up through intermediate nodes as a passthrough, and rewrite every matching {@code CAST(narrowVar
- * AS T)} subexpression in the top Project to a bare reference to {@code wideVar}.
- *
- * <p><b>Why not ADD straight into the scan's assignments?</b> Two reasons converge:
- * <ul>
- *   <li>Velox's TableScan operator rejects two outputs mapping to the same column at runtime
- *       ("Cannot map from same table column to different outputs in table scan; a project node
- *       should be used instead").</li>
- *   <li>Several Java planner passes do
- *       {@code ImmutableBiMap.copyOf(scan.getAssignments()).inverse()} — that fails on
- *       duplicate {@code ColumnHandle} values.</li>
- * </ul>
- * Inserting a fresh Project just above the scan respects both invariants. Velox's own projection
- * pushdown then fuses the new Project with the scan into a single {@code ScanProject} operator,
- * so the CAST runs as part of the scan dataflow.
+ * The cast is safe to push only when {@code narrowVar} has no other uses anywhere on the descent
+ * path. We swap {@code narrowVar} for a wide variable (same {@code ColumnHandle}) in the scan and
+ * rewrite every matching {@code CAST(narrowVar AS T)} subexpression in the top Project to a bare
+ * reference to that wide variable. Bare-RHS assignments collapse to identities ({@code wide :=
+ * wide}) and are cleaned up by {@link com.facebook.presto.sql.planner.iterative.rule.InlineProjections}.
  *
  * <h3>Transparent intermediate nodes</h3>
  *
- * Both modes descend through these on their way to the {@link TableScanNode}:
+ * The descent walks through these on its way to the {@link TableScanNode}:
  * <ul>
- *   <li>{@link FilterNode} — REPLACE skips if the predicate references {@code narrowVar};
- *       ADD always descends (narrow is preserved).</li>
- *   <li>{@link SortNode}, {@link TopNNode} — REPLACE skips if {@code narrowVar} is in the
- *       ordering scheme; ADD always descends.</li>
+ *   <li>{@link FilterNode} — skipped if the predicate references {@code narrowVar}.</li>
+ *   <li>{@link SortNode}, {@link TopNNode} — skipped if {@code narrowVar} is in the ordering
+ *       scheme (changing the variable's type would change collation semantics).</li>
  *   <li>{@link LimitNode} — always transparent.</li>
  *   <li>Intermediate {@link ProjectNode} — must pass {@code narrowVar} through as an identity
- *       assignment; otherwise the descent bails.</li>
- *   <li>{@link JoinNode} — REPLACE skips if {@code narrowVar} is in any join clause / filter /
- *       hash / dynamic-filter variable; ADD descends into whichever side contains
- *       {@code narrowVar} and adds {@code wideVar} to the join's outputs (respecting the
- *       all-left-before-all-right invariant).</li>
+ *       assignment and not reference it elsewhere; otherwise the descent bails.</li>
+ *   <li>{@link JoinNode} — skipped if {@code narrowVar} is in any join clause / filter / hash /
+ *       dynamic-filter variable.</li>
  * </ul>
+ *
+ * <p>If the descent bails, the cast simply stays where it was — REPLACE never adds new plan
+ * nodes. The companion ADD path that handles "{@code narrowVar} used elsewhere" by inserting a
+ * synthetic Project above the scan lives behind {@code push_down_widen_cast_add_enabled}; it is
+ * not part of this commit.
  *
  * <h3>Supported widening type pairs</h3>
  * <ul>
@@ -180,7 +157,7 @@ public class PushDownWidenCast
             return PlanOptimizerResult.optimizerResult(plan, false);
         }
 
-        Rewriter rewriter = new Rewriter(functionResolution, variableAllocator, idAllocator);
+        Rewriter rewriter = new Rewriter(functionResolution, variableAllocator);
         PlanNode rewrittenPlan = SimplePlanRewriter.rewriteWith(rewriter, plan, null);
         return PlanOptimizerResult.optimizerResult(rewrittenPlan, rewriter.isPlanChanged());
     }
@@ -192,11 +169,9 @@ public class PushDownWidenCast
      *       assignments by swapping {@code narrow} for {@code wideVar} all the way down to the
      *       {@link TableScanNode} via {@link #tryPushWidening}.</li>
      *   <li>{@link #applySubexpressionCastPush} → SUBEXPRESSION pass: handle nested
-     *       {@code CAST(narrow AS T)} inside larger expressions. If {@code narrow} has no other
-     *       uses in the project this also goes through {@link #tryPushWidening} (REPLACE); if
-     *       it does, falls back to {@link #tryPushAddWidening} which injects a new Project just
-     *       above the scan that computes {@code wideVar := CAST(narrow AS T)}, then rewrites the
-     *       subexpression to a bare {@code wideVar} reference.</li>
+     *       {@code CAST(narrow AS T)} inside larger expressions. Only fires when {@code narrow}
+     *       is used solely inside CAST subexpressions in this Project — the REPLACE substitution
+     *       all the way to the scan would otherwise orphan references to {@code narrow}.</li>
      * </ol>
      */
     private static class Rewriter
@@ -213,32 +188,14 @@ public class PushDownWidenCast
 
         private final FunctionResolution functionResolution;
         private final VariableAllocator variableAllocator;
-        private final PlanNodeIdAllocator idAllocator;
         private boolean planChanged;
 
-        public Rewriter(FunctionResolution functionResolution, VariableAllocator variableAllocator, PlanNodeIdAllocator idAllocator)
+        public Rewriter(FunctionResolution functionResolution, VariableAllocator variableAllocator)
         {
             this.functionResolution = requireNonNull(functionResolution, "functionResolution is null");
             // variableAllocator is used by the subexpression Phase to mint fresh wideVar names
             // that won't collide with existing variables anywhere in the plan.
             this.variableAllocator = requireNonNull(variableAllocator, "variableAllocator is null");
-            // idAllocator hands out a fresh PlanNodeId for each new ProjectNode injected just
-            // above a TableScan during the ADD-style push.
-            this.idAllocator = requireNonNull(idAllocator, "idAllocator is null");
-        }
-
-        /**
-         * Constructs a {@code CAST(narrow AS wideType)} CallExpression — used by ADD-style push
-         * to build the {@code wideVar := CAST(narrow AS T)} assignment in the synthetic Project
-         * inserted above the scan.
-         */
-        private CallExpression buildWideningCast(VariableReferenceExpression narrow, Type wideType)
-        {
-            return new CallExpression(
-                    "CAST",
-                    functionResolution.lookupCast("CAST", narrow.getType(), wideType),
-                    wideType,
-                    ImmutableList.of(narrow));
         }
 
         public boolean isPlanChanged()
@@ -302,20 +259,11 @@ public class PushDownWidenCast
         // =======================================================================
 
         /**
-         * Handles every widening CAST {@code CAST(narrowVar AS T)} in this Project's assignments
-         * that Phase 1 didn't already collapse — both nested CASTs (e.g.
-         * {@code date_format(CAST(d AS TIMESTAMP), '%Y')}) and top-level CASTs that Phase 1
-         * skipped because {@code narrow} had other uses or an intermediate node pinned it. For
-         * each candidate, allocates a fresh {@code wideVar} and either:
-         * <ul>
-         *   <li>REPLACE {@code narrow} with {@code wide} in the scan (via {@link #tryPushWidening})
-         *       when {@code narrow} has no other uses outside the CAST subexpressions, or</li>
-         *   <li>ADD a new Project just above the scan that computes
-         *       {@code wide := CAST(narrow AS T)} (via {@link #tryPushAddWidening}) and thread
-         *       {@code wide} up as a passthrough, leaving the scan untouched.</li>
-         * </ul>
-         * Then rewrites every matching {@code CAST(narrow AS T)} expression in this Project's
-         * assignments — at any depth — to a bare {@code wide} reference.
+         * Handles every widening CAST {@code CAST(narrowVar AS T)} that appears as a nested
+         * subexpression in this Project's assignments (e.g. {@code abs(CAST(narrow AS BIGINT))}).
+         * Only fires when {@code narrow} is used solely inside CAST subexpressions in this
+         * Project; if {@code narrow} appears anywhere else (as a passthrough output, in another
+         * expression, etc.), REPLACE would orphan those references and the candidate is skipped.
          *
          * <p>If Phase 1 already collapsed an assignment to {@code wide := wide} (identity), that
          * assignment no longer contains a CAST and isn't matched here.
@@ -335,25 +283,18 @@ public class PushDownWidenCast
                 return projectNode;
             }
 
-            // Step 2: push each candidate. REPLACE is more aggressive (removes narrow from the
-            // scan) so we prefer it when it's safe; otherwise — or if REPLACE fails because an
-            // intermediate node pins narrow — we fall back to ADD which preserves narrow at the
-            // cost of computing the cast in a synthetic Project just above the scan.
+            // Step 2: REPLACE each candidate whose narrowVar isn't used outside the CAST. Any
+            // candidate that fails the safety check, or whose descent bails because an
+            // intermediate node pins narrow, is skipped — the cast simply stays in place.
             PlanNode currentSource = projectNode.getSource();
             Map<VariableReferenceExpression, VariableReferenceExpression> pushed = new LinkedHashMap<>();
             for (Map.Entry<VariableReferenceExpression, VariableReferenceExpression> entry : candidates.entrySet()) {
                 VariableReferenceExpression narrow = entry.getKey();
                 VariableReferenceExpression wide = entry.getValue();
-                Optional<PlanNode> result = Optional.empty();
-                if (!narrowVarUsedOutsideTargetCasts(projectNode, narrow)) {
-                    // narrow only used inside CAST subexpressions → try REPLACE first
-                    result = tryPushWidening(currentSource, narrow, wide);
+                if (narrowVarUsedOutsideTargetCasts(projectNode, narrow)) {
+                    continue;
                 }
-                if (!result.isPresent()) {
-                    // narrow needed elsewhere, OR REPLACE bailed (e.g. an intermediate node pins
-                    // narrow) → ADD as a fallback so the cast still moves close to the scan.
-                    result = tryPushAddWidening(currentSource, narrow, wide);
-                }
+                Optional<PlanNode> result = tryPushWidening(currentSource, narrow, wide);
                 if (result.isPresent()) {
                     currentSource = result.get();
                     pushed.put(narrow, wide);
@@ -429,172 +370,6 @@ public class PushDownWidenCast
                 }
             }
             return false;
-        }
-
-        /**
-         * ADD-style descent: walks down through transparent intermediate nodes to the
-         * {@link TableScanNode} that produces {@code narrowVar}, threading {@code wideVar}
-         * through each node's outputs as a passthrough. At the scan, instead of modifying the
-         * scan's assignments, wraps it in a new {@link ProjectNode} that computes
-         * {@code wideVar := CAST(narrowVar AS T)}.
-         *
-         * <p>Why not put {@code wideVar} into the scan's assignments map directly? Two invariants
-         * say no:
-         * <ul>
-         *   <li>Velox enforces "one variable per column" at the TableScan operator level. Two
-         *       variables mapping to the same column trips a runtime error.</li>
-         *   <li>Several Java planner passes invert the scan's assignments via
-         *       {@code ImmutableBiMap.copyOf(...).inverse()}, which throws on duplicate values.</li>
-         * </ul>
-         * A synthetic Project just above the scan satisfies both — and Velox's own projection
-         * pushdown fuses the result into a single {@code ScanProject} operator at runtime, so the
-         * CAST still executes in the scan dataflow.
-         *
-         * <p>Returns {@code Optional.empty()} if {@code narrowVar} doesn't trace back to a scan
-         * along this descent (e.g. it comes from an aggregation, a join clause variable, or
-         * something we don't know how to step through).
-         */
-        private Optional<PlanNode> tryPushAddWidening(
-                PlanNode subtree,
-                VariableReferenceExpression narrowVar,
-                VariableReferenceExpression wideVar)
-        {
-            if (subtree instanceof TableScanNode) {
-                // Base case: insert a Project above the scan. Pass every scan output through and
-                // add wideVar := CAST(narrowVar AS T) as the only computed assignment.
-                TableScanNode scan = (TableScanNode) subtree;
-                if (!scan.getOutputVariables().contains(narrowVar)) {
-                    return Optional.empty();
-                }
-                Assignments.Builder above = Assignments.builder();
-                for (VariableReferenceExpression v : scan.getOutputVariables()) {
-                    above.put(v, v);
-                }
-                above.put(wideVar, buildWideningCast(narrowVar, wideVar.getType()));
-                return Optional.of(new ProjectNode(
-                        scan.getSourceLocation(),
-                        idAllocator.getNextId(),
-                        scan.getStatsEquivalentPlanNode(),
-                        scan,
-                        above.build(),
-                        ProjectNode.Locality.LOCAL));
-            }
-
-            // Outputs of FilterNode/SortNode/TopNNode/LimitNode are derived from their source, so
-            // replaceChildren() with the rewritten source naturally extends the outputs to include
-            // wideVar. No need to rebuild these nodes' output lists.
-            if (subtree instanceof FilterNode) {
-                FilterNode filter = (FilterNode) subtree;
-                return tryPushAddWidening(filter.getSource(), narrowVar, wideVar)
-                        .map(newSource -> filter.replaceChildren(ImmutableList.of(newSource)));
-            }
-            if (subtree instanceof SortNode) {
-                SortNode sort = (SortNode) subtree;
-                return tryPushAddWidening(sort.getSource(), narrowVar, wideVar)
-                        .map(newSource -> sort.replaceChildren(ImmutableList.of(newSource)));
-            }
-            if (subtree instanceof TopNNode) {
-                TopNNode topN = (TopNNode) subtree;
-                return tryPushAddWidening(topN.getSource(), narrowVar, wideVar)
-                        .map(newSource -> topN.replaceChildren(ImmutableList.of(newSource)));
-            }
-            if (subtree instanceof LimitNode) {
-                LimitNode limit = (LimitNode) subtree;
-                return tryPushAddWidening(limit.getSource(), narrowVar, wideVar)
-                        .map(newSource -> limit.replaceChildren(ImmutableList.of(newSource)));
-            }
-
-            if (subtree instanceof JoinNode) {
-                JoinNode joinNode = (JoinNode) subtree;
-                // Figure out which side of the join produces narrowVar; descend into THAT side.
-                boolean fromLeft = joinNode.getLeft().getOutputVariables().contains(narrowVar);
-                boolean fromRight = joinNode.getRight().getOutputVariables().contains(narrowVar);
-                if (!fromLeft && !fromRight) {
-                    return Optional.empty();
-                }
-                PlanNode newLeft = joinNode.getLeft();
-                PlanNode newRight = joinNode.getRight();
-                if (fromLeft) {
-                    Optional<PlanNode> r = tryPushAddWidening(joinNode.getLeft(), narrowVar, wideVar);
-                    if (!r.isPresent()) {
-                        return Optional.empty();
-                    }
-                    newLeft = r.get();
-                }
-                else {
-                    Optional<PlanNode> r = tryPushAddWidening(joinNode.getRight(), narrowVar, wideVar);
-                    if (!r.isPresent()) {
-                        return Optional.empty();
-                    }
-                    newRight = r.get();
-                }
-                // JoinNode invariant: all left-input outputs precede all right-input outputs.
-                // Rebuild the output list partitioned by side and insert wideVar at the boundary
-                // (end-of-left if fromLeft, end-of-all if fromRight).
-                Set<VariableReferenceExpression> leftInputSet =
-                        ImmutableSet.copyOf(joinNode.getLeft().getOutputVariables());
-                ImmutableList.Builder<VariableReferenceExpression> outBuilder = ImmutableList.builder();
-                for (VariableReferenceExpression v : joinNode.getOutputVariables()) {
-                    if (leftInputSet.contains(v)) {
-                        outBuilder.add(v);
-                    }
-                }
-                if (fromLeft) {
-                    outBuilder.add(wideVar);
-                }
-                for (VariableReferenceExpression v : joinNode.getOutputVariables()) {
-                    if (!leftInputSet.contains(v)) {
-                        outBuilder.add(v);
-                    }
-                }
-                if (fromRight) {
-                    outBuilder.add(wideVar);
-                }
-                return Optional.of(new JoinNode(
-                        joinNode.getSourceLocation(),
-                        joinNode.getId(),
-                        joinNode.getStatsEquivalentPlanNode(),
-                        joinNode.getType(),
-                        newLeft,
-                        newRight,
-                        joinNode.getCriteria(),
-                        outBuilder.build(),
-                        joinNode.getFilter(),
-                        joinNode.getLeftHashVariable(),
-                        joinNode.getRightHashVariable(),
-                        joinNode.getDistributionType(),
-                        joinNode.getDynamicFilters()));
-            }
-
-            if (subtree instanceof ProjectNode) {
-                ProjectNode project = (ProjectNode) subtree;
-                // For the descent to succeed, this intermediate Project must pass narrowVar
-                // through unchanged (identity assignment). If it has been renamed or computed,
-                // we can't follow it further down.
-                RowExpression narrowAssignment = project.getAssignments().get(narrowVar);
-                if (narrowAssignment == null || !narrowAssignment.equals(narrowVar)) {
-                    return Optional.empty();
-                }
-                Optional<PlanNode> newSourceOpt = tryPushAddWidening(project.getSource(), narrowVar, wideVar);
-                if (!newSourceOpt.isPresent()) {
-                    return Optional.empty();
-                }
-                // Add an identity passthrough wideVar := wideVar so this Project propagates the
-                // newly-added variable upward.
-                Assignments.Builder newAssignments = Assignments.builder();
-                newAssignments.putAll(project.getAssignments());
-                if (!project.getAssignments().getVariables().contains(wideVar)) {
-                    newAssignments.put(wideVar, wideVar);
-                }
-                return Optional.of(new ProjectNode(
-                        project.getSourceLocation(),
-                        project.getId(),
-                        project.getStatsEquivalentPlanNode(),
-                        newSourceOpt.get(),
-                        newAssignments.build(),
-                        project.getLocality()));
-            }
-            return Optional.empty();
         }
 
         /**
