@@ -32,9 +32,10 @@ COPY velox/scripts /velox/scripts
 # Copy extra script called during setup.
 # from https://github.com/facebookincubator/velox/pull/14016
 COPY velox/CMake/resolve_dependency_modules/arrow/cmake-compatibility.patch /velox
+COPY velox/CMake/resolve_dependency_modules/arrow/arrow-testing-boost.patch /velox
 COPY CMake/arrow/arrow-flight.patch /scripts
 COPY velox/CMake/resolve_dependency_modules/fbthrift/compactv1-protocol-refiller.patch /velox
-ENV VELOX_ARROW_CMAKE_PATCH=/velox/cmake-compatibility.patch
+ENV VELOX_ARROW_CMAKE_PATCH="/velox/cmake-compatibility.patch /velox/arrow-testing-boost.patch"
 ENV EXTRA_ARROW_PATCH=/scripts/arrow-flight.patch
 ENV VELOX_FBTHRIFT_CMAKE_PATCH=/velox/compactv1-protocol-refiller.patch
 RUN bash -c "mkdir build && \
