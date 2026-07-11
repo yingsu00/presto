@@ -57,6 +57,7 @@ public class NativeWorkerSessionPropertyProvider
     public static final String NATIVE_DEBUG_MEMORY_POOL_NAME_REGEX = "native_debug_memory_pool_name_regex";
     public static final String NATIVE_DEBUG_MEMORY_POOL_WARN_THRESHOLD_BYTES = "native_debug_memory_pool_warn_threshold_bytes";
     public static final String NATIVE_SELECTIVE_NIMBLE_READER_ENABLED = "native_selective_nimble_reader_enabled";
+    public static final String NATIVE_OPERATOR_TRACK_EXPRESSION_STATS = "native_operator_track_expression_stats";
     public static final String NATIVE_ROW_SIZE_TRACKING_ENABLED = "row_size_tracking_enabled";
     public static final String NATIVE_PREFERRED_OUTPUT_BATCH_BYTES = "preferred_output_batch_bytes";
     public static final String NATIVE_PREFERRED_OUTPUT_BATCH_ROWS = "preferred_output_batch_rows";
@@ -264,6 +265,14 @@ public class NativeWorkerSessionPropertyProvider
                         "Temporary flag to control whether selective Nimble reader should be " +
                                 "used in this query or not.  Will be removed after the selective Nimble " +
                                 "reader is fully rolled out.",
+                        false,
+                        !nativeExecution),
+                booleanProperty(
+                        NATIVE_OPERATOR_TRACK_EXPRESSION_STATS,
+                        "Native Execution only. Enable per-expression stats collection in " +
+                                "operators that evaluate expressions (FilterProject etc.). " +
+                                "Surfaces memoization / input-vector / distinct-base counters " +
+                                "on the operator's runtime stats. Small per-batch overhead when on.",
                         false,
                         !nativeExecution),
                 booleanProperty(

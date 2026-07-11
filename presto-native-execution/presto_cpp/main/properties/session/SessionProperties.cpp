@@ -301,6 +301,17 @@ SessionProperties::SessionProperties() {
       util::boolToLowerCaseString(c.selectiveNimbleReaderEnabled()));
 
   addSessionProperty(
+      kOperatorTrackExpressionStats,
+      "Enable per-Expr diagnostic stats collection in operators that "
+      "evaluate expressions (FilterProject etc.). Surfaces memoization / "
+      "input-vector / distinct-base counters on the operator's runtime "
+      "stats. Small per-batch overhead when on.",
+      BOOLEAN(),
+      false,
+      QueryConfig::kOperatorTrackExpressionStats,
+      util::boolToLowerCaseString(c.operatorTrackExpressionStats()));
+
+  addSessionProperty(
       kQueryTraceEnabled,
       "Enables query tracing.",
       BOOLEAN(),

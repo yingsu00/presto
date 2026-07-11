@@ -159,6 +159,12 @@ class SessionProperties : public SessionPropertiesProvider {
   static constexpr const char* kSelectiveNimbleReaderEnabled =
       "native_selective_nimble_reader_enabled";
 
+  /// Enable per-Expr diagnostic stats collection in operators that evaluate
+  /// expressions (FilterProject etc.). Maps to QueryConfig's
+  /// operator_track_expression_stats.
+  static constexpr const char* kOperatorTrackExpressionStats =
+      "native_operator_track_expression_stats";
+
   /// The max ratio of a query used memory to its max capacity, and the scale
   /// writer exchange stops scaling writer processing if the query's current
   /// memory usage exceeds this ratio. The value is in the range of (0, 1].
