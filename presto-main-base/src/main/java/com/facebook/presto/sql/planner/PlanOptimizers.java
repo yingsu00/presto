@@ -70,6 +70,7 @@ import com.facebook.presto.sql.planner.iterative.rule.MergeMinMaxByAggregations;
 import com.facebook.presto.sql.planner.iterative.rule.MergeSumsToVectorSum;
 import com.facebook.presto.sql.planner.iterative.rule.MinMaxByToWindowFunction;
 import com.facebook.presto.sql.planner.iterative.rule.MultipleDistinctAggregationToMarkDistinct;
+import com.facebook.presto.sql.planner.iterative.rule.MultipleDistinctAggregationsToSubqueries;
 import com.facebook.presto.sql.planner.iterative.rule.ParallelizeChainedAggregation;
 import com.facebook.presto.sql.planner.iterative.rule.PickTableLayout;
 import com.facebook.presto.sql.planner.iterative.rule.PlanRemoteProjections;
@@ -541,9 +542,10 @@ public class PlanOptimizers
                                         new PushLimitThroughUnion(),
                                         new RemoveTrivialFilters(),
                                         new ImplementFilteredAggregations(metadata.getFunctionAndTypeManager()),
+                                        new MultipleDistinctAggregationsToSubqueries(taskCountEstimator),
                                         new SingleDistinctAggregationToGroupBy(),
-                                        new PreAggregateDistinctAggregations(metadata),
-                                        new MultipleDistinctAggregationToMarkDistinct(),
+                                        new PreAggregateDistinctAggregations(metadata, taskCountEstimator),
+                                        new MultipleDistinctAggregationToMarkDistinct(taskCountEstimator),
                                         new ImplementBernoulliSampleAsFilter(metadata.getFunctionAndTypeManager()),
                                         new MergeLimitWithDistinct(),
                                         new PruneCountAggregationOverScalar(metadata.getFunctionAndTypeManager()),

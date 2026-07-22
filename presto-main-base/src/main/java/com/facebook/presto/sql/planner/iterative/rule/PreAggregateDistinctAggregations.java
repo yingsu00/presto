@@ -14,6 +14,7 @@
 package com.facebook.presto.sql.planner.iterative.rule;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.cost.TaskCountEstimator;
 import com.facebook.presto.matching.Captures;
 import com.facebook.presto.matching.Pattern;
 import com.facebook.presto.metadata.Metadata;
@@ -26,7 +27,6 @@ import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
-import com.facebook.presto.sql.analyzer.FeaturesConfig.DistinctAggregationsStrategy;
 import com.facebook.presto.sql.planner.iterative.Rule;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
 import com.facebook.presto.sql.relational.FunctionResolution;
@@ -43,7 +43,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.facebook.presto.SystemSessionProperties.distinctAggregationsStrategy;
 import static com.facebook.presto.SystemSessionProperties.isOptimizeDistinctAggregationEnabled;
 import static com.facebook.presto.common.function.OperatorType.EQUAL;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
@@ -53,6 +52,7 @@ import static com.facebook.presto.spi.plan.AggregationNode.singleGroupingSet;
 import static com.facebook.presto.spi.plan.ProjectNode.Locality.LOCAL;
 import static com.facebook.presto.spi.relation.SpecialFormExpression.Form.COALESCE;
 import static com.facebook.presto.sql.analyzer.TypeSignatureProvider.fromTypes;
+import static com.facebook.presto.sql.planner.iterative.rule.DistinctAggregationStrategyChooser.createDistinctAggregationStrategyChooser;
 import static com.facebook.presto.sql.planner.plan.Patterns.aggregation;
 import static com.facebook.presto.sql.relational.Expressions.call;
 import static com.facebook.presto.sql.relational.Expressions.constant;
@@ -72,11 +72,18 @@ public class PreAggregateDistinctAggregations
 
     private final Metadata metadata;
     private final FunctionResolution functionResolution;
+    private final DistinctAggregationStrategyChooser distinctAggregationStrategyChooser;
 
     public PreAggregateDistinctAggregations(Metadata metadata)
     {
+        this(metadata, new TaskCountEstimator(() -> 1));
+    }
+
+    public PreAggregateDistinctAggregations(Metadata metadata, TaskCountEstimator taskCountEstimator)
+    {
         this.metadata = metadata;
         this.functionResolution = new FunctionResolution(metadata.getFunctionAndTypeManager().getFunctionAndTypeResolver());
+        this.distinctAggregationStrategyChooser = createDistinctAggregationStrategyChooser(taskCountEstimator);
     }
 
     public static boolean canUsePreAggregate(AggregationNode aggregation)
@@ -89,7 +96,17 @@ public class PreAggregateDistinctAggregations
                 aggregation.getStep().equals(SINGLE);
     }
 
-    private static boolean hasMultipleDistincts(AggregationNode aggregation)
+    public static long distinctAggregationsUniqueArgumentCount(AggregationNode aggregation)
+    {
+        return aggregation.getAggregations().values().stream()
+                .filter(Aggregation::isDistinct)
+                .map(Aggregation::getArguments)
+                .map(HashSet::new)
+                .distinct()
+                .count();
+    }
+
+    public static boolean hasMultipleDistincts(AggregationNode aggregation)
     {
         return aggregation.getAggregations().values().stream()
                 .filter(Aggregation::isDistinct)
@@ -99,7 +116,7 @@ public class PreAggregateDistinctAggregations
                 .count() > 1;
     }
 
-    private static boolean hasMixedDistinctAndNonDistincts(AggregationNode aggregation)
+    public static boolean hasMixedDistinctAndNonDistincts(AggregationNode aggregation)
     {
         long distincts = aggregation.getAggregations().values().stream()
                 .filter(Aggregation::isDistinct)
@@ -112,6 +129,11 @@ public class PreAggregateDistinctAggregations
         return aggregation.getAggregations().values().stream()
                 .filter(Aggregation::isDistinct)
                 .allMatch(node -> node.getArguments().size() == 1);
+    }
+
+    public static boolean allDistinctAggregates(AggregationNode aggregation)
+    {
+        return aggregation.getAggregations().values().stream().allMatch(Aggregation::isDistinct);
     }
 
     private static boolean noFilters(AggregationNode aggregation)
@@ -136,7 +158,8 @@ public class PreAggregateDistinctAggregations
     public Result apply(AggregationNode node, Captures captures, Context context)
     {
         Session session = context.getSession();
-        if (!isOptimizeDistinctAggregationEnabled(session) && distinctAggregationsStrategy(session) != DistinctAggregationsStrategy.PRE_AGGREGATE) {
+        if (!isOptimizeDistinctAggregationEnabled(session) &&
+                !distinctAggregationStrategyChooser.shouldUsePreAggregate(node, context.getSession(), context.getStatsProvider(), context.getLookup())) {
             return Result.empty();
         }
 

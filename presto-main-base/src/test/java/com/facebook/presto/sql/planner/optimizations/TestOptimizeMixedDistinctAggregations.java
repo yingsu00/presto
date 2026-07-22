@@ -13,13 +13,16 @@
  */
 package com.facebook.presto.sql.planner.optimizations;
 
+import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
+import com.facebook.presto.sql.Optimizer;
 import com.facebook.presto.sql.planner.RuleStatsRecorder;
 import com.facebook.presto.sql.planner.assertions.BasePlanTest;
 import com.facebook.presto.sql.planner.assertions.ExpectedValueProvider;
 import com.facebook.presto.sql.planner.assertions.PlanMatchPattern;
 import com.facebook.presto.sql.planner.iterative.IterativeOptimizer;
 import com.facebook.presto.sql.planner.iterative.rule.MultipleDistinctAggregationToMarkDistinct;
+import com.facebook.presto.sql.planner.iterative.rule.MultipleDistinctAggregationsToSubqueries;
 import com.facebook.presto.sql.planner.iterative.rule.PreAggregateDistinctAggregations;
 import com.facebook.presto.sql.planner.iterative.rule.RemoveRedundantIdentityProjections;
 import com.facebook.presto.sql.planner.iterative.rule.SingleDistinctAggregationToGroupBy;
@@ -40,6 +43,7 @@ import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.anySym
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.anyTree;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.functionCall;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.groupingSet;
+import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.join;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.project;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.singleGroupingSet;
 import static com.facebook.presto.sql.planner.assertions.PlanMatchPattern.tableScan;
@@ -120,6 +124,20 @@ public class TestOptimizeMixedDistinctAggregations
     }
 
     @Test
+    public void testMultipleDistinctAggregationsSplitToSubqueries()
+    {
+        @Language("SQL") String sql = "SELECT custkey, count(DISTINCT orderdate), count(DISTINCT orderstatus) FROM orders GROUP BY custkey";
+
+        PlanMatchPattern expectedPlanPattern = anyTree(
+                project(
+                        join(
+                                aggregation(ImmutableMap.of(), anyTree(tableScan("orders"))),
+                                aggregation(ImmutableMap.of(), anyTree(tableScan("orders"))))));
+
+        assertSplitToSubqueriesPlan(sql, expectedPlanPattern);
+    }
+
+    @Test
     public void testNestedType()
     {
         // Second Aggregation data
@@ -155,6 +173,25 @@ public class TestOptimizeMixedDistinctAggregations
                 new OptimizeMixedDistinctAggregations(getQueryRunner().getMetadata()),
                 new PruneUnreferencedOutputs());
         assertPlan(sql, pattern, optimizers);
+    }
+
+    private void assertSplitToSubqueriesPlan(String sql, PlanMatchPattern pattern)
+    {
+        List<PlanOptimizer> optimizers = ImmutableList.of(
+                new UnaliasSymbolReferences(getMetadata().getFunctionAndTypeManager()),
+                new IterativeOptimizer(
+                        getMetadata(),
+                        new RuleStatsRecorder(),
+                        getQueryRunner().getStatsCalculator(),
+                        getQueryRunner().getEstimatedExchangesCostCalculator(),
+                        ImmutableSet.of(
+                                new RemoveRedundantIdentityProjections(),
+                                new MultipleDistinctAggregationsToSubqueries())),
+                new PruneUnreferencedOutputs());
+        Session session = Session.builder(getQueryRunner().getDefaultSession())
+                .setSystemProperty(SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY, "SPLIT_TO_SUBQUERIES")
+                .build();
+        assertPlan(sql, session, Optimizer.PlanStage.OPTIMIZED, pattern, optimizers);
     }
 
     private void assertPreAggregatePlan(String sql, PlanMatchPattern pattern)

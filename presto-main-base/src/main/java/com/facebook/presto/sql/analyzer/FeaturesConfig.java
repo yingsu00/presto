@@ -462,9 +462,11 @@ public class FeaturesConfig
 
     public enum DistinctAggregationsStrategy
     {
+        SINGLE_STEP,
         MARK_DISTINCT,
         PRE_AGGREGATE,
-        SINGLE_STEP
+        SPLIT_TO_SUBQUERIES,
+        AUTOMATIC
     }
 
     public enum LocalExchangeParentPreferenceStrategy
