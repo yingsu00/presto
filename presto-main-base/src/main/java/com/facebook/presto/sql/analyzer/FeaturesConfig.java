@@ -173,7 +173,7 @@ public class FeaturesConfig
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
     private boolean useMarkDistinct = true;
-    private DistinctAggregationsStrategy distinctAggregationsStrategy = DistinctAggregationsStrategy.MARK_DISTINCT;
+    private DistinctAggregationsStrategy distinctAggregationsStrategy = DistinctAggregationsStrategy.AUTOMATIC;
     private boolean exploitConstraints = true;
     private boolean preferPartialAggregation = true;
     private PartialAggregationStrategy partialAggregationStrategy = PartialAggregationStrategy.ALWAYS;
