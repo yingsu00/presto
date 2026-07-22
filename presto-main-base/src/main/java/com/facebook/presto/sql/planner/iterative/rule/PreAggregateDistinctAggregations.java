@@ -26,6 +26,7 @@ import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.RowExpression;
 import com.facebook.presto.spi.relation.SpecialFormExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.sql.analyzer.FeaturesConfig.DistinctAggregationsStrategy;
 import com.facebook.presto.sql.planner.iterative.Rule;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
 import com.facebook.presto.sql.relational.FunctionResolution;
@@ -42,6 +43,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.facebook.presto.SystemSessionProperties.distinctAggregationsStrategy;
 import static com.facebook.presto.SystemSessionProperties.isOptimizeDistinctAggregationEnabled;
 import static com.facebook.presto.common.function.OperatorType.EQUAL;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
@@ -134,7 +136,7 @@ public class PreAggregateDistinctAggregations
     public Result apply(AggregationNode node, Captures captures, Context context)
     {
         Session session = context.getSession();
-        if (!isOptimizeDistinctAggregationEnabled(session)) {
+        if (!isOptimizeDistinctAggregationEnabled(session) && distinctAggregationsStrategy(session) != DistinctAggregationsStrategy.PRE_AGGREGATE) {
             return Result.empty();
         }
 

@@ -38,6 +38,7 @@ import com.facebook.presto.sql.analyzer.FeaturesConfig;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationIfToFilterRewriteStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.AggregationPartitioningMergingStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.CteMaterializationStrategy;
+import com.facebook.presto.sql.analyzer.FeaturesConfig.DistinctAggregationsStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.DistributedDynamicFilterStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinNotNullInferenceStrategy;
@@ -197,6 +198,7 @@ public final class SystemSessionProperties
     public static final String FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_ROW_COUNT = "filter_and_project_min_output_page_row_count";
     public static final String DISTRIBUTED_SORT = "distributed_sort";
     public static final String USE_MARK_DISTINCT = "use_mark_distinct";
+    public static final String DISTINCT_AGGREGATIONS_STRATEGY = "distinct_aggregations_strategy";
     public static final String EXPLOIT_CONSTRAINTS = "exploit_constraints";
     public static final String PREFER_PARTIAL_AGGREGATION = "prefer_partial_aggregation";
     public static final String PARTIAL_AGGREGATION_STRATEGY = "partial_aggregation_strategy";
@@ -1075,6 +1077,18 @@ public final class SystemSessionProperties
                         "Implement DISTINCT aggregations using MarkDistinct",
                         featuresConfig.isUseMarkDistinct(),
                         false),
+                new PropertyMetadata<>(
+                        DISTINCT_AGGREGATIONS_STRATEGY,
+                        format("Strategy to use for distinct aggregations. Options are %s",
+                                Stream.of(DistinctAggregationsStrategy.values())
+                                        .map(DistinctAggregationsStrategy::name)
+                                        .collect(joining(","))),
+                        VARCHAR,
+                        DistinctAggregationsStrategy.class,
+                        featuresConfig.getDistinctAggregationsStrategy(),
+                        false,
+                        value -> DistinctAggregationsStrategy.valueOf(((String) value).toUpperCase()),
+                        DistinctAggregationsStrategy::name),
                 booleanProperty(
                         EXPLOIT_CONSTRAINTS,
                         "Exploit table constraints.",
@@ -3074,6 +3088,11 @@ public final class SystemSessionProperties
     public static boolean useMarkDistinct(Session session)
     {
         return session.getSystemProperty(USE_MARK_DISTINCT, Boolean.class);
+    }
+
+    public static DistinctAggregationsStrategy distinctAggregationsStrategy(Session session)
+    {
+        return session.getSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, DistinctAggregationsStrategy.class);
     }
 
     public static boolean isExploitConstraints(Session session)

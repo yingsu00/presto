@@ -21,6 +21,7 @@ import com.facebook.presto.spi.plan.AggregationNode.Aggregation;
 import com.facebook.presto.spi.plan.MarkDistinctNode;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
+import com.facebook.presto.sql.analyzer.FeaturesConfig.DistinctAggregationsStrategy;
 import com.facebook.presto.sql.planner.iterative.Rule;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
@@ -33,6 +34,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.facebook.presto.SystemSessionProperties.distinctAggregationsStrategy;
 import static com.facebook.presto.common.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.sql.planner.plan.Patterns.aggregation;
 import static java.util.stream.Collectors.toSet;
@@ -107,7 +109,8 @@ public class MultipleDistinctAggregationToMarkDistinct
     @Override
     public Result apply(AggregationNode parent, Captures captures, Context context)
     {
-        if (!SystemSessionProperties.useMarkDistinct(context.getSession())) {
+        if (!SystemSessionProperties.useMarkDistinct(context.getSession()) ||
+                distinctAggregationsStrategy(context.getSession()) != DistinctAggregationsStrategy.MARK_DISTINCT) {
             return Result.empty();
         }
 
