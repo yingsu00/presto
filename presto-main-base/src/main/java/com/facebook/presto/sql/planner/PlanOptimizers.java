@@ -74,6 +74,7 @@ import com.facebook.presto.sql.planner.iterative.rule.ParallelizeChainedAggregat
 import com.facebook.presto.sql.planner.iterative.rule.PickTableLayout;
 import com.facebook.presto.sql.planner.iterative.rule.PlanRemoteProjections;
 import com.facebook.presto.sql.planner.iterative.rule.PreAggregateBeforeGroupId;
+import com.facebook.presto.sql.planner.iterative.rule.PreAggregateDistinctAggregations;
 import com.facebook.presto.sql.planner.iterative.rule.PruneAggregationColumns;
 import com.facebook.presto.sql.planner.iterative.rule.PruneAggregationSourceColumns;
 import com.facebook.presto.sql.planner.iterative.rule.PruneCountAggregationOverScalar;
@@ -541,6 +542,7 @@ public class PlanOptimizers
                                         new RemoveTrivialFilters(),
                                         new ImplementFilteredAggregations(metadata.getFunctionAndTypeManager()),
                                         new SingleDistinctAggregationToGroupBy(),
+                                        new PreAggregateDistinctAggregations(metadata),
                                         new MultipleDistinctAggregationToMarkDistinct(),
                                         new ImplementBernoulliSampleAsFilter(metadata.getFunctionAndTypeManager()),
                                         new MergeLimitWithDistinct(),

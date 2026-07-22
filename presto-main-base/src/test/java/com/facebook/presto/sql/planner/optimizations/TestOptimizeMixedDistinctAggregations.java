@@ -20,6 +20,7 @@ import com.facebook.presto.sql.planner.assertions.ExpectedValueProvider;
 import com.facebook.presto.sql.planner.assertions.PlanMatchPattern;
 import com.facebook.presto.sql.planner.iterative.IterativeOptimizer;
 import com.facebook.presto.sql.planner.iterative.rule.MultipleDistinctAggregationToMarkDistinct;
+import com.facebook.presto.sql.planner.iterative.rule.PreAggregateDistinctAggregations;
 import com.facebook.presto.sql.planner.iterative.rule.RemoveRedundantIdentityProjections;
 import com.facebook.presto.sql.planner.iterative.rule.SingleDistinctAggregationToGroupBy;
 import com.facebook.presto.sql.tree.FunctionCall;
@@ -50,6 +51,33 @@ public class TestOptimizeMixedDistinctAggregations
     public TestOptimizeMixedDistinctAggregations()
     {
         super(ImmutableMap.of(SystemSessionProperties.OPTIMIZE_DISTINCT_AGGREGATIONS, "true"));
+    }
+
+    @Test
+    public void testMultipleDistinctAggregationOptimizer()
+    {
+        @Language("SQL") String sql = "SELECT custkey, count(DISTINCT orderdate), count(DISTINCT orderstatus) FROM orders GROUP BY custkey";
+
+        String group = "GROUP";
+        String groupBy = "CUSTKEY";
+        String firstDistinctAggregation = "ORDERDATE";
+        String secondDistinctAggregation = "ORDERSTATUS";
+
+        ImmutableList.Builder<List<String>> groups = ImmutableList.builder();
+        groups.add(ImmutableList.of(groupBy, firstDistinctAggregation));
+        groups.add(ImmutableList.of(groupBy, secondDistinctAggregation));
+
+        PlanMatchPattern expectedPlanPattern = anyTree(
+                aggregation(ImmutableMap.of(),
+                        project(
+                                aggregation(ImmutableMap.of(),
+                                        groupingSet(groups.build(), ImmutableMap.of(), group,
+                                                anyTree(tableScan("orders", ImmutableMap.of(
+                                                        "CUSTKEY", "custkey",
+                                                        "ORDERDATE", "orderdate",
+                                                        "ORDERSTATUS", "orderstatus"))))))));
+
+        assertPreAggregatePlan(sql, expectedPlanPattern);
     }
 
     @Test
@@ -125,6 +153,24 @@ public class TestOptimizeMixedDistinctAggregations
                                 new SingleDistinctAggregationToGroupBy(),
                                 new MultipleDistinctAggregationToMarkDistinct())),
                 new OptimizeMixedDistinctAggregations(getQueryRunner().getMetadata()),
+                new PruneUnreferencedOutputs());
+        assertPlan(sql, pattern, optimizers);
+    }
+
+    private void assertPreAggregatePlan(String sql, PlanMatchPattern pattern)
+    {
+        List<PlanOptimizer> optimizers = ImmutableList.of(
+                new UnaliasSymbolReferences(getMetadata().getFunctionAndTypeManager()),
+                new IterativeOptimizer(
+                        getMetadata(),
+                        new RuleStatsRecorder(),
+                        getQueryRunner().getStatsCalculator(),
+                        getQueryRunner().getEstimatedExchangesCostCalculator(),
+                        ImmutableSet.of(
+                                new RemoveRedundantIdentityProjections(),
+                                new SingleDistinctAggregationToGroupBy(),
+                                new PreAggregateDistinctAggregations(getMetadata()),
+                                new MultipleDistinctAggregationToMarkDistinct())),
                 new PruneUnreferencedOutputs());
         assertPlan(sql, pattern, optimizers);
     }
