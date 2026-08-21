@@ -173,6 +173,7 @@ public class FeaturesConfig
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
     private boolean useMarkDistinct = true;
+    private DistinctAggregationsStrategy distinctAggregationsStrategy = DistinctAggregationsStrategy.MARK_DISTINCT;
     private boolean exploitConstraints = true;
     private boolean preferPartialAggregation = true;
     private PartialAggregationStrategy partialAggregationStrategy = PartialAggregationStrategy.ALWAYS;
@@ -456,6 +457,13 @@ public class FeaturesConfig
         ALWAYS, // Always do partial aggregation
         NEVER, // Never do partial aggregation
         AUTOMATIC // Let the optimizer decide for each aggregation
+    }
+
+    public enum DistinctAggregationsStrategy
+    {
+        SINGLE_STEP,
+        MARK_DISTINCT,
+        PRE_AGGREGATE
     }
 
     public enum LocalExchangeParentPreferenceStrategy
@@ -1180,6 +1188,19 @@ public class FeaturesConfig
     public FeaturesConfig setUseMarkDistinct(boolean value)
     {
         this.useMarkDistinct = value;
+        return this;
+    }
+
+    public DistinctAggregationsStrategy getDistinctAggregationsStrategy()
+    {
+        return distinctAggregationsStrategy;
+    }
+
+    @Config("optimizer.distinct-aggregations-strategy")
+    @ConfigDescription("Strategy to use for distinct aggregations")
+    public FeaturesConfig setDistinctAggregationsStrategy(DistinctAggregationsStrategy value)
+    {
+        this.distinctAggregationsStrategy = value;
         return this;
     }
 

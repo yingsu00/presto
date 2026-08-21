@@ -27,6 +27,7 @@ import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinDistributionType;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.JoinReorderingStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.LeftJoinArrayContainsToInnerJoinStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.LocalExchangeParentPreferenceStrategy;
+import com.facebook.presto.sql.analyzer.FeaturesConfig.DistinctAggregationsStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.PartialAggregationStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.PartitioningPrecisionStrategy;
 import com.facebook.presto.sql.analyzer.FeaturesConfig.PushDownFilterThroughCrossJoinStrategy;
@@ -163,6 +164,7 @@ public class TestFeaturesConfig
                 .setFilterAndProjectMinOutputPageSize(new DataSize(500, KILOBYTE))
                 .setFilterAndProjectMinOutputPageRowCount(256)
                 .setUseMarkDistinct(true)
+                .setDistinctAggregationsStrategy(DistinctAggregationsStrategy.MARK_DISTINCT)
                 .setExploitConstraints(true)
                 .setPreferPartialAggregation(true)
                 .setPartialAggregationStrategy(PartialAggregationStrategy.ALWAYS)
@@ -425,6 +427,7 @@ public class TestFeaturesConfig
                 .put("experimental.filter-and-project-min-output-page-size", "1MB")
                 .put("experimental.filter-and-project-min-output-page-row-count", "2048")
                 .put("optimizer.use-mark-distinct", "false")
+                .put("optimizer.distinct-aggregations-strategy", "PRE_AGGREGATE")
                 .put("optimizer.exploit-constraints", "false")
                 .put("optimizer.prefer-partial-aggregation", "false")
                 .put("optimizer.partial-aggregation-strategy", "automatic")
@@ -691,6 +694,7 @@ public class TestFeaturesConfig
                 .setFilterAndProjectMinOutputPageSize(new DataSize(1, MEGABYTE))
                 .setFilterAndProjectMinOutputPageRowCount(2048)
                 .setUseMarkDistinct(false)
+                .setDistinctAggregationsStrategy(DistinctAggregationsStrategy.PRE_AGGREGATE)
                 .setExploitConstraints(false)
                 .setPreferPartialAggregation(false)
                 .setPartialAggregationStrategy(PartialAggregationStrategy.AUTOMATIC)
