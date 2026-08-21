@@ -463,7 +463,8 @@ public class FeaturesConfig
     {
         SINGLE_STEP,
         MARK_DISTINCT,
-        PRE_AGGREGATE
+        PRE_AGGREGATE,
+        AUTOMATIC
     }
 
     public enum LocalExchangeParentPreferenceStrategy

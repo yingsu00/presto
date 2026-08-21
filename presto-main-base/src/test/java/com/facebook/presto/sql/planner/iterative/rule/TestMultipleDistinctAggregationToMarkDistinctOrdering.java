@@ -24,6 +24,7 @@ import org.testng.annotations.Test;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static com.facebook.presto.SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY;
 import static com.facebook.presto.common.type.BigintType.BIGINT;
 import static com.facebook.presto.common.type.VarcharType.VARCHAR;
 import static org.testng.Assert.assertEquals;
@@ -37,8 +38,11 @@ public class TestMultipleDistinctAggregationToMarkDistinctOrdering
         // Verifies that MultipleDistinctAggregationToMarkDistinct preserves
         // aggregation output variable ordering. HashMap would scramble "sum_x"
         // and "min_y" causing BIGINT vs VARCHAR type mismatch in Velox.
+        // The strategy is pinned to MARK_DISTINCT because for a single grouping key the
+        // AUTOMATIC chooser would prefer PRE_AGGREGATE and this rule would not fire.
         PlanNode result = tester().assertThat(new MultipleDistinctAggregationToMarkDistinct())
                 .setSystemProperty("use_mark_distinct", "true")
+                .setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, "MARK_DISTINCT")
                 .on(p -> {
                     VariableReferenceExpression a = p.variable("a", BIGINT);
                     VariableReferenceExpression x = p.variable("x", BIGINT);
