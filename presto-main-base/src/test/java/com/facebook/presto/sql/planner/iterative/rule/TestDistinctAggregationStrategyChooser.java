@@ -27,12 +27,15 @@ import com.facebook.presto.spi.plan.LogicalPropertiesProvider;
 import com.facebook.presto.spi.plan.PlanNode;
 import com.facebook.presto.spi.plan.PlanNodeId;
 import com.facebook.presto.spi.plan.PlanNodeIdAllocator;
+import com.facebook.presto.spi.plan.TableScanNode;
 import com.facebook.presto.spi.plan.ValuesNode;
 import com.facebook.presto.spi.relation.CallExpression;
 import com.facebook.presto.spi.relation.VariableReferenceExpression;
 import com.facebook.presto.sql.planner.iterative.Lookup;
 import com.facebook.presto.sql.planner.iterative.Rule;
 import com.facebook.presto.sql.planner.iterative.rule.test.BaseRuleTest;
+import com.facebook.presto.sql.planner.iterative.rule.test.PlanBuilder;
+import com.facebook.presto.testing.TestingMetadata.TestingColumnHandle;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.testng.annotations.Test;
@@ -226,9 +229,55 @@ public class TestDistinctAggregationStrategyChooser
         assertShouldUseSingleStep(aggregationNode, context(stats, variableAllocator, session("SINGLE_STEP")));
     }
 
+    @Test
+    public void testSplitToSubqueriesPreferredForGlobalAggregation()
+    {
+        VariableAllocator variableAllocator = new VariableAllocator();
+        VariableReferenceExpression input1 = variableAllocator.newVariable("input1", BIGINT);
+        VariableReferenceExpression input2 = variableAllocator.newVariable("input2", BIGINT);
+
+        // a global distinct aggregation is computed by a single thread, and splitting it into per-column
+        // subqueries lets each one be aggregated independently
+        TableScanNode source = tableScan(ImmutableList.of(input1, input2));
+        AggregationNode aggregationNode = aggregation(ImmutableList.of(), source, input1, input2, variableAllocator);
+        Rule.Context context = context(
+                ImmutableMap.of(source, PlanNodeStatsEstimate.builder().setOutputRowCount(1_000_000).build()),
+                variableAllocator);
+
+        assertTrue(createDistinctAggregationStrategyChooser(TASK_COUNT_ESTIMATOR)
+                .shouldSplitToSubqueries(aggregationNode, context.getSession(), context.getStatsProvider(), context.getLookup()));
+    }
+
+    @Test
+    public void testSingleStepUsedWhenForcedStrategyIsNotApplicable()
+    {
+        VariableAllocator variableAllocator = new VariableAllocator();
+        VariableReferenceExpression groupingKey = variableAllocator.newVariable("groupingKey", BIGINT);
+
+        // splitting to subqueries needs a table scan source, so the forced strategy cannot be applied here
+        PlanNode source = values(variableAllocator);
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(ImmutableList.of(groupingKey), source, variableAllocator);
+        Rule.Context context = context(
+                ImmutableMap.of(source, statsWithDistinctValueCounts(ImmutableMap.of(groupingKey, 10.0))),
+                variableAllocator,
+                session("SPLIT_TO_SUBQUERIES"));
+
+        assertFalse(createDistinctAggregationStrategyChooser(TASK_COUNT_ESTIMATOR)
+                .shouldSplitToSubqueries(aggregationNode, context.getSession(), context.getStatsProvider(), context.getLookup()));
+        assertShouldUseSingleStep(aggregationNode, context);
+    }
+
     private int clusterThreadCount()
     {
         return NODE_COUNT * getTaskConcurrency(tester().getSession());
+    }
+
+    private TableScanNode tableScan(List<VariableReferenceExpression> variables)
+    {
+        PlanBuilder planBuilder = new PlanBuilder(tester().getSession(), new PlanNodeIdAllocator(), getMetadata());
+        return planBuilder.tableScan(
+                variables,
+                variables.stream().collect(toImmutableMap(Function.identity(), variable -> new TestingColumnHandle(variable.getName()))));
     }
 
     private boolean shouldAddMarkDistinct(AggregationNode aggregationNode, Rule.Context context)
