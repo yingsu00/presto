@@ -159,6 +159,9 @@ public class TestOptimizeMixedDistinctAggregations
 
     private void assertUnitPlan(String sql, PlanMatchPattern pattern)
     {
+        Session session = Session.builder(getQueryRunner().getDefaultSession())
+                .setSystemProperty(SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY, "MARK_DISTINCT")
+                .build();
         List<PlanOptimizer> optimizers = ImmutableList.of(
                 new UnaliasSymbolReferences(getMetadata().getFunctionAndTypeManager()),
                 new IterativeOptimizer(
@@ -172,7 +175,7 @@ public class TestOptimizeMixedDistinctAggregations
                                 new MultipleDistinctAggregationToMarkDistinct())),
                 new OptimizeMixedDistinctAggregations(getQueryRunner().getMetadata()),
                 new PruneUnreferencedOutputs());
-        assertPlan(sql, pattern, optimizers);
+        assertPlan(sql, session, Optimizer.PlanStage.OPTIMIZED, pattern, optimizers);
     }
 
     private void assertSplitToSubqueriesPlan(String sql, PlanMatchPattern pattern)
@@ -196,6 +199,9 @@ public class TestOptimizeMixedDistinctAggregations
 
     private void assertPreAggregatePlan(String sql, PlanMatchPattern pattern)
     {
+        Session session = Session.builder(getQueryRunner().getDefaultSession())
+                .setSystemProperty(SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY, "PRE_AGGREGATE")
+                .build();
         List<PlanOptimizer> optimizers = ImmutableList.of(
                 new UnaliasSymbolReferences(getMetadata().getFunctionAndTypeManager()),
                 new IterativeOptimizer(
@@ -209,6 +215,6 @@ public class TestOptimizeMixedDistinctAggregations
                                 new PreAggregateDistinctAggregations(getMetadata()),
                                 new MultipleDistinctAggregationToMarkDistinct())),
                 new PruneUnreferencedOutputs());
-        assertPlan(sql, pattern, optimizers);
+        assertPlan(sql, session, Optimizer.PlanStage.OPTIMIZED, pattern, optimizers);
     }
 }

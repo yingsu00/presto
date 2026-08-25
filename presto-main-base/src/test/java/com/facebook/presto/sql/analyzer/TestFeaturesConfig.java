@@ -164,7 +164,7 @@ public class TestFeaturesConfig
                 .setFilterAndProjectMinOutputPageSize(new DataSize(500, KILOBYTE))
                 .setFilterAndProjectMinOutputPageRowCount(256)
                 .setUseMarkDistinct(true)
-                .setDistinctAggregationsStrategy(DistinctAggregationsStrategy.MARK_DISTINCT)
+                .setDistinctAggregationsStrategy(null)
                 .setExploitConstraints(true)
                 .setPreferPartialAggregation(true)
                 .setPartialAggregationStrategy(PartialAggregationStrategy.ALWAYS)

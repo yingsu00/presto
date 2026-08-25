@@ -3086,7 +3086,11 @@ public final class SystemSessionProperties
 
     public static DistinctAggregationsStrategy distinctAggregationsStrategy(Session session)
     {
-        return session.getSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, DistinctAggregationsStrategy.class);
+        DistinctAggregationsStrategy distinctAggregationsStrategy = session.getSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, DistinctAggregationsStrategy.class);
+        if (distinctAggregationsStrategy != null) {
+            return distinctAggregationsStrategy;
+        }
+        return DistinctAggregationsStrategy.AUTOMATIC;
     }
 
     public static boolean isExploitConstraints(Session session)

@@ -30,6 +30,8 @@ import com.facebook.presto.spi.function.FunctionMetadata;
 import com.facebook.presto.spi.security.ViewSecurity;
 import com.facebook.presto.sql.planner.iterative.rule.materializedview.MaterializedViewRewriteStrategy;
 import com.google.common.annotations.VisibleForTesting;
+
+import javax.annotation.Nullable;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import jakarta.validation.constraints.AssertTrue;
@@ -173,7 +175,7 @@ public class FeaturesConfig
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
     private boolean useMarkDistinct = true;
-    private DistinctAggregationsStrategy distinctAggregationsStrategy = DistinctAggregationsStrategy.MARK_DISTINCT;
+    private DistinctAggregationsStrategy distinctAggregationsStrategy;
     private boolean exploitConstraints = true;
     private boolean preferPartialAggregation = true;
     private PartialAggregationStrategy partialAggregationStrategy = PartialAggregationStrategy.ALWAYS;
@@ -1193,6 +1195,7 @@ public class FeaturesConfig
         return this;
     }
 
+    @Nullable
     public DistinctAggregationsStrategy getDistinctAggregationsStrategy()
     {
         return distinctAggregationsStrategy;
