@@ -41,7 +41,6 @@ public class TestMultipleDistinctAggregationToMarkDistinctOrdering
         // The strategy is pinned to MARK_DISTINCT because for a single grouping key the
         // AUTOMATIC chooser would prefer PRE_AGGREGATE and this rule would not fire.
         PlanNode result = tester().assertThat(new MultipleDistinctAggregationToMarkDistinct())
-                .setSystemProperty("use_mark_distinct", "true")
                 .setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, "MARK_DISTINCT")
                 .on(p -> {
                     VariableReferenceExpression a = p.variable("a", BIGINT);

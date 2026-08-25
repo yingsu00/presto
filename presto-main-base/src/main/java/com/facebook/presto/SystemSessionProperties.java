@@ -917,9 +917,9 @@ public final class SystemSessionProperties
                         DataSize::toString),
                 booleanProperty(
                         OPTIMIZE_DISTINCT_AGGREGATIONS,
-                        "Optimize mixed non-distinct and distinct aggregations",
+                        "(RETIRED) Use " + DISTINCT_AGGREGATIONS_STRATEGY + " instead",
                         featuresConfig.isOptimizeMixedDistinctAggregations(),
-                        false),
+                        true),
                 booleanProperty(
                         LEGACY_ROW_FIELD_ORDINAL_ACCESS,
                         "Allow accessing anonymous row field with .field0, .field1, ...",
@@ -1073,9 +1073,9 @@ public final class SystemSessionProperties
                         false),
                 booleanProperty(
                         USE_MARK_DISTINCT,
-                        "Implement DISTINCT aggregations using MarkDistinct",
+                        "(RETIRED) Use " + DISTINCT_AGGREGATIONS_STRATEGY + " instead",
                         featuresConfig.isUseMarkDistinct(),
-                        false),
+                        true),
                 new PropertyMetadata<>(
                         DISTINCT_AGGREGATIONS_STRATEGY,
                         format("Strategy to use for distinct aggregations. Options are %s",
@@ -2904,9 +2904,15 @@ public final class SystemSessionProperties
         return session.getSystemProperty(QUERY_MAX_REVOCABLE_MEMORY_PER_NODE, DataSize.class);
     }
 
+    /**
+     * @deprecated only the legacy {@link com.facebook.presto.sql.planner.optimizations.OptimizeMixedDistinctAggregations}
+     * optimizer still reads this directly; every other caller should go through
+     * {@link #distinctAggregationsStrategy(Session)}.
+     */
+    @Deprecated
     public static boolean isOptimizeDistinctAggregationEnabled(Session session)
     {
-        return session.getSystemProperty(OPTIMIZE_DISTINCT_AGGREGATIONS, Boolean.class);
+        return TRUE.equals(session.getSystemProperty(OPTIMIZE_DISTINCT_AGGREGATIONS, Boolean.class));
     }
 
     public static boolean isLegacyRowFieldOrdinalAccessEnabled(Session session)
@@ -3079,17 +3085,28 @@ public final class SystemSessionProperties
         return session.getSystemProperty(FILTER_AND_PROJECT_MIN_OUTPUT_PAGE_ROW_COUNT, Integer.class);
     }
 
-    public static boolean useMarkDistinct(Session session)
-    {
-        return session.getSystemProperty(USE_MARK_DISTINCT, Boolean.class);
-    }
-
+    /**
+     * Resolves the strategy to use for distinct aggregations. This is the single gate for all
+     * distinct aggregation rewrites; the retired {@code optimize_mixed_distinct_aggregations}
+     * and {@code use_mark_distinct} properties are mapped onto it and are honored only when
+     * {@code distinct_aggregations_strategy} is left unset.
+     */
     public static DistinctAggregationsStrategy distinctAggregationsStrategy(Session session)
     {
         DistinctAggregationsStrategy distinctAggregationsStrategy = session.getSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, DistinctAggregationsStrategy.class);
         if (distinctAggregationsStrategy != null) {
             return distinctAggregationsStrategy;
         }
+
+        if (TRUE.equals(session.getSystemProperty(OPTIMIZE_DISTINCT_AGGREGATIONS, Boolean.class))) {
+            return DistinctAggregationsStrategy.PRE_AGGREGATE;
+        }
+
+        Boolean useMarkDistinct = session.getSystemProperty(USE_MARK_DISTINCT, Boolean.class);
+        if (useMarkDistinct != null) {
+            return useMarkDistinct ? DistinctAggregationsStrategy.MARK_DISTINCT : DistinctAggregationsStrategy.SINGLE_STEP;
+        }
+
         return DistinctAggregationsStrategy.AUTOMATIC;
     }
 

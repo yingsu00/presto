@@ -78,7 +78,7 @@ import static java.lang.String.format;
 public class PlanFragmenterUtils
 {
     public static final int ROOT_FRAGMENT_ID = 0;
-    public static final String TOO_MANY_STAGES_MESSAGE = "If the query contains multiple DISTINCTs, please set the 'use_mark_distinct' session property to false. " +
+    public static final String TOO_MANY_STAGES_MESSAGE = "If the query contains multiple DISTINCTs, please set the 'distinct_aggregations_strategy' session property to 'single_step'. " +
             "If the query contains multiple CTEs that are referenced more than once, please create temporary table(s) for one or more of the CTEs.";
     private static final Set<Class> PLAN_NODES_WITH_COORDINATOR_ONLY_DISTRIBUTION = ImmutableSet.of(
             ExplainAnalyzeNode.class,

@@ -177,13 +177,37 @@ public class TestMultipleDistinctAggregationToMarkDistinct
                 .on(plan)
                 .doesNotFire();
 
-        // small NDV, but the legacy use_mark_distinct property vetoes the rewrite
+        // small NDV, but the deprecated use_mark_distinct=false maps to SINGLE_STEP
         tester().assertThat(new MultipleDistinctAggregationToMarkDistinct(TASK_COUNT_ESTIMATOR))
                 .setSystemProperty(SystemSessionProperties.USE_MARK_DISTINCT, "false")
-                .setSystemProperty(SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY, "AUTOMATIC")
                 .overrideStats(aggregationSourceId.toString(), statsWithDistinctValueCount(key1, 2 * clusterThreadCount))
                 .on(plan)
                 .doesNotFire();
+    }
+
+    @Test
+    public void testDistinctAggregationsStrategyOverridesDeprecatedProperties()
+    {
+        PlanNodeId aggregationSourceId = new PlanNodeId("aggregationSourceId");
+        VariableReferenceExpression key1 = new VariableReferenceExpression(Optional.empty(), "key1", BIGINT);
+        Function<PlanBuilder, PlanNode> plan = p -> p.aggregation(builder -> builder
+                .source(p.values(aggregationSourceId, p.variable("input"), p.variable("key1"), p.variable("key2"), p.variable("key3")))
+                .singleGroupingSet(p.variable("key1"), p.variable("key2"), p.variable("key3"))
+                .addAggregation(p.variable("output1"), p.rowExpression("count(DISTINCT input)"), true)
+                .addAggregation(p.variable("output2"), p.rowExpression("sum(input)")));
+        int clusterThreadCount = NODE_COUNT * getTaskConcurrency(tester().getSession());
+
+        // use_mark_distinct=false alone would map to SINGLE_STEP, but distinct_aggregations_strategy wins
+        tester().assertThat(new MultipleDistinctAggregationToMarkDistinct(TASK_COUNT_ESTIMATOR))
+                .setSystemProperty(SystemSessionProperties.USE_MARK_DISTINCT, "false")
+                .setSystemProperty(SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY, "MARK_DISTINCT")
+                .overrideStats(aggregationSourceId.toString(), statsWithDistinctValueCount(key1, 2 * clusterThreadCount))
+                .on(plan)
+                .matches(node(
+                        AggregationNode.class,
+                        node(
+                                MarkDistinctNode.class,
+                                values(ImmutableMap.of("input", 0, "key1", 1, "key2", 2, "key3", 3)))));
     }
 
     @Test

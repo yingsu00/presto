@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.sql.planner.iterative.rule;
 
-import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.cost.TaskCountEstimator;
 import com.facebook.presto.matching.Captures;
 import com.facebook.presto.matching.Pattern;
@@ -127,8 +126,7 @@ public class MultipleDistinctAggregationToMarkDistinct
     @Override
     public Result apply(AggregationNode parent, Captures captures, Context context)
     {
-        if (!SystemSessionProperties.useMarkDistinct(context.getSession()) ||
-                !distinctAggregationStrategyChooser.shouldAddMarkDistinct(parent, context.getSession(), context.getStatsProvider(), context.getLookup())) {
+        if (!distinctAggregationStrategyChooser.shouldAddMarkDistinct(parent, context.getSession(), context.getStatsProvider(), context.getLookup())) {
             return Result.empty();
         }
 

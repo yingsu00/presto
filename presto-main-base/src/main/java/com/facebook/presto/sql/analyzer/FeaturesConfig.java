@@ -135,7 +135,7 @@ public class FeaturesConfig
     private boolean pushTableWriteThroughUnion = true;
     private CompressionCodec exchangeCompressionCodec = CompressionCodec.NONE;
     private boolean exchangeChecksumEnabled;
-    private boolean optimizeMixedDistinctAggregations;
+    private Boolean optimizeMixedDistinctAggregations;
     private boolean forceSingleNodeOutput = true;
     private boolean pagesIndexEagerCompactionEnabled;
     private boolean distributedSort = true;
@@ -174,7 +174,7 @@ public class FeaturesConfig
     private boolean pushProjectionThroughCrossJoin;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
-    private boolean useMarkDistinct = true;
+    private Boolean useMarkDistinct;
     private DistinctAggregationsStrategy distinctAggregationsStrategy;
     private boolean exploitConstraints = true;
     private boolean preferPartialAggregation = true;
@@ -1183,13 +1183,17 @@ public class FeaturesConfig
         return this;
     }
 
-    public boolean isUseMarkDistinct()
+    @Deprecated
+    @Nullable
+    public Boolean isUseMarkDistinct()
     {
         return useMarkDistinct;
     }
 
+    @Deprecated
     @Config("optimizer.use-mark-distinct")
-    public FeaturesConfig setUseMarkDistinct(boolean value)
+    @ConfigDescription("(RETIRED) Use optimizer.distinct-aggregations-strategy instead")
+    public FeaturesConfig setUseMarkDistinct(Boolean value)
     {
         this.useMarkDistinct = value;
         return this;
@@ -1797,13 +1801,17 @@ public class FeaturesConfig
         return this;
     }
 
-    public boolean isOptimizeMixedDistinctAggregations()
+    @Deprecated
+    @Nullable
+    public Boolean isOptimizeMixedDistinctAggregations()
     {
         return optimizeMixedDistinctAggregations;
     }
 
+    @Deprecated
     @Config("optimizer.optimize-mixed-distinct-aggregations")
-    public FeaturesConfig setOptimizeMixedDistinctAggregations(boolean value)
+    @ConfigDescription("(RETIRED) Use optimizer.distinct-aggregations-strategy instead")
+    public FeaturesConfig setOptimizeMixedDistinctAggregations(Boolean value)
     {
         this.optimizeMixedDistinctAggregations = value;
         return this;
