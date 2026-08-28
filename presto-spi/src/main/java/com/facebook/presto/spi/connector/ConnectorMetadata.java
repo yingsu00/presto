@@ -114,6 +114,28 @@ public interface ConnectorMetadata
     }
 
     /**
+     * Resolves {@code request} against the table {@code tableHandle} identifies, returning a
+     * {@link ConnectorTableVersion.VersionType#RESOLVED} version, or empty when the connector cannot
+     * answer or the requested version no longer exists. Empty is the conservative default and simply
+     * means callers which rely on this cannot cache anything for that table.
+     *
+     * <p>The common request is {@link ConnectorTableVersion#latest()}, asking which version a read
+     * through this handle would see now. A caller can hold on to the answer and later detect that
+     * the table moved on by asking again and comparing, so the returned version must cover
+     * everything that would change the rows or the schema such a read produces. For a handle pinned
+     * to one version it must instead stay stable while that version still exists, and become empty
+     * once it does not.
+     *
+     * <p>{@code tableHandle} may have been created by an earlier, already-closed transaction, so
+     * implementations must only read identity information from it, such as the table name and which
+     * version or branch it names, and must resolve live state from the catalog.
+     */
+    default Optional<ConnectorTableVersion> getTableVersion(ConnectorSession session, ConnectorTableHandle tableHandle, ConnectorTableVersion request)
+    {
+        return Optional.empty();
+    }
+
+    /**
      * Returns a table handle for the specified table name, or null if the connector does not contain the table.
      * The returned table handle can contain information in analyzeProperties.
      */

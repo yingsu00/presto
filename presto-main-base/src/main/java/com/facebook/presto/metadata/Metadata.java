@@ -101,6 +101,14 @@ public interface Metadata
     Optional<TableHandle> getTableHandleForStatisticsCollection(Session session, QualifiedObjectName tableName, Map<String, Object> analyzeProperties);
 
     /**
+     * @see com.facebook.presto.spi.connector.ConnectorMetadata#getTableVersion
+     */
+    default Optional<ConnectorTableVersion> getTableVersion(Session session, TableHandle tableHandle, ConnectorTableVersion request)
+    {
+        return Optional.empty();
+    }
+
+    /**
      * Returns a new table layout that satisfies the given constraint together with unenforced constraint.
      */
     @Experimental

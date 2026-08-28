@@ -442,6 +442,16 @@ public class MetadataManager
     }
 
     @Override
+    public Optional<ConnectorTableVersion> getTableVersion(Session session, TableHandle tableHandle, ConnectorTableVersion request)
+    {
+        ConnectorId connectorId = tableHandle.getConnectorId();
+        return getMetadata(session, connectorId).getTableVersion(
+                session.toConnectorSession(connectorId),
+                tableHandle.getConnectorHandle(),
+                request);
+    }
+
+    @Override
     public Optional<TableHandle> getHandleVersion(Session session, QualifiedObjectName tableName, Optional<ConnectorTableVersion> tableVersion)
     {
         return getOptionalTableHandle(session, transactionManager, tableName, tableVersion);

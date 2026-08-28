@@ -125,6 +125,7 @@ import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SnapshotUpdate;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StructLike;
@@ -243,6 +244,7 @@ import static com.facebook.presto.iceberg.IcebergUtil.getPartitionFields;
 import static com.facebook.presto.iceberg.IcebergUtil.getPartitionKeyColumnHandles;
 import static com.facebook.presto.iceberg.IcebergUtil.getPartitionSpecsIncludingValidData;
 import static com.facebook.presto.iceberg.IcebergUtil.getPartitions;
+import static com.facebook.presto.spi.connector.ConnectorTableVersion.VersionType.LATEST;
 import static com.facebook.presto.iceberg.IcebergUtil.getSchemaForSnapshot;
 import static com.facebook.presto.iceberg.IcebergUtil.getSnapshotIdTimeOperator;
 import static com.facebook.presto.iceberg.IcebergUtil.getSortFields;
@@ -1657,6 +1659,72 @@ public abstract class IcebergAbstractMetadata
                 getSortFields(table),
                 ImmutableList.of(),
                 Optional.empty());
+    }
+
+    @Override
+    public Optional<ConnectorTableVersion> getTableVersion(ConnectorSession session, ConnectorTableHandle tableHandle, ConnectorTableVersion request)
+    {
+        // Only "which version is this now" is answerable here; resolving a user-written version still
+        // happens inside getTableHandle.
+        if (request.getVersionType() != LATEST || !(tableHandle instanceof IcebergTableHandle)) {
+            return Optional.empty();
+        }
+        IcebergTableHandle handle = (IcebergTableHandle) tableHandle;
+        IcebergTableName name = handle.getIcebergTableName();
+        if (name.getTableType() != DATA) {
+            return Optional.empty();
+        }
+        try {
+            Table table = getRawIcebergTable(session, handle.getSchemaTableName());
+            if (!(table instanceof BaseTable)) {
+                return Optional.empty();
+            }
+            BaseTable baseTable = (BaseTable) table;
+            TableMetadata metadata = baseTable.operations().current();
+
+            // A handle pinned to one snapshot reads that snapshot's data and, since
+            // getSchemaForSnapshot, that snapshot's schema. Neither can change, so the version stays
+            // stable across unrelated commits and becomes empty once the snapshot is expired.
+            // metadataFileLocation is still included because table properties are read from the
+            // current table even for a pinned handle, and the derived column spec lives there and
+            // determines the column set.
+            if (handle.isSnapshotSpecified()) {
+                if (!name.getSnapshotId().isPresent() || baseTable.snapshot(name.getSnapshotId().get()) == null) {
+                    return Optional.empty();
+                }
+                return Optional.of(ConnectorTableVersion.resolved(
+                        format("snapshot:%s:%s", name.getSnapshotId().get(), metadata.metadataFileLocation())));
+            }
+
+            // Otherwise the handle follows a live ref, so describe the ref's current state rather than
+            // the snapshot the handle resolved when it was built; reading the handle's snapshot here
+            // would still compare equal after the table moved on.
+            Snapshot currentSnapshot;
+            if (name.getBranchName().isPresent()) {
+                SnapshotRef branchRef = baseTable.refs().get(name.getBranchName().get());
+                if (branchRef == null || !branchRef.isBranch()) {
+                    return Optional.empty();
+                }
+                currentSnapshot = baseTable.snapshot(branchRef.snapshotId());
+                if (currentSnapshot == null) {
+                    return Optional.empty();
+                }
+            }
+            else {
+                currentSnapshot = baseTable.currentSnapshot();
+            }
+
+            // metadataFileLocation moves on every metadata commit, which is what catches changes
+            // creating no snapshot: a schema change, and a property change such as the derived
+            // column spec.
+            return Optional.of(ConnectorTableVersion.resolved(format(
+                    "current:%s:%s",
+                    currentSnapshot == null ? "none" : currentSnapshot.snapshotId(),
+                    metadata.metadataFileLocation())));
+        }
+        catch (RuntimeException ignored) {
+            return Optional.empty();
+        }
     }
 
     @Override

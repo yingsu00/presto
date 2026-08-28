@@ -185,6 +185,12 @@ public abstract class DelegatingMetadataManager
     }
 
     @Override
+    public Optional<ConnectorTableVersion> getTableVersion(Session session, TableHandle tableHandle, ConnectorTableVersion request)
+    {
+        return delegate.getTableVersion(session, tableHandle, request);
+    }
+
+    @Override
     public TableStatistics getTableStatistics(Session session, TableHandle tableHandle, List<ColumnHandle> columnHandles, Constraint<ColumnHandle> constraint)
     {
         return delegate.getTableStatistics(session, tableHandle, columnHandles, constraint);
