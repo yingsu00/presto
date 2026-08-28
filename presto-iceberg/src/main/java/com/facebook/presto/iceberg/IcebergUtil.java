@@ -901,6 +901,30 @@ public final class IcebergUtil
                         runtimeStats));
     }
 
+    /**
+     * The schema a read through a handle must use.  A handle pinned to one snapshot reads the schema
+     * recorded on that snapshot, so that a query does see the table as it was; every other handle
+     * follows a live ref and so reads the table's current schema.
+     * <p>
+     * Falls back to the current schema when the snapshot or its schema cannot be resolved, which is
+     * the pre-existing behaviour.
+     *
+     * @param pinnedSnapshotId the snapshot the handle is pinned to, empty when it follows a live ref
+     */
+    public static Schema getSchemaForSnapshot(Table table, Optional<Long> pinnedSnapshotId)
+    {
+        if (pinnedSnapshotId.isPresent() && table instanceof BaseTable) {
+            Snapshot snapshot = table.snapshot(pinnedSnapshotId.get());
+            if (snapshot != null && snapshot.schemaId() != null) {
+                Schema schema = ((BaseTable) table).operations().current().schemasById().get(snapshot.schemaId());
+                if (schema != null) {
+                    return schema;
+                }
+            }
+        }
+        return table.schema();
+    }
+
     public static Optional<Schema> tryGetSchema(Table table)
     {
         try {
