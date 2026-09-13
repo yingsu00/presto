@@ -56,7 +56,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.expressions.LogicalRowExpressions.and;
-import static com.facebook.presto.iceberg.IcebergSessionProperties.isPushdownFilterEnabled;
 import static com.facebook.presto.iceberg.IcebergUtil.getIcebergTable;
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_ARGUMENTS;
 import static com.facebook.presto.spi.statistics.ColumnStatisticType.NUMBER_OF_DISTINCT_VALUES;
@@ -262,7 +261,7 @@ public final class StatisticsUtil
             Optional<ConnectorTableLayoutHandle> tableLayoutHandle)
     {
         return tableLayoutHandle.map(IcebergTableLayoutHandle.class::cast)
-                .filter(unused -> isPushdownFilterEnabled(session))
+                .filter(IcebergTableLayoutHandle::isPushdownFilterEnabled)
                 .map(layoutHandle -> {
                     TupleDomain<VariableReferenceExpression> predicate = layoutHandle.getValidPredicate()
                             .transform(columnHandle -> new VariableReferenceExpression(Optional.empty(), columnHandle.getName(), columnHandle.getType()));
