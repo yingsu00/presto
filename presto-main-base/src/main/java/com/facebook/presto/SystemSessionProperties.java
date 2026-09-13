@@ -94,6 +94,7 @@ import static java.lang.Boolean.TRUE;
 import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.stream.Collectors.joining;
 
 public final class SystemSessionProperties
@@ -436,6 +437,7 @@ public final class SystemSessionProperties
     public static final String OPTIMIZE_ROW_IN_PREDICATE = "optimize_row_in_predicate";
     public static final String ALWAYS_ANALYZE_CREATE_TABLE_QUERY_ENABLED = "always_analyze_create_table_query_enabled";
     public static final String LEGACY_ST_EQUALS = "legacy_st_equals";
+    public static final String TABLE_STATISTICS_CACHE_TTL = "table_statistics_cache_ttl";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -2497,6 +2499,16 @@ public final class SystemSessionProperties
                         "When enabled, analyze inner query on CTAS IF NOT EXISTS to populate view definitions for access control checks",
                         featuresConfig.isAlwaysAnalyzeCreateTableQueryEnabled(),
                         false),
+                new PropertyMetadata<>(
+                        TABLE_STATISTICS_CACHE_TTL,
+                        "Reuse connector table statistics across queries for this long. A duration of 0 disables reuse. "
+                                + "Only safe for connectors whose table handle identifies the version of the table it reads",
+                        VARCHAR,
+                        Duration.class,
+                        new Duration(0, MILLISECONDS),
+                        false,
+                        value -> Duration.valueOf((String) value),
+                        Duration::toString),
                 booleanProperty(
                         OPTIMIZE_TOP_N_USING_ROW_ID,
                         "Use $row_id late materialization for TopN over wide tables: first sort narrow keys, then semi-join to fetch full rows",
@@ -4264,5 +4276,10 @@ public final class SystemSessionProperties
     public static boolean isAlwaysAnalyzeCreateTableQueryEnabled(Session session)
     {
         return session.getSystemProperty(ALWAYS_ANALYZE_CREATE_TABLE_QUERY_ENABLED, Boolean.class);
+    }
+
+    public static Duration getTableStatisticsCacheTtl(Session session)
+    {
+        return session.getSystemProperty(TABLE_STATISTICS_CACHE_TTL, Duration.class);
     }
 }

@@ -14,6 +14,7 @@
 package com.facebook.presto.metadata;
 
 import com.facebook.airlift.json.JsonCodec;
+import com.facebook.airlift.units.Duration;
 import com.facebook.airlift.json.JsonCodecFactory;
 import com.facebook.airlift.json.JsonObjectMapperProvider;
 import com.facebook.airlift.log.Logger;
@@ -92,6 +93,8 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
@@ -106,6 +109,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -149,12 +153,26 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.lang.String.format;
 import static java.util.Locale.ENGLISH;
+import static com.facebook.presto.SystemSessionProperties.getTableStatisticsCacheTtl;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.Objects.requireNonNull;
 
 public class MetadataManager
         implements Metadata
 {
     private static final Logger log = Logger.get(MetadataManager.class);
+    private static final long TABLE_STATISTICS_CACHE_MAX_ENTRIES = 10_000;
+
+    /**
+     * Shared by every query, session and user. Reuse is off unless table_statistics_cache_ttl is
+     * set, because it is only sound when the table handle in the key identifies the version of the
+     * table it reads: an Iceberg handle carries its resolved snapshot id, a Hive one does not.
+     * Hence a bounded reuse window rather than an unbounded cache.
+     */
+    private final Cache<TableStatisticsCacheKey, CachedTableStatistics> tableStatisticsCache = CacheBuilder.newBuilder()
+            .maximumSize(TABLE_STATISTICS_CACHE_MAX_ENTRIES)
+            .recordStats()
+            .build();
 
     private final FunctionAndTypeManager functionAndTypeManager;
     private final ProcedureRegistry procedures;
@@ -441,6 +459,84 @@ public class MetadataManager
         return Optional.empty();
     }
 
+    private TableStatistics computeTableStatistics(
+            Session session,
+            ConnectorMetadata metadata,
+            ConnectorId connectorId,
+            TableHandle tableHandle,
+            List<ColumnHandle> columnHandles,
+            Constraint<ColumnHandle> constraint)
+    {
+        return session.getRuntimeStats().recordWallTime(
+                GET_TABLE_STATISTICS_TIME_NANOS,
+                () -> metadata.getTableStatistics(session.toConnectorSession(connectorId), tableHandle.getConnectorHandle(), tableHandle.getLayout(), columnHandles, constraint));
+    }
+
+    private static final class CachedTableStatistics
+    {
+        private final TableStatistics statistics;
+        private final long createdNanos = System.nanoTime();
+
+        private CachedTableStatistics(TableStatistics statistics)
+        {
+            this.statistics = requireNonNull(statistics, "statistics is null");
+        }
+
+        private boolean isOlderThan(Duration ttl)
+        {
+            return System.nanoTime() - createdNanos > ttl.roundTo(NANOSECONDS);
+        }
+    }
+
+    /**
+     * The connector properties are part of the key because they can change what a connector reports
+     * while being visible nowhere in the handle, and the cache is shared across sessions. Iceberg's
+     * hive_statistics_merge_strategy is the case to keep in mind: it selects which statistic types
+     * are overridden from the Hive metastore, is read straight off the session, and appears on no
+     * handle, so without it here one session's choice would be served to another's query.
+     */
+    private static final class TableStatisticsCacheKey
+    {
+        private final TableHandle tableHandle;
+        private final List<ColumnHandle> columnHandles;
+        private final Constraint<ColumnHandle> constraint;
+        private final Map<String, String> connectorProperties;
+
+        private TableStatisticsCacheKey(
+                TableHandle tableHandle,
+                List<ColumnHandle> columnHandles,
+                Constraint<ColumnHandle> constraint,
+                Map<String, String> connectorProperties)
+        {
+            this.tableHandle = requireNonNull(tableHandle, "tableHandle is null");
+            this.columnHandles = ImmutableList.copyOf(requireNonNull(columnHandles, "columnHandles is null"));
+            this.constraint = requireNonNull(constraint, "constraint is null");
+            this.connectorProperties = ImmutableMap.copyOf(requireNonNull(connectorProperties, "connectorProperties is null"));
+        }
+
+        @Override
+        public boolean equals(Object other)
+        {
+            if (this == other) {
+                return true;
+            }
+            if (other == null || getClass() != other.getClass()) {
+                return false;
+            }
+            TableStatisticsCacheKey that = (TableStatisticsCacheKey) other;
+            return tableHandle.equals(that.tableHandle) &&
+                    columnHandles.equals(that.columnHandles) &&
+                    constraint.equals(that.constraint) &&
+                    connectorProperties.equals(that.connectorProperties);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(tableHandle, columnHandles, constraint, connectorProperties);
+        }
+    }
+
     @Override
     public Optional<ConnectorTableVersion> getTableVersion(Session session, TableHandle tableHandle, ConnectorTableVersion request)
     {
@@ -599,9 +695,18 @@ public class MetadataManager
         try {
             ConnectorId connectorId = tableHandle.getConnectorId();
             ConnectorMetadata metadata = getMetadata(session, connectorId);
-            return session.getRuntimeStats().recordWallTime(
-                    GET_TABLE_STATISTICS_TIME_NANOS,
-                    () -> metadata.getTableStatistics(session.toConnectorSession(connectorId), tableHandle.getConnectorHandle(), tableHandle.getLayout(), columnHandles, constraint));
+            Duration ttl = getTableStatisticsCacheTtl(session);
+            if (ttl.toMillis() <= 0) {
+                return computeTableStatistics(session, metadata, connectorId, tableHandle, columnHandles, constraint);
+            }
+            TableStatisticsCacheKey key = new TableStatisticsCacheKey(tableHandle, columnHandles, constraint, session.getConnectorProperties(connectorId));
+            CachedTableStatistics cached = tableStatisticsCache.getIfPresent(key);
+            if (cached != null && !cached.isOlderThan(ttl)) {
+                return cached.statistics;
+            }
+            TableStatistics statistics = computeTableStatistics(session, metadata, connectorId, tableHandle, columnHandles, constraint);
+            tableStatisticsCache.put(key, new CachedTableStatistics(statistics));
+            return statistics;
         }
         catch (RuntimeException e) {
             if (isIgnoreStatsCalculatorFailures(session)) {
