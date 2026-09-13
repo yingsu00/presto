@@ -359,6 +359,7 @@ public abstract class IcebergAbstractMetadata
     protected final AtomicReference<IcebergCommonProcedureContext> procedureContext = new AtomicReference<>();
     protected final IcebergTransactionContext transactionContext;
     protected final StatisticsFileCache statisticsFileCache;
+    protected final ManifestSummaryCache manifestSummaryCache;
     protected final IcebergTableProperties tableProperties;
     private final StandardFunctionResolution functionResolution;
     private static final JsonCodec<List<String>> STRING_LIST_CODEC = JsonCodec.listJsonCodec(String.class);
@@ -374,6 +375,7 @@ public abstract class IcebergAbstractMetadata
             NodeVersion nodeVersion,
             FilterStatsCalculatorService filterStatsCalculatorService,
             StatisticsFileCache statisticsFileCache,
+            ManifestSummaryCache manifestSummaryCache,
             IcebergTableProperties tableProperties,
             com.facebook.presto.spi.transaction.IsolationLevel isolationLevel,
             boolean autoCommitContext)
@@ -388,6 +390,7 @@ public abstract class IcebergAbstractMetadata
         this.nodeVersion = requireNonNull(nodeVersion, "nodeVersion is null");
         this.filterStatsCalculatorService = requireNonNull(filterStatsCalculatorService, "filterStatsCalculatorService is null");
         this.statisticsFileCache = requireNonNull(statisticsFileCache, "statisticsFileCache is null");
+        this.manifestSummaryCache = requireNonNull(manifestSummaryCache, "manifestSummaryCache is null");
         this.tableProperties = requireNonNull(tableProperties, "tableProperties is null");
         this.transactionContext = new IcebergTransactionContext(isolationLevel, autoCommitContext);
     }
@@ -1579,7 +1582,7 @@ public abstract class IcebergAbstractMetadata
     @Override
     public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle tableHandle, Optional<ConnectorTableLayoutHandle> tableLayoutHandle, List<ColumnHandle> columnHandles, Constraint<ColumnHandle> constraint)
     {
-        TableStatistics baseStatistics = calculateBaseTableStatistics(this, typeManager, session, statisticsFileCache, (IcebergTableHandle) tableHandle, tableLayoutHandle, columnHandles, constraint);
+        TableStatistics baseStatistics = calculateBaseTableStatistics(this, typeManager, session, statisticsFileCache, manifestSummaryCache, (IcebergTableHandle) tableHandle, tableLayoutHandle, columnHandles, constraint);
         return calculateStatisticsConsideringLayout(filterStatsCalculatorService, rowExpressionService, baseStatistics, session, tableLayoutHandle);
     }
 

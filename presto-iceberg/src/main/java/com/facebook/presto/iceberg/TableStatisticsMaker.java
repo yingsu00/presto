@@ -84,6 +84,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -112,6 +113,7 @@ import static com.facebook.presto.spi.statistics.ColumnStatisticType.HISTOGRAM;
 import static com.facebook.presto.spi.statistics.ColumnStatisticType.NUMBER_OF_DISTINCT_VALUES;
 import static com.facebook.presto.spi.statistics.ColumnStatisticType.TOTAL_SIZE_IN_BYTES;
 import static com.facebook.presto.spi.statistics.SourceInfo.ConfidenceLevel.HIGH;
+import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -163,16 +165,18 @@ public class TableStatisticsMaker
             ConnectorSession session,
             TypeManager typeManager,
             StatisticsFileCache statisticsFileCache,
+            ManifestSummaryCache manifestSummaryCache,
             Optional<TupleDomain<IcebergColumnHandle>> currentPredicate,
             Constraint constraint,
             IcebergTableHandle tableHandle,
             Table icebergTable,
             List<IcebergColumnHandle> columns)
     {
-        return new TableStatisticsMaker(icebergTable, session, typeManager).makeTableStatistics(statisticsFileCache, tableHandle, currentPredicate, constraint, columns);
+        return new TableStatisticsMaker(icebergTable, session, typeManager).makeTableStatistics(statisticsFileCache, manifestSummaryCache, tableHandle, currentPredicate, constraint, columns);
     }
 
     private TableStatistics makeTableStatistics(StatisticsFileCache statisticsFileCache,
+            ManifestSummaryCache manifestSummaryCache,
             IcebergTableHandle tableHandle,
             Optional<TupleDomain<IcebergColumnHandle>> currentPredicate,
             Constraint constraint,
@@ -217,7 +221,7 @@ public class TableStatisticsMaker
             summary = getEqualityDeleteTableSummary(tableHandle, intersection, idToTypeMapping, nonPartitionPrimitiveColumns, partitionFields);
         }
         else {
-            summary = getDataTableSummary(tableHandle, selectedColumns, intersection, idToTypeMapping, nonPartitionPrimitiveColumns, partitionFields);
+            summary = getCachedDataTableSummary(manifestSummaryCache, tableHandle, selectedColumns, intersection, idToTypeMapping, nonPartitionPrimitiveColumns, partitionFields);
         }
 
         if (summary == null) {
@@ -230,7 +234,7 @@ public class TableStatisticsMaker
         Optional<Long> totalRecordCount = Optional.of(intersection)
                 .filter(domain -> !domain.isAll())
                 .map(domain -> getTotalRecords(icebergTable.snapshot(tableHandle.getIcebergTableName().getSnapshotId().get()))
-                        .orElseGet(() -> getDataTableSummary(tableHandle, ImmutableList.of(), TupleDomain.all(), idToTypeMapping, nonPartitionPrimitiveColumns, partitionFields).getRecordCount()));
+                        .orElseGet(() -> getCachedDataTableSummary(manifestSummaryCache, tableHandle, ImmutableList.of(), TupleDomain.all(), idToTypeMapping, nonPartitionPrimitiveColumns, partitionFields).getRecordCount()));
 
         double recordCount = summary.getRecordCount();
         TableStatistics.Builder result = TableStatistics.builder();
@@ -282,6 +286,38 @@ public class TableStatisticsMaker
             result.setColumnStatistics(columnHandle, columnBuilder.build());
         }
         return calculateAndSetTableSize(result).build();
+    }
+
+    /**
+     * Folding a summary walks every data file in the snapshot, so share the result. The key covers
+     * every input, so a hit is never stale and entries are usable by any query, session or user.
+     */
+    private Partition getCachedDataTableSummary(
+            ManifestSummaryCache manifestSummaryCache,
+            IcebergTableHandle tableHandle,
+            List<IcebergColumnHandle> selectedColumns,
+            TupleDomain<IcebergColumnHandle> intersection,
+            Map<Integer, Type.PrimitiveType> idToTypeMapping,
+            List<Types.NestedField> nonPartitionPrimitiveColumns,
+            List<PartitionField> partitionFields)
+    {
+        ManifestSummaryCacheKey key = new ManifestSummaryCacheKey(
+                tableHandle.getSchemaTableName(),
+                tableHandle.getIcebergTableName().getSnapshotId().get(),
+                icebergTable.schema().schemaId(),
+                icebergTable.spec().specId(),
+                intersection,
+                selectedColumns.stream().map(IcebergColumnHandle::getId).sorted().collect(toImmutableList()));
+        try {
+            return manifestSummaryCache.get(
+                    key,
+                    () -> Optional.ofNullable(getDataTableSummary(tableHandle, selectedColumns, intersection, idToTypeMapping, nonPartitionPrimitiveColumns, partitionFields)))
+                    .orElse(null);
+        }
+        catch (ExecutionException e) {
+            throwIfUnchecked(e.getCause());
+            throw new RuntimeException(e.getCause());
+        }
     }
 
     private Partition getDataTableSummary(IcebergTableHandle tableHandle,

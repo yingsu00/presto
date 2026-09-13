@@ -230,6 +230,19 @@ public class IcebergCommonModule
 
     @Singleton
     @Provides
+    public ManifestSummaryCache createManifestSummaryCache(IcebergConfig config, MBeanExporter exporter)
+    {
+        Cache<ManifestSummaryCacheKey, Partition> delegate = CacheBuilder.newBuilder()
+                .maximumSize(config.getMaxManifestSummaryCacheEntries())
+                .recordStats()
+                .build();
+        ManifestSummaryCache manifestSummaryCache = new ManifestSummaryCache(delegate);
+        exporter.export(generatedNameOf(ManifestSummaryCache.class, connectorId), manifestSummaryCache);
+        return manifestSummaryCache;
+    }
+
+    @Singleton
+    @Provides
     public ManifestFileCache createManifestFileCache(IcebergConfig config, MBeanExporter exporter)
     {
         CacheBuilder<ManifestFileCacheKey, ManifestFileCachedContent> delegate = CacheBuilder.newBuilder()

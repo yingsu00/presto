@@ -69,6 +69,7 @@ public class IcebergConfig
     private boolean metadataDeleteAfterCommit = METADATA_DELETE_AFTER_COMMIT_ENABLED_DEFAULT;
     private int metricsMaxInferredColumn = METRICS_MAX_INFERRED_COLUMN_DEFAULTS_DEFAULT;
     private int statisticsKllSketchKParameter = 1024;
+    private int maxManifestSummaryCacheEntries = 1000;
 
     private EnumSet<ColumnStatisticType> hiveStatisticsMergeFlags = EnumSet.noneOf(ColumnStatisticType.class);
     private String fileIOImpl = HadoopFileIO.class.getName();
@@ -472,6 +473,20 @@ public class IcebergConfig
     public IcebergConfig setMetricsMaxInferredColumn(int metricsMaxInferredColumn)
     {
         this.metricsMaxInferredColumn = metricsMaxInferredColumn;
+        return this;
+    }
+
+    public int getMaxManifestSummaryCacheEntries()
+    {
+        return maxManifestSummaryCacheEntries;
+    }
+
+    @Config("iceberg.max-manifest-summary-cache-entries")
+    @ConfigDescription("Maximum number of folded manifest summaries to cache. Entries are keyed on the snapshot, "
+            + "so they are shared across queries and never stale. Set to 0 to disable the cache")
+    public IcebergConfig setMaxManifestSummaryCacheEntries(int maxManifestSummaryCacheEntries)
+    {
+        this.maxManifestSummaryCacheEntries = maxManifestSummaryCacheEntries;
         return this;
     }
 
