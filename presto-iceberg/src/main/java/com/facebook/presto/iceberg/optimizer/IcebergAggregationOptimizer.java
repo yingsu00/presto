@@ -50,6 +50,7 @@ import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.MetricsModes;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
@@ -75,6 +76,7 @@ import static com.facebook.presto.iceberg.IcebergSessionProperties.isAggregatePu
 import static com.facebook.presto.iceberg.IcebergSessionProperties.isPushdownFilterEnabled;
 import static com.facebook.presto.iceberg.IcebergUtil.getNativeValue;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static java.lang.Long.parseLong;
 import static com.facebook.presto.iceberg.IcebergUtil.getNonMetadataColumnConstraints;
 import static com.facebook.presto.spi.plan.ProjectNode.Locality.LOCAL;
 import static com.google.common.base.Preconditions.checkState;
@@ -150,7 +152,7 @@ public class IcebergAggregationOptimizer
 
             Expression filter = toIcebergExpression(predicate);
             // Fold min/max/count aggregations to a constant value
-            return reduce(node, tableScan.getAssignments(), table.schema(), table, tableHandle.getIcebergTableName().getSnapshotId(), filter);
+            return reduce(node, tableScan.getAssignments(), table.schema(), table, tableHandle.getIcebergTableName().getSnapshotId(), filter, predicate.isAll());
         }
 
         private static Optional<TableScanNode> findTableScan(PlanNode source)
@@ -196,7 +198,8 @@ public class IcebergAggregationOptimizer
                 Schema schema,
                 Table table,
                 Optional<Long> snapshotId,
-                Expression filter)
+                Expression filter,
+                boolean unconstrained)
         {
             AggregateEvaluator aggregateEvaluator;
             List<BoundAggregate<?, ?>> expressions =
@@ -244,6 +247,19 @@ public class IcebergAggregationOptimizer
                 LOGGER.info("Skipping aggregate pushdown: table snapshot is null");
                 return node;
             }
+            // An unconstrained COUNT(*) is already recorded in the snapshot summary, so answer from
+            // there instead of walking every manifest entry. Only sound when the snapshot holds no
+            // delete files at all: total-records counts the rows written to data files, so with any
+            // positional or equality delete present it overstates the live row count. Iceberg
+            // reports no per-snapshot count of deleted rows that could be subtracted safely --
+            // equality deletes are predicates, not row counts.
+            if (unconstrained && aggregateEvaluator.aggregates().stream().allMatch(aggregate -> aggregate.columnName().equals("*"))) {
+                Optional<Long> exactRecordCount = recordCountIfNoDeletes(snapshot);
+                if (exactRecordCount.isPresent()) {
+                    return foldToConstant(node, exactRecordCount.get());
+                }
+            }
+
             scan = scan.useSnapshot(snapshot.snapshotId());
             scan = scan.filter(filter);
 
@@ -287,6 +303,46 @@ public class IcebergAggregationOptimizer
             ConnectorMetadata metadata = icebergTransactionManager.get(tableHandle.getTransaction());
             checkState(metadata instanceof IcebergAbstractMetadata, "metadata must be IcebergAbstractMetadata");
             return metadata;
+        }
+
+        /**
+         * The snapshot's total record count, but only when nothing in the snapshot can make it
+         * disagree with the number of live rows.
+         */
+        private static Optional<Long> recordCountIfNoDeletes(Snapshot snapshot)
+        {
+            Map<String, String> summary = snapshot.summary();
+            if (summary == null) {
+                return Optional.empty();
+            }
+            String totalRecords = summary.get(SnapshotSummary.TOTAL_RECORDS_PROP);
+            String totalDeleteFiles = summary.get(SnapshotSummary.TOTAL_DELETE_FILES_PROP);
+            if (totalRecords == null || totalDeleteFiles == null) {
+                LOGGER.info("Skipping COUNT(*) from snapshot summary: summary lacks total-records or total-delete-files");
+                return Optional.empty();
+            }
+            try {
+                if (parseLong(totalDeleteFiles) != 0) {
+                    LOGGER.info("Skipping COUNT(*) from snapshot summary: snapshot has delete files");
+                    return Optional.empty();
+                }
+                return Optional.of(parseLong(totalRecords));
+            }
+            catch (NumberFormatException e) {
+                return Optional.empty();
+            }
+        }
+
+        /** Replaces the aggregation with {@code value} for each of its outputs. */
+        private PlanNode foldToConstant(AggregationNode node, long value)
+        {
+            Assignments.Builder assignmentsBuilder = Assignments.builder();
+            for (VariableReferenceExpression outputVariable : node.getOutputVariables()) {
+                assignmentsBuilder.put(outputVariable, new ConstantExpression(getNativeValue(outputVariable.getType(), value), outputVariable.getType()));
+            }
+            Assignments assignments = assignmentsBuilder.build();
+            ValuesNode valuesNode = new ValuesNode(node.getSourceLocation(), idAllocator.getNextId(), node.getOutputVariables(), ImmutableList.of(new ArrayList<>(assignments.getExpressions())), Optional.empty());
+            return new ProjectNode(node.getSourceLocation(), idAllocator.getNextId(), valuesNode, assignments, LOCAL);
         }
 
         private boolean metricsModeSupportsAggregatePushDown(Table table, List<BoundAggregate<?, ?>> aggregates)
