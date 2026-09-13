@@ -293,12 +293,18 @@ public class TableStatisticsMaker
     {
         // Iceberg's expression binder rejects predicates on metadata columns; strip them here.
         TupleDomain<IcebergColumnHandle> nonMetadataIntersection = IcebergUtil.getNonMetadataColumnConstraints(intersection);
+        List<String> statisticsColumns = selectedColumns.stream().map(IcebergColumnHandle::getName).collect(toImmutableList());
         TableScan tableScan = icebergTable.newScan()
                 .metricsReporter(new RuntimeStatsMetricsReporter(session.getRuntimeStats()))
                 .filter(toIcebergExpression(nonMetadataIntersection))
-                .select(selectedColumns.stream().map(IcebergColumnHandle::getName).collect(Collectors.toList()))
-                .useSnapshot(tableHandle.getIcebergTableName().getSnapshotId().get())
-                .includeColumnStats();
+                .select(statisticsColumns)
+                .useSnapshot(tableHandle.getIcebergTableName().getSnapshotId().get());
+        // Deserializing per-file lower/upper bounds and null counts is the expensive part of reading
+        // a manifest, and it grows with the table's column count. Ask for them only for the columns
+        // whose statistics are actually returned below, and not at all when none are.
+        if (!statisticsColumns.isEmpty()) {
+            tableScan = tableScan.includeColumnStats(statisticsColumns);
+        }
 
         CloseableIterable<ContentFile<?>> files = CloseableIterable.transform(tableScan.planFiles(), ContentScanTask::file);
         return getSummaryFromFiles(files, idToTypeMapping, nonPartitionPrimitiveColumns, partitionFields);

@@ -67,12 +67,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 
 import static com.facebook.presto.iceberg.ExpressionConverter.toIcebergExpression;
 import static com.facebook.presto.iceberg.IcebergSessionProperties.isAggregatePushDownEnabled;
 import static com.facebook.presto.iceberg.IcebergSessionProperties.isPushdownFilterEnabled;
 import static com.facebook.presto.iceberg.IcebergUtil.getNativeValue;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.facebook.presto.iceberg.IcebergUtil.getNonMetadataColumnConstraints;
 import static com.facebook.presto.spi.plan.ProjectNode.Locality.LOCAL;
 import static com.google.common.base.Preconditions.checkState;
@@ -226,7 +228,17 @@ public class IcebergAggregationOptimizer
             if (!metricsModeSupportsAggregatePushDown(table, aggregateEvaluator.aggregates())) {
                 return node;
             }
-            TableScan scan = table.newScan().includeColumnStats();
+            // COUNT(*) is satisfied by each file's record count alone. MIN/MAX and COUNT(column)
+            // need bounds or null counts, but only for their own column, so avoid asking for every
+            // column's bounds -- that deserialization dominates the manifest read on a wide table.
+            Set<String> statisticsColumns = aggregateEvaluator.aggregates().stream()
+                    .map(BoundAggregate::columnName)
+                    .filter(columnName -> !columnName.equals("*"))
+                    .collect(toImmutableSet());
+            TableScan scan = table.newScan();
+            if (!statisticsColumns.isEmpty()) {
+                scan = scan.includeColumnStats(statisticsColumns);
+            }
             Snapshot snapshot = snapshotId.map(table::snapshot).orElseGet(table::currentSnapshot);
             if (snapshot == null) {
                 LOGGER.info("Skipping aggregate pushdown: table snapshot is null");
