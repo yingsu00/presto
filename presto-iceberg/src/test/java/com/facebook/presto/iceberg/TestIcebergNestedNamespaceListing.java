@@ -67,24 +67,26 @@ public class TestIcebergNestedNamespaceListing
     public void testNamespaceThatDisappearsMidWalkIsSkipped()
     {
         // "dropped" has no entry, so asking for its children throws, the way a catalog answers for
-        // a namespace it no longer knows.
+        // a namespace it no longer knows. The namespace itself must not appear in the result -- its
+        // name is only added after its children are successfully listed.
         ConnectorMetadata metadata = nestedNamespaceMetadata(new TestingNamespaces(ImmutableMap.of(
                 Namespace.empty(), ImmutableList.of(Namespace.of("kept"), Namespace.of("dropped")),
                 Namespace.of("kept"), ImmutableList.of())));
 
-        assertEquals(metadata.listSchemaNames(SESSION), ImmutableList.of("kept", "dropped"));
+        assertEquals(metadata.listSchemaNames(SESSION), ImmutableList.of("kept"));
     }
 
     @Test
     public void testNamespaceThatDisappearsBelowTheTopLevelIsSkipped()
     {
         // The same one level down: what is dropped is a nested namespace, so the namespaces walked
-        // before it, and its own parent, still have to come back.
+        // before it, and its own parent, still have to come back. "a.b" is not in the map, so it
+        // disappears during the walk and must not appear in the result.
         ConnectorMetadata metadata = nestedNamespaceMetadata(new TestingNamespaces(ImmutableMap.of(
                 Namespace.empty(), ImmutableList.of(Namespace.of("a")),
                 Namespace.of("a"), ImmutableList.of(Namespace.of("a", "b")))));
 
-        assertEquals(metadata.listSchemaNames(SESSION), ImmutableList.of("a", "a.b"));
+        assertEquals(metadata.listSchemaNames(SESSION), ImmutableList.of("a"));
     }
 
     @Test
