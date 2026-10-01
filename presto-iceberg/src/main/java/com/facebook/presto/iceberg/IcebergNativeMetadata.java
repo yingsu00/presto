@@ -64,7 +64,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.stream.Stream;
 
 import static com.facebook.presto.iceberg.CatalogType.HADOOP;
 import static com.facebook.presto.iceberg.IcebergErrorCode.ICEBERG_COMMIT_ERROR;
@@ -210,8 +209,8 @@ public class IcebergNativeMetadata
     }
 
     /**
-     * Lists the child namespaces of {@code parentNamespace} and their descendants, treating a namespace
-     * that is not there as one without children.
+     * Lists the child namespaces of {@code parentNamespace} and their descendants, omitting any
+     * namespace that disappears during the walk.
      *
      * A namespace can be reported by its parent's listing and still be gone by the time its own
      * children are asked for, because another query dropped it in between. Walking down the tree
@@ -223,17 +222,17 @@ public class IcebergNativeMetadata
      */
     private List<String> listNestedNamespaces(SupportsNamespaces supportsNamespaces, Namespace parentNamespace)
     {
-        try {
-            return supportsNamespaces.listNamespaces(parentNamespace)
-                    .stream()
-                    .flatMap(childNamespace -> Stream.concat(
-                            Stream.of(toPrestoSchemaName(childNamespace)),
-                            listNestedNamespaces(supportsNamespaces, childNamespace).stream()))
-                    .collect(toList());
+        ImmutableList.Builder<String> schemaNames = ImmutableList.builder();
+        for (Namespace childNamespace : supportsNamespaces.listNamespaces(parentNamespace)) {
+            try {
+                List<String> descendants = listNestedNamespaces(supportsNamespaces, childNamespace);
+                schemaNames.add(toPrestoSchemaName(childNamespace)).addAll(descendants);
+            }
+            catch (NoSuchNamespaceException e) {
+                log.debug("Namespace %s was listed by its parent but is no longer there; skipping it", childNamespace);
+            }
         }
-        catch (NoSuchNamespaceException e) {
-            return ImmutableList.of();
-        }
+        return schemaNames.build();
     }
 
     @Override
