@@ -141,6 +141,9 @@ public final class HiveSessionProperties
 
     public static final String NATIVE_MAX_TARGET_FILE_SIZE = "native_max_target_file_size";
 
+    public static final String NATIVE_PARQUET_STRING_FUNCTION_AND_INT64_TIMESTAMP_FILTERS_ENABLED =
+            "native_parquet_string_function_and_int64_timestamp_filters_enabled";
+
     private final List<PropertyMetadata<?>> sessionProperties;
 
     @Inject
@@ -683,6 +686,11 @@ public final class HiveSessionProperties
                         NATIVE_MAX_TARGET_FILE_SIZE,
                        "Native Execution only. Maximum target file size. When a file exceeds this size during writing, the writer will close the current file and start writing to a new file. Zero means no limit.",
                         new DataSize(0, DataSize.Unit.BYTE),
+                        false),
+                booleanProperty(
+                        NATIVE_PARQUET_STRING_FUNCTION_AND_INT64_TIMESTAMP_FILTERS_ENABLED,
+                        "Native Execution only. Push down predicates on length(), lower(), upper(), strpos() and LIKE as filters on the column, and test filters on Parquet INT64 timestamps as integers. When false, these predicates stay in the remaining filter and each INT64 timestamp is converted before it is tested.",
+                        true,
                         false));
     }
 

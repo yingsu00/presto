@@ -715,6 +715,16 @@ Session properties set behavior changes for queries executed within the given se
        ``iceberg.aggregate-push-down-enabled`` in the current session.
      - Yes
      - Yes
+   * - .. _iceberg-sess-native-parquet-string-function-and-int64-timestamp-filters-enabled:
+
+       ``native_parquet_string_function_and_int64_timestamp_filters_enabled``
+     - Push down predicates on ``length()``, ``lower()``, ``upper()``,
+       ``strpos()`` and LIKE as filters on the column, and test filters on
+       Parquet INT64 timestamps as integers. When false, these predicates stay
+       in the remaining filter and each INT64 timestamp is converted before it
+       is tested. Default: ``true``.
+     - No
+     - Yes
 
 Caching Support
 ---------------

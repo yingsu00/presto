@@ -79,6 +79,8 @@ public final class IcebergSessionProperties
     public static final String MATERIALIZED_VIEW_DEFAULT_MAX_SNAPSHOTS_PER_REFRESH = "materialized_view_default_max_snapshots_per_refresh";
     public static final String AGGREGATE_PUSH_DOWN_ENABLED = "aggregate_push_down_enabled";
     public static final String TARGET_MAX_FILE_SIZE = "target_max_file_size";
+    public static final String NATIVE_PARQUET_STRING_FUNCTION_AND_INT64_TIMESTAMP_FILTERS_ENABLED =
+            "native_parquet_string_function_and_int64_timestamp_filters_enabled";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -272,6 +274,11 @@ public final class IcebergSessionProperties
                         AGGREGATE_PUSH_DOWN_ENABLED,
                         "Controls whether to push down aggregate (MIN/MAX/COUNT) to Iceberg based on data file stats",
                         icebergConfig.isAggregatePushDownEnabled(),
+                        false))
+                .add(booleanProperty(
+                        NATIVE_PARQUET_STRING_FUNCTION_AND_INT64_TIMESTAMP_FILTERS_ENABLED,
+                        "Native Execution only. Push down predicates on length(), lower(), upper(), strpos() and LIKE as filters on the column, and test filters on Parquet INT64 timestamps as integers. When false, these predicates stay in the remaining filter and each INT64 timestamp is converted before it is tested.",
+                        true,
                         false))
                 .add(new PropertyMetadata<>(
                         TARGET_MAX_FILE_SIZE,

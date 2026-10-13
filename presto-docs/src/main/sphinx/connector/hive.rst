@@ -274,21 +274,28 @@ Property Name                                            Description            
 Hive Session Properties
 -----------------------
 
-======================================================== ============================================================ ============
-Property Name                                            Description                                                  Default
-======================================================== ============================================================ ============
-``native_max_target_file_size``                          Native Execution only. Maximum target file size. When a      ``0B``
-                                                         file exceeds this size during writing, the writer will
-                                                         close the current file and start writing to a new file.
-                                                         Zero means no limit.
+======================================================================== ============================================================ ============
+Property Name                                                            Description                                                  Default
+======================================================================== ============================================================ ============
+``native_max_target_file_size``                                          Native Execution only. Maximum target file size. When a      ``0B``
+                                                                         file exceeds this size during writing, the writer will
+                                                                         close the current file and start writing to a new file.
+                                                                         Zero means no limit.
 
-``read_null_for_out_of_bounds_timestamp``                Read an ORC or DWRF timestamp that falls outside the         ``false``
-                                                         supported range as ``NULL`` instead of failing the query.
-                                                         The default is set by the
-                                                         ``hive.read-null-for-out-of-bounds-timestamp``
-                                                         configuration property, which also describes caveats.
-                                                         Not supported by native execution.
-======================================================== ============================================================ ============
+``read_null_for_out_of_bounds_timestamp``                                Read an ORC or DWRF timestamp that falls outside the         ``false``
+                                                                         supported range as ``NULL`` instead of failing the query.
+                                                                         The default is set by the
+                                                                         ``hive.read-null-for-out-of-bounds-timestamp``
+                                                                         configuration property, which also describes caveats.
+                                                                         Not supported by native execution.
+
+``native_parquet_string_function_and_int64_timestamp_filters_enabled``   Native Execution only. Push down predicates on ``length()``, ``true``
+                                                                         ``lower()``, ``upper()``, ``strpos()`` and LIKE as filters
+                                                                         on the column, and test filters on Parquet INT64 timestamps
+                                                                         as integers. When false, these predicates stay in the
+                                                                         remaining filter and each INT64 timestamp is converted
+                                                                         before it is tested.
+======================================================================== ============================================================ ============
 
 Avro Configuration Properties
 -----------------------------
