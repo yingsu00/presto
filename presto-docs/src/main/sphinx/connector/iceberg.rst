@@ -3316,9 +3316,8 @@ For example::
 If a user creates a table externally with non-identity sort columns and then inserts data, the following warning message will be shown.
 ``Iceberg table sort order has sort fields of <X>, <Y>, ... which are not currently supported by Presto``
 
-Presto C++ workers also sort the rows of each data file by the table's sort order. On Presto
-C++ workers, ``rewrite_data_files`` with a ``zorder(...)`` sort fails, because z-order sorting
-is not supported.
+Presto C++ workers also sort the rows of each data file by the table's sort order, and support
+``rewrite_data_files`` with a ``zorder(...)`` sort.
 
 Materialized Views
 ------------------

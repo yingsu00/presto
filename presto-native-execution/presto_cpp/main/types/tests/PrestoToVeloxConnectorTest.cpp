@@ -1567,9 +1567,9 @@ TEST_F(PrestoToVeloxConnectorTest, icebergDistributedProcedureHandle) {
       connector::hive::iceberg::IcebergInsertTableHandle::WriteKind::kData);
 }
 
-TEST_F(PrestoToVeloxConnectorTest, icebergZOrderSortRejected) {
-  // rewrite_data_files sorts on a computed z-order value, which native workers
-  // do not compute.
+TEST_F(PrestoToVeloxConnectorTest, icebergZOrderSort) {
+  // rewrite_data_files sorts on a z-order value that the planner computes into
+  // an extra column, so the sort field has no source column.
   auto protoHandle =
       std::make_shared<protocol::iceberg::IcebergDistributedProcedureHandle>();
   protoHandle->_type = "hive-iceberg";
@@ -1580,7 +1580,7 @@ TEST_F(PrestoToVeloxConnectorTest, icebergZOrderSortRejected) {
   protoHandle->partitionSpec = makeIdentityPartitionSpec();
   protocol::iceberg::SortField zOrder;
   zOrder.sourceColumnId = std::numeric_limits<int32_t>::min() + 3;
-  zOrder.sortOrder = protocol::SortOrder::ASC_NULLS_FIRST;
+  zOrder.sortOrder = protocol::SortOrder::ASC_NULLS_LAST;
   protoHandle->sortOrder = {zOrder};
 
   protocol::ExecuteProcedureHandle procedureHandle;
@@ -1588,9 +1588,16 @@ TEST_F(PrestoToVeloxConnectorTest, icebergZOrderSortRejected) {
   procedureHandle.handle.connectorId = "iceberg";
 
   IcebergPrestoToVeloxConnector icebergConnector("iceberg");
-  VELOX_ASSERT_USER_THROW(
-      icebergConnector.toVeloxInsertTableHandle(&procedureHandle, *typeParser_),
-      "Z-order sorting is not supported by native workers");
+  auto result =
+      icebergConnector.toVeloxInsertTableHandle(&procedureHandle, *typeParser_);
+  auto* icebergInsert =
+      dynamic_cast<connector::hive::iceberg::IcebergInsertTableHandle*>(
+          result.get());
+  ASSERT_NE(icebergInsert, nullptr);
+  const auto& sortOrder = icebergInsert->sortOrder();
+  ASSERT_EQ(sortOrder.size(), 1);
+  EXPECT_FALSE(sortOrder[0].sourceFieldId.has_value());
+  EXPECT_EQ(sortOrder[0].sortOrder, core::kAscNullsLast);
 }
 
 namespace {

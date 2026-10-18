@@ -332,8 +332,9 @@ toVeloxIcebergPartitionSpec(
       spec.specId, fields);
 }
 
-// Field id of the computed z-order value that rewrite_data_files sorts on.
-// Matches IcebergMetadataColumn.Z_ORDER in Presto Java.
+// Source column id of the z-order sort field that rewrite_data_files adds. The
+// planner computes the z-order value into an extra column after the table
+// columns. Matches IcebergMetadataColumn.Z_ORDER in Presto Java.
 constexpr int32_t kZOrderColumnId = std::numeric_limits<int32_t>::min() + 3;
 
 velox::core::SortOrder toVeloxSortOrder(protocol::SortOrder sortOrder) {
@@ -358,12 +359,11 @@ toVeloxIcebergSortOrder(
   std::vector<velox::connector::hive::iceberg::IcebergSortField> sortFields;
   sortFields.reserve(sortOrder.size());
   for (const auto& sortField : sortOrder) {
-    VELOX_USER_CHECK_NE(
-        sortField.sourceColumnId,
-        kZOrderColumnId,
-        "Z-order sorting is not supported by native workers");
     sortFields.push_back(
-        {sortField.sourceColumnId, toVeloxSortOrder(sortField.sortOrder)});
+        {sortField.sourceColumnId == kZOrderColumnId
+             ? std::nullopt
+             : std::optional(sortField.sourceColumnId),
+         toVeloxSortOrder(sortField.sortOrder)});
   }
   return sortFields;
 }
