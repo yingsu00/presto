@@ -13,6 +13,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <limits>
 #include "presto_cpp/main/connectors/HivePrestoToVeloxConnector.h"
 #include "presto_cpp/main/connectors/IcebergPrestoToVeloxConnector.h"
 #include "presto_cpp/main/connectors/PrestoToVeloxConnectorUtils.h"
@@ -1404,8 +1405,17 @@ protocol::iceberg::PrestoIcebergPartitionSpec makeIdentityPartitionSpec() {
   return spec;
 }
 
-// Asserts the parts every write handle shares: a partitioned Iceberg insert
-// handle whose location points at "<outputPath>/data".
+// Uses a sort order that Hive sorting columns reject, so the conversion cannot
+// be routed through them.
+protocol::List<protocol::iceberg::SortField> makeSortOrder() {
+  protocol::iceberg::SortField sortField;
+  sortField.sourceColumnId = 1;
+  sortField.sortOrder = protocol::SortOrder::DESC_NULLS_FIRST;
+  return {sortField};
+}
+
+// Asserts the parts every write handle shares: a partitioned and sorted
+// Iceberg insert handle whose location points at "<outputPath>/data".
 void verifyIcebergWriteHandle(
     const std::unique_ptr<connector::ConnectorInsertTableHandle>& result,
     connector::hive::LocationHandle::TableType expectedTableType,
@@ -1435,6 +1445,11 @@ void verifyIcebergWriteHandle(
   EXPECT_EQ(
       partitionSpec->fields[0].transformType,
       connector::hive::iceberg::TransformType::kIdentity);
+
+  const auto& sortOrder = icebergInsert->sortOrder();
+  ASSERT_EQ(sortOrder.size(), 1);
+  EXPECT_EQ(sortOrder[0].sourceFieldId, 1);
+  EXPECT_EQ(sortOrder[0].sortOrder, core::kDescNullsFirst);
 }
 
 } // namespace
@@ -1452,6 +1467,7 @@ TEST_F(PrestoToVeloxConnectorTest, icebergCreateTableHandle) {
   protoHandle->compressionCodec = protocol::hive::HiveCompressionCodec::NONE;
   protoHandle->inputColumns = {makeIcebergIdColumn()};
   protoHandle->partitionSpec = makeIdentityPartitionSpec();
+  protoHandle->sortOrder = makeSortOrder();
 
   protocol::CreateHandle createHandle;
   createHandle.handle.connectorHandle = protoHandle;
@@ -1478,6 +1494,7 @@ TEST_F(PrestoToVeloxConnectorTest, icebergInsertTableHandle) {
   protoHandle->compressionCodec = protocol::hive::HiveCompressionCodec::NONE;
   protoHandle->inputColumns = {makeIcebergIdColumn()};
   protoHandle->partitionSpec = makeIdentityPartitionSpec();
+  protoHandle->sortOrder = makeSortOrder();
 
   protocol::InsertHandle insertHandle;
   insertHandle.handle.connectorHandle = protoHandle;
@@ -1508,6 +1525,7 @@ TEST_F(PrestoToVeloxConnectorTest, icebergMergeTableHandle) {
       protocol::hive::HiveCompressionCodec::NONE;
   protoHandle->insertTableHandle.inputColumns = {makeIcebergIdColumn()};
   protoHandle->insertTableHandle.partitionSpec = makeIdentityPartitionSpec();
+  protoHandle->insertTableHandle.sortOrder = makeSortOrder();
 
   protocol::MergeHandle mergeHandle;
   mergeHandle.connectorMergeTableHandle = protoHandle;
@@ -1533,6 +1551,7 @@ TEST_F(PrestoToVeloxConnectorTest, icebergDistributedProcedureHandle) {
   protoHandle->compressionCodec = protocol::hive::HiveCompressionCodec::NONE;
   protoHandle->inputColumns = {makeIcebergIdColumn()};
   protoHandle->partitionSpec = makeIdentityPartitionSpec();
+  protoHandle->sortOrder = makeSortOrder();
 
   protocol::ExecuteProcedureHandle procedureHandle;
   procedureHandle.handle.connectorHandle = protoHandle;
@@ -1546,6 +1565,32 @@ TEST_F(PrestoToVeloxConnectorTest, icebergDistributedProcedureHandle) {
       result,
       connector::hive::LocationHandle::TableType::kExisting,
       connector::hive::iceberg::IcebergInsertTableHandle::WriteKind::kData);
+}
+
+TEST_F(PrestoToVeloxConnectorTest, icebergZOrderSortRejected) {
+  // rewrite_data_files sorts on a computed z-order value, which native workers
+  // do not compute.
+  auto protoHandle =
+      std::make_shared<protocol::iceberg::IcebergDistributedProcedureHandle>();
+  protoHandle->_type = "hive-iceberg";
+  protoHandle->outputPath = "/path/to/table";
+  protoHandle->fileFormat = protocol::iceberg::FileFormat::PARQUET;
+  protoHandle->compressionCodec = protocol::hive::HiveCompressionCodec::NONE;
+  protoHandle->inputColumns = {makeIcebergIdColumn()};
+  protoHandle->partitionSpec = makeIdentityPartitionSpec();
+  protocol::iceberg::SortField zOrder;
+  zOrder.sourceColumnId = std::numeric_limits<int32_t>::min() + 3;
+  zOrder.sortOrder = protocol::SortOrder::ASC_NULLS_FIRST;
+  protoHandle->sortOrder = {zOrder};
+
+  protocol::ExecuteProcedureHandle procedureHandle;
+  procedureHandle.handle.connectorHandle = protoHandle;
+  procedureHandle.handle.connectorId = "iceberg";
+
+  IcebergPrestoToVeloxConnector icebergConnector("iceberg");
+  VELOX_ASSERT_USER_THROW(
+      icebergConnector.toVeloxInsertTableHandle(&procedureHandle, *typeParser_),
+      "Z-order sorting is not supported by native workers");
 }
 
 namespace {

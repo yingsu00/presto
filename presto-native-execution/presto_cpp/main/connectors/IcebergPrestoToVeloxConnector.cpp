@@ -17,6 +17,7 @@
 
 #include <folly/json.h>
 #include <algorithm>
+#include <limits>
 #include <unordered_set>
 
 #include "presto_cpp/presto_protocol/connector/iceberg/IcebergConnectorProtocol.h"
@@ -329,6 +330,42 @@ toVeloxIcebergPartitionSpec(
   return std::make_unique<
       velox::connector::hive::iceberg::IcebergPartitionSpec>(
       spec.specId, fields);
+}
+
+// Field id of the computed z-order value that rewrite_data_files sorts on.
+// Matches IcebergMetadataColumn.Z_ORDER in Presto Java.
+constexpr int32_t kZOrderColumnId = std::numeric_limits<int32_t>::min() + 3;
+
+velox::core::SortOrder toVeloxSortOrder(protocol::SortOrder sortOrder) {
+  switch (sortOrder) {
+    case protocol::SortOrder::ASC_NULLS_FIRST:
+      return velox::core::kAscNullsFirst;
+    case protocol::SortOrder::ASC_NULLS_LAST:
+      return velox::core::kAscNullsLast;
+    case protocol::SortOrder::DESC_NULLS_FIRST:
+      return velox::core::kDescNullsFirst;
+    case protocol::SortOrder::DESC_NULLS_LAST:
+      return velox::core::kDescNullsLast;
+    default:
+      VELOX_UNSUPPORTED(
+          "Unsupported sort order: {}", fmt::underlying(sortOrder));
+  }
+}
+
+std::vector<velox::connector::hive::iceberg::IcebergSortField>
+toVeloxIcebergSortOrder(
+    const protocol::List<protocol::iceberg::SortField>& sortOrder) {
+  std::vector<velox::connector::hive::iceberg::IcebergSortField> sortFields;
+  sortFields.reserve(sortOrder.size());
+  for (const auto& sortField : sortOrder) {
+    VELOX_USER_CHECK_NE(
+        sortField.sourceColumnId,
+        kZOrderColumnId,
+        "Z-order sorting is not supported by native workers");
+    sortFields.push_back(
+        {sortField.sourceColumnId, toVeloxSortOrder(sortField.sortOrder)});
+  }
+  return sortFields;
 }
 
 velox::parquet::ParquetFieldId toParquetField(
@@ -819,7 +856,21 @@ IcebergPrestoToVeloxConnector::toVeloxInsertTableHandle(
       toVeloxIcebergPartitionSpec(
           icebergDistributedProcedureHandle->partitionSpec, typeParser),
       std::optional(toFileCompressionKind(
-          icebergDistributedProcedureHandle->compressionCodec)));
+          icebergDistributedProcedureHandle->compressionCodec)),
+      /*serdeParameters=*/std::unordered_map<std::string, std::string>{},
+      /*writeKind=*/
+      velox::connector::hive::iceberg::IcebergInsertTableHandle::WriteKind::
+          kData,
+      /*existingDeletionVectors=*/
+      std::unordered_map<
+          std::string,
+          velox::connector::hive::iceberg::IcebergInsertTableHandle::
+              ExistingDeletionVector>{},
+      /*fileNameGenerator=*/
+      std::make_shared<
+          const velox::connector::hive::iceberg::IcebergFileNameGenerator>(),
+      /*insertedColumns=*/std::vector<std::string>{},
+      toVeloxIcebergSortOrder(icebergDistributedProcedureHandle->sortOrder));
 }
 
 std::unique_ptr<protocol::ConnectorProtocol>
@@ -854,7 +905,21 @@ IcebergPrestoToVeloxConnector::toVeloxInsertTableHandle(
       toVeloxIcebergPartitionSpec(
           icebergOutputTableHandle->partitionSpec, typeParser),
       std::optional(
-          toFileCompressionKind(icebergOutputTableHandle->compressionCodec)));
+          toFileCompressionKind(icebergOutputTableHandle->compressionCodec)),
+      /*serdeParameters=*/std::unordered_map<std::string, std::string>{},
+      /*writeKind=*/
+      velox::connector::hive::iceberg::IcebergInsertTableHandle::WriteKind::
+          kData,
+      /*existingDeletionVectors=*/
+      std::unordered_map<
+          std::string,
+          velox::connector::hive::iceberg::IcebergInsertTableHandle::
+              ExistingDeletionVector>{},
+      /*fileNameGenerator=*/
+      std::make_shared<
+          const velox::connector::hive::iceberg::IcebergFileNameGenerator>(),
+      /*insertedColumns=*/std::vector<std::string>{},
+      toVeloxIcebergSortOrder(icebergOutputTableHandle->sortOrder));
 }
 
 std::unique_ptr<velox::connector::ConnectorInsertTableHandle>
@@ -897,7 +962,8 @@ IcebergPrestoToVeloxConnector::toVeloxInsertTableHandle(
       /*fileNameGenerator=*/
       std::make_shared<
           const velox::connector::hive::iceberg::IcebergFileNameGenerator>(),
-      /*insertedColumns=*/icebergInsertTableHandle->insertedColumns);
+      /*insertedColumns=*/icebergInsertTableHandle->insertedColumns,
+      toVeloxIcebergSortOrder(icebergInsertTableHandle->sortOrder));
 }
 
 std::unique_ptr<velox::connector::ConnectorInsertTableHandle>
@@ -1002,7 +1068,12 @@ IcebergPrestoToVeloxConnector::toVeloxInsertTableHandle(
       std::unordered_map<std::string, std::string>{},
       velox::connector::hive::iceberg::IcebergInsertTableHandle::WriteKind::
           kMerge,
-      toExistingDeletionVectors(innerInsert.existingDeletionVectors));
+      toExistingDeletionVectors(innerInsert.existingDeletionVectors),
+      /*fileNameGenerator=*/
+      std::make_shared<
+          const velox::connector::hive::iceberg::IcebergFileNameGenerator>(),
+      /*insertedColumns=*/std::vector<std::string>{},
+      toVeloxIcebergSortOrder(innerInsert.sortOrder));
 }
 
 } // namespace facebook::presto
