@@ -3317,7 +3317,9 @@ If a user creates a table externally with non-identity sort columns and then ins
 ``Iceberg table sort order has sort fields of <X>, <Y>, ... which are not currently supported by Presto``
 
 Presto C++ workers also sort the rows of each data file by the table's sort order, and support
-``rewrite_data_files`` with a ``zorder(...)`` sort.
+``rewrite_data_files`` with a ``zorder(...)`` sort. On Presto C++ workers,
+``iceberg.target_max_file_size`` also splits the files of a sorted table, so each file holds a
+contiguous range of the sort order. Java workers write one file per writer for a sorted table.
 
 Materialized Views
 ------------------
