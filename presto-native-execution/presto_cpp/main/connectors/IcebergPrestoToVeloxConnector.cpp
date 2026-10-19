@@ -873,6 +873,21 @@ IcebergPrestoToVeloxConnector::toVeloxInsertTableHandle(
       toVeloxIcebergSortOrder(icebergDistributedProcedureHandle->sortOrder));
 }
 
+std::unique_ptr<velox::core::PartitionFunctionSpec>
+IcebergPrestoToVeloxConnector::createVeloxPartitionFunctionSpec(
+    const protocol::ConnectorPartitioningHandle* partitioningHandle,
+    const std::vector<int>& bucketToPartition,
+    const std::vector<velox::column_index_t>& channels,
+    const std::vector<velox::VectorPtr>& constValues,
+    bool& effectivelyGather) const {
+  return toHivePartitionFunctionSpec(
+      partitioningHandle,
+      bucketToPartition,
+      channels,
+      constValues,
+      effectivelyGather);
+}
+
 std::unique_ptr<protocol::ConnectorProtocol>
 IcebergPrestoToVeloxConnector::createConnectorProtocol() const {
   return std::make_unique<protocol::iceberg::IcebergConnectorProtocol>();

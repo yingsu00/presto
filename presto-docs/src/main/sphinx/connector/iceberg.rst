@@ -618,6 +618,16 @@ Session properties set behavior changes for queries executed within the given se
        ``iceberg.target-max-file-size`` in the current session.
      - Yes
      - Yes
+   * - .. _iceberg-sess-shuffle-partitioned-columns-for-table-write:
+
+       ``iceberg.shuffle_partitioned_columns_for_table_write``
+     - Shuffles the rows of an INSERT or CREATE TABLE AS on their partition values, so each partition
+       is written by a single writer and ends up in fewer files. Applies to tables whose partition
+       fields are all identity transforms of BOOLEAN, TINYINT, SMALLINT, INTEGER, BIGINT, REAL,
+       DOUBLE, VARCHAR, DATE or TIMESTAMP columns; other tables are written as without it. A large
+       partition is then written by one writer. The default value is ``false``.
+     - Yes
+     - Yes
    * - .. _iceberg-sess-target-split-size-bytes:
 
        ``iceberg.target_split_size_bytes``
