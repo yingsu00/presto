@@ -70,7 +70,7 @@ public class TestPrestoNativeIcebergSortedWrites
         assertUpdate("INSERT INTO test_sorted_insert " + SOURCE_QUERY, ROW_COUNT);
 
         assertQuery("SELECT count(*), count(id), count(name) FROM test_sorted_insert", "SELECT 5000, 4500, 4286");
-        assertFilesSorted("test_sorted_insert", nullsFirst(Comparator.<Long>reverseOrder()), nullsLast(naturalOrder()));
+        assertFilesSorted(getDataFiles("test_sorted_insert"), rowOrder(nullsFirst(Comparator.<Long>reverseOrder()), nullsLast(naturalOrder())), ROW_COUNT);
     }
 
     @Test
@@ -80,7 +80,7 @@ public class TestPrestoNativeIcebergSortedWrites
         assertUpdate("CREATE TABLE test_sorted_ctas WITH (sorted_by = ARRAY['id', 'name DESC']) AS " + SOURCE_QUERY, ROW_COUNT);
 
         // Iceberg places nulls first for ASC and last for DESC by default.
-        assertFilesSorted("test_sorted_ctas", nullsFirst(naturalOrder()), nullsLast(Comparator.<String>reverseOrder()));
+        assertFilesSorted(getDataFiles("test_sorted_ctas"), rowOrder(nullsFirst(naturalOrder()), nullsLast(Comparator.<String>reverseOrder())), ROW_COUNT);
     }
 
     @Test
@@ -93,24 +93,82 @@ public class TestPrestoNativeIcebergSortedWrites
 
         List<String> files = getDataFiles("test_sorted_partitioned");
         assertTrue(files.size() >= 3, format("Expected a file per partition, got %s", files));
-        assertFilesSorted("test_sorted_partitioned", nullsLast(Comparator.<Long>reverseOrder()), nullsFirst(naturalOrder()));
+        assertFilesSorted(files, rowOrder(nullsLast(Comparator.<Long>reverseOrder()), nullsFirst(naturalOrder())), ROW_COUNT);
     }
 
-    private void assertFilesSorted(String table, Comparator<Long> idOrder, Comparator<String> nameOrder)
+    @Test
+    public void testRewriteDataFilesWithSortOrder()
     {
-        Comparator<Group> rowOrder = Comparator.comparing(row -> getValue(row, "id", group -> group.getLong("id", 0)), idOrder);
-        rowOrder = rowOrder.thenComparing(row -> getValue(row, "name", group -> group.getString("name", 0)), nameOrder);
+        String schema = getSession().getSchema().get();
+        assertUpdate("DROP TABLE IF EXISTS test_sorted_rewrite");
+        assertUpdate("CREATE TABLE test_sorted_rewrite (id BIGINT, name VARCHAR, part INTEGER)");
+        for (int insert = 0; insert < 3; insert++) {
+            assertUpdate("INSERT INTO test_sorted_rewrite " + SOURCE_QUERY, ROW_COUNT);
+        }
+        Comparator<Group> order = rowOrder(nullsFirst(Comparator.<Long>reverseOrder()), nullsFirst(naturalOrder()));
+        assertTrue(getDataFiles("test_sorted_rewrite").stream().noneMatch(file -> isSorted(file, order)), "The table must start unsorted");
 
+        // rewrite-all includes groups below the default minimum of five input files.
+        assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => 'test_sorted_rewrite', " +
+                "strategy => 'sort', sorted_by => ARRAY['id DESC NULLS FIRST', 'name'], " +
+                "options => map(ARRAY['rewrite-all'], ARRAY['true']))", schema), 3 * ROW_COUNT);
+
+        assertFilesSorted(getDataFiles("test_sorted_rewrite"), order, 3 * ROW_COUNT);
+    }
+
+    @Test
+    public void testRewriteDataFilesWithTableSortOrder()
+    {
+        String schema = getSession().getSchema().get();
+        assertUpdate("DROP TABLE IF EXISTS test_sorted_rewrite_table_order");
+        assertUpdate("CREATE TABLE test_sorted_rewrite_table_order (id BIGINT, name VARCHAR, part INTEGER) " +
+                "WITH (sorted_by = ARRAY['id', 'name DESC'])");
+        // Each insert writes a sorted file, but the files together are not in order, so the rewrite has to sort
+        // the rows it merges.
+        for (int insert = 0; insert < 3; insert++) {
+            assertUpdate("INSERT INTO test_sorted_rewrite_table_order " + SOURCE_QUERY, ROW_COUNT);
+        }
+
+        // Without sorted_by, the sort strategy uses the table's sort order.
+        assertUpdate(format("CALL system.rewrite_data_files(schema => '%s', table_name => 'test_sorted_rewrite_table_order', " +
+                "strategy => 'sort', options => map(ARRAY['rewrite-all'], ARRAY['true']))", schema), 3 * ROW_COUNT);
+
+        assertFilesSorted(
+                getDataFiles("test_sorted_rewrite_table_order"),
+                rowOrder(nullsFirst(naturalOrder()), nullsLast(Comparator.<String>reverseOrder())),
+                3 * ROW_COUNT);
+    }
+
+    /// Orders rows by id, then by name.
+    private static Comparator<Group> rowOrder(Comparator<Long> idOrder, Comparator<String> nameOrder)
+    {
+        Comparator<Group> order = Comparator.comparing(row -> getValue(row, "id", group -> group.getLong("id", 0)), idOrder);
+        return order.thenComparing(row -> getValue(row, "name", group -> group.getString("name", 0)), nameOrder);
+    }
+
+    private static void assertFilesSorted(List<String> files, Comparator<Group> order, long expectedRowCount)
+    {
         long rowCount = 0;
-        for (String file : getDataFiles(table)) {
+        for (String file : files) {
             List<Group> rows = readRows(file);
             for (int i = 1; i < rows.size(); i++) {
-                assertTrue(rowOrder.compare(rows.get(i - 1), rows.get(i)) <= 0,
+                assertTrue(order.compare(rows.get(i - 1), rows.get(i)) <= 0,
                         format("Rows %s and %s of %s are out of order: %s, %s", i - 1, i, file, rows.get(i - 1), rows.get(i)));
             }
             rowCount += rows.size();
         }
-        assertEquals(rowCount, ROW_COUNT);
+        assertEquals(rowCount, expectedRowCount);
+    }
+
+    private static boolean isSorted(String file, Comparator<Group> order)
+    {
+        List<Group> rows = readRows(file);
+        for (int i = 1; i < rows.size(); i++) {
+            if (order.compare(rows.get(i - 1), rows.get(i)) > 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static <T> T getValue(Group row, String column, Function<Group, T> reader)
