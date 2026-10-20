@@ -16,8 +16,14 @@ package com.facebook.presto.nativeworker.iceberg;
 import com.facebook.presto.Session;
 import com.facebook.presto.testing.QueryRunner;
 import com.facebook.presto.tests.AbstractTestQueryFramework;
+import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.parquet.column.ColumnDescriptor;
+import org.apache.parquet.column.page.DataPage;
+import org.apache.parquet.column.page.DataPageV1;
+import org.apache.parquet.column.page.PageReadStore;
+import org.apache.parquet.column.page.PageReader;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.hadoop.ParquetFileReader;
 import org.apache.parquet.hadoop.ParquetReader;
@@ -46,6 +52,8 @@ public class TestPrestoNativeIcebergWriterSessionProperties
         extends AbstractTestQueryFramework
 {
     private static final String PARQUET_WRITER_BLOCK_SIZE = "parquet_writer_block_size";
+    private static final String PARQUET_WRITER_PAGE_SIZE = "parquet_writer_page_size";
+    private static final long PAGE_TARGET_BYTES = 64L << 10;
     private static final String COMPRESSION_CODEC = "compression_codec";
     private static final long TARGET_BYTES = 1L << 20;
     private static final String TARGET = "1MB";
@@ -103,6 +111,44 @@ public class TestPrestoNativeIcebergWriterSessionProperties
     {
         assertRowGroupsFollowTarget("test_sorted_parquet_writer_block_size", SORTED);
         getDataFiles("test_sorted_parquet_writer_block_size").forEach(TestPrestoNativeIcebergWriterSessionProperties::assertSortedByPayload);
+    }
+
+    @Test
+    public void testParquetWriterPageSize()
+    {
+        // Without compression the decompressed page size is what the writer compares against the page size.
+        Session uncompressed = withIcebergProperty(COMPRESSION_CODEC, "NONE");
+
+        writeTable("test_default_page_size", uncompressed, UNSORTED);
+        int largestDefaultPage = getDataFiles("test_default_page_size").stream()
+                .flatMap(file -> getPayloadPages(file).stream())
+                .flatMap(List::stream)
+                .mapToInt(DataPage::getUncompressedSize)
+                .max()
+                .orElseThrow();
+        // Without the property the pages exceed the bound checked below, so the bound proves the property is applied.
+        assertTrue(largestDefaultPage > PAGE_TARGET_BYTES * 3 / 2, format("Default page of %s bytes is too small for this test", largestDefaultPage));
+
+        writeTable("test_parquet_writer_page_size", Session.builder(uncompressed)
+                .setCatalogSessionProperty(ICEBERG_CATALOG, PARQUET_WRITER_PAGE_SIZE, "64kB")
+                .build(), UNSORTED);
+        for (String file : getDataFiles("test_parquet_writer_page_size")) {
+            for (List<DataPage> pages : getPayloadPages(file)) {
+                assertTrue(pages.size() > 1, format("Expected more than one page per column chunk in %s", file));
+                for (int i = 0; i < pages.size(); i++) {
+                    DataPage page = pages.get(i);
+                    // The writer checks the page size after each batch of values, so a page can overshoot by a batch.
+                    assertTrue(page.getUncompressedSize() <= PAGE_TARGET_BYTES * 2,
+                            format("Page %s of %s has %s bytes, overshooting the target", i, file, page.getUncompressedSize()));
+                    // The last page of a column chunk holds whatever is left. A dictionary encoded page holds
+                    // dictionary indices, whose size does not follow the page size.
+                    if (i < pages.size() - 1 && !isDictionaryEncoded(page)) {
+                        assertTrue(page.getUncompressedSize() >= PAGE_TARGET_BYTES * 4 / 5,
+                                format("Page %s of %s has %s bytes, closed before the target", i, file, page.getUncompressedSize()));
+                    }
+                }
+            }
+        }
     }
 
     private void assertFileSizesFollowTarget(String table, int writerCount)
@@ -198,6 +244,32 @@ public class TestPrestoNativeIcebergWriterSessionProperties
         catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /// Returns the data pages of the payload column, one list per row group.
+    private static List<List<DataPage>> getPayloadPages(String file)
+    {
+        try (ParquetFileReader reader = ParquetFileReader.open(HadoopInputFile.fromPath(new Path(file), new Configuration()))) {
+            ColumnDescriptor payload = reader.getFileMetaData().getSchema().getColumnDescription(new String[] {"payload"});
+            ImmutableList.Builder<List<DataPage>> pagesPerRowGroup = ImmutableList.builder();
+            for (PageReadStore rowGroup = reader.readNextRowGroup(); rowGroup != null; rowGroup = reader.readNextRowGroup()) {
+                PageReader pageReader = rowGroup.getPageReader(payload);
+                ImmutableList.Builder<DataPage> pages = ImmutableList.builder();
+                for (DataPage page = pageReader.readPage(); page != null; page = pageReader.readPage()) {
+                    pages.add(page);
+                }
+                pagesPerRowGroup.add(pages.build());
+            }
+            return pagesPerRowGroup.build();
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static boolean isDictionaryEncoded(DataPage page)
+    {
+        return page instanceof DataPageV1 && ((DataPageV1) page).getValueEncoding().usesDictionary();
     }
 
     private static List<BlockMetaData> getRowGroups(String file)
