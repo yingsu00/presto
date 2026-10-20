@@ -37,6 +37,7 @@ import java.io.UncheckedIOException;
 import java.util.List;
 
 import static com.facebook.presto.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
+import static com.facebook.presto.iceberg.IcebergSessionProperties.NATIVE_PARQUET_WRITER_ROW_GROUP_MAX_ROWS;
 import static com.facebook.presto.iceberg.IcebergSessionProperties.TARGET_MAX_FILE_SIZE;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.nativeIcebergQueryRunnerBuilder;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -147,6 +148,25 @@ public class TestPrestoNativeIcebergWriterSessionProperties
                                 format("Page %s of %s has %s bytes, closed before the target", i, file, page.getUncompressedSize()));
                     }
                 }
+            }
+        }
+    }
+
+    @Test
+    public void testNativeParquetWriterRowGroupMaxRows()
+    {
+        writeTable("test_default_row_group_rows", getSession(), UNSORTED);
+        // The default cap of about 1M rows and the 128MB block size both exceed what one file holds here.
+        for (String file : getDataFiles("test_default_row_group_rows")) {
+            assertEquals(getRowGroups(file).size(), 1, format("Expected one row group in %s", file));
+        }
+
+        writeTable("test_parquet_writer_row_group_max_rows", withIcebergProperty(NATIVE_PARQUET_WRITER_ROW_GROUP_MAX_ROWS, "100000"), UNSORTED);
+        for (String file : getDataFiles("test_parquet_writer_row_group_max_rows")) {
+            List<BlockMetaData> rowGroups = getRowGroups(file);
+            assertTrue(rowGroups.size() > 1, format("Expected more than one row group in %s", file));
+            for (BlockMetaData rowGroup : rowGroups) {
+                assertTrue(rowGroup.getRowCount() <= 100_000, format("Row group of %s rows in %s exceeds the cap", rowGroup.getRowCount(), file));
             }
         }
     }

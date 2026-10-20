@@ -628,6 +628,15 @@ Session properties set behavior changes for queries executed within the given se
        partition is then written by one writer. The default value is ``false``.
      - Yes
      - Yes
+   * - .. _iceberg-sess-native-parquet-writer-row-group-max-rows:
+
+       ``iceberg.native_parquet_writer_row_group_max_rows``
+     - Maximum number of rows in a Parquet row group. A row group closes at this many rows or at
+       ``iceberg.parquet_writer_block_size``, whichever comes first, so raise it to reach a large
+       block size with narrow rows. Overrides the Presto C++ worker catalog property
+       ``iceberg.parquet.writer.row-group-max-rows``. The default value is ``1048576``.
+     - No
+     - Yes
    * - .. _iceberg-sess-target-split-size-bytes:
 
        ``iceberg.target_split_size_bytes``
