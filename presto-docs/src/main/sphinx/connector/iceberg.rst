@@ -639,6 +639,16 @@ Session properties set behavior changes for queries executed within the given se
        ``iceberg.parquet.writer.row-group-max-rows``. The default value is ``1048576``.
      - No
      - Yes
+   * - .. _iceberg-sess-native-parquet-writer-page-max-rows:
+
+       ``iceberg.native_parquet_writer_page_max_rows``
+     - Maximum number of rows in a Parquet data page. A page closes at this many rows or at
+       ``iceberg.parquet_writer_page_size``, whichever comes first. Pages of repeated columns
+       close at a row boundary, so they can hold a row more. Overrides the Presto C++ worker
+       catalog property ``iceberg.parquet.writer.page-max-rows``. By default pages close by size
+       only.
+     - No
+     - Yes
    * - .. _iceberg-sess-target-split-size-bytes:
 
        ``iceberg.target_split_size_bytes``

@@ -39,6 +39,7 @@ import java.util.List;
 import static com.facebook.presto.SystemSessionProperties.SCALE_WRITERS;
 import static com.facebook.presto.SystemSessionProperties.TASK_WRITER_COUNT;
 import static com.facebook.presto.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
+import static com.facebook.presto.iceberg.IcebergSessionProperties.NATIVE_PARQUET_WRITER_PAGE_MAX_ROWS;
 import static com.facebook.presto.iceberg.IcebergSessionProperties.NATIVE_PARQUET_WRITER_ROW_GROUP_MAX_ROWS;
 import static com.facebook.presto.iceberg.IcebergSessionProperties.TARGET_MAX_FILE_SIZE;
 import static com.facebook.presto.nativeworker.PrestoNativeQueryRunnerUtils.nativeIcebergQueryRunnerBuilder;
@@ -182,6 +183,41 @@ public class TestPrestoNativeIcebergWriterSessionProperties
                 assertTrue(rowGroup.getRowCount() <= 100_000, format("Row group of %s rows in %s exceeds the cap", rowGroup.getRowCount(), file));
             }
         }
+    }
+
+    @Test
+    public void testNativeParquetWriterPageMaxRows()
+    {
+        writeTable("test_default_page_max_rows", getSession(), UNSORTED);
+        // By default pages close by size only, and 1MB of payload digests is far more than 20,000 rows.
+        long largestDefaultPage = getDataFiles("test_default_page_max_rows").stream()
+                .flatMap(file -> getPayloadPages(file).stream())
+                .flatMap(List::stream)
+                .mapToLong(DataPage::getValueCount)
+                .max()
+                .orElseThrow();
+        assertTrue(largestDefaultPage > 20_000, format("Default page of %s rows is too small for this test", largestDefaultPage));
+
+        writeTable("test_parquet_writer_page_max_rows", withIcebergProperty(NATIVE_PARQUET_WRITER_PAGE_MAX_ROWS, "20000"), UNSORTED);
+        int checkedPages = 0;
+        for (String file : getDataFiles("test_parquet_writer_page_max_rows")) {
+            for (List<DataPage> pages : getPayloadPages(file)) {
+                for (int i = 0; i < pages.size(); i++) {
+                    DataPage page = pages.get(i);
+                    assertTrue(page.getValueCount() <= 20_000, format("Page %s of %s has %s rows, exceeding the cap", i, file, page.getValueCount()));
+                    // The last page of a column chunk holds what is left, and the page that the fallback from
+                    // dictionary to plain encoding closes holds what was written before it. Every other page
+                    // closes at the cap.
+                    boolean last = i == pages.size() - 1;
+                    boolean closedByFallback = !last && isDictionaryEncoded(page) && !isDictionaryEncoded(pages.get(i + 1));
+                    if (!last && !closedByFallback) {
+                        assertEquals(page.getValueCount(), 20_000, format("Page %s of %s closed before the cap", i, file));
+                        checkedPages++;
+                    }
+                }
+            }
+        }
+        assertTrue(checkedPages > 0, "No page was checked against the cap");
     }
 
     @Test
