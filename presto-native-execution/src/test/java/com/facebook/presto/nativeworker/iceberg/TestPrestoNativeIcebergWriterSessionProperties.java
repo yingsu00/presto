@@ -36,6 +36,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;
 
+import static com.facebook.presto.SystemSessionProperties.SCALE_WRITERS;
+import static com.facebook.presto.SystemSessionProperties.TASK_WRITER_COUNT;
 import static com.facebook.presto.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
 import static com.facebook.presto.iceberg.IcebergSessionProperties.NATIVE_PARQUET_WRITER_ROW_GROUP_MAX_ROWS;
 import static com.facebook.presto.iceberg.IcebergSessionProperties.TARGET_MAX_FILE_SIZE;
@@ -63,6 +65,17 @@ public class TestPrestoNativeIcebergWriterSessionProperties
     private static final String SOURCE_QUERY = "SELECT x * 1000 + y AS id, " +
             "to_hex(md5(to_utf8(CAST(x * 1000 + y AS VARCHAR)))) AS payload " +
             "FROM UNNEST(sequence(0, 499)) t(x) CROSS JOIN UNNEST(sequence(0, 999)) u(y)";
+    // About 430MB once written without compression, enough for row groups above the 128MB default.
+    private static final String LARGE_SOURCE_QUERY = "SELECT x * 1000 + y AS id, " +
+            "concat(to_hex(md5(to_utf8(CAST(x * 1000 + y AS VARCHAR)))), to_hex(md5(to_utf8(CAST(x AS VARCHAR))))) AS payload " +
+            "FROM UNNEST(sequence(0, 5999)) t(x) CROSS JOIN UNNEST(sequence(0, 999)) u(y)";
+    private static final long LARGE_ROW_COUNT = 6_000_000;
+    // Above both the 128MB default block size and the default cap of 1,048,576 rows per row group.
+    private static final long LARGE_TARGET_BYTES = 160L << 20;
+    private static final String LARGE_TARGET = "160MB";
+    private static final long DEFAULT_ROW_GROUP_MAX_ROWS = 1L << 20;
+    // Above the 1MB default page size.
+    private static final long LARGE_PAGE_TARGET_BYTES = 4L << 20;
     private static final String UNSORTED = "";
     // Sorting by the digest reorders every row, so the sorted output differs from the input order.
     private static final String SORTED = "WITH (sorted_by = ARRAY['payload'])";
@@ -169,6 +182,97 @@ public class TestPrestoNativeIcebergWriterSessionProperties
                 assertTrue(rowGroup.getRowCount() <= 100_000, format("Row group of %s rows in %s exceeds the cap", rowGroup.getRowCount(), file));
             }
         }
+    }
+
+    @Test
+    public void testDefaultRowGroupMaxRowsCapsLargeBlockSize()
+    {
+        // Narrow rows reach the default cap of 1,048,576 rows well before a 160MB block size.
+        Session session = Session.builder(largeWriteSession())
+                .setCatalogSessionProperty(ICEBERG_CATALOG, PARQUET_WRITER_BLOCK_SIZE, LARGE_TARGET)
+                .build();
+        writeLargeTable("test_large_block_size_default_max_rows", session, UNSORTED);
+        List<BlockMetaData> rowGroups = getDataFiles("test_large_block_size_default_max_rows").stream()
+                .flatMap(file -> getRowGroups(file).stream())
+                .collect(toImmutableList());
+        assertTrue(rowGroups.stream().allMatch(rowGroup -> rowGroup.getRowCount() <= DEFAULT_ROW_GROUP_MAX_ROWS), format("Row groups exceed the default cap: %s", rowGroups));
+        assertTrue(rowGroups.stream().anyMatch(rowGroup -> rowGroup.getRowCount() == DEFAULT_ROW_GROUP_MAX_ROWS), format("No row group reached the default cap: %s", rowGroups));
+    }
+
+    @Test
+    public void testLargeBlockSizeAndPageSize()
+    {
+        assertLargeRowGroupsAndPagesFollowTargets("test_large_block_and_page_size", UNSORTED);
+    }
+
+    @Test
+    public void testLargeBlockSizeAndPageSizeOnSortedTable()
+    {
+        assertLargeRowGroupsAndPagesFollowTargets("test_sorted_large_block_and_page_size", SORTED);
+    }
+
+    /// Writes 'table' with block size, file size and row cap set for one row group per file, as when each file
+    /// should hold a single large row group, and checks the row group and page sizes.
+    private void assertLargeRowGroupsAndPagesFollowTargets(String table, String tableProperties)
+    {
+        Session session = Session.builder(largeWriteSession())
+                .setCatalogSessionProperty(ICEBERG_CATALOG, PARQUET_WRITER_BLOCK_SIZE, LARGE_TARGET)
+                .setCatalogSessionProperty(ICEBERG_CATALOG, TARGET_MAX_FILE_SIZE, LARGE_TARGET)
+                .setCatalogSessionProperty(ICEBERG_CATALOG, NATIVE_PARQUET_WRITER_ROW_GROUP_MAX_ROWS, "1000000000")
+                .setCatalogSessionProperty(ICEBERG_CATALOG, PARQUET_WRITER_PAGE_SIZE, "4MB")
+                .build();
+        writeLargeTable(table, session, tableProperties);
+
+        List<String> files = getDataFiles(table);
+        assertTrue(files.size() > 1, format("Expected more than one file, got %s", files));
+        long smallRowGroups = 0;
+        for (String file : files) {
+            // A row group that the file size closes ends the file, so no small row group follows it.
+            List<BlockMetaData> rowGroups = getRowGroups(file);
+            assertEquals(rowGroups.size(), 1, format("Expected one row group in %s: %s", file, rowGroups));
+            BlockMetaData rowGroup = rowGroups.get(0);
+            assertTrue(rowGroup.getTotalByteSize() <= LARGE_TARGET_BYTES * 3 / 2, format("Row group of %s bytes in %s overshoots the target", rowGroup.getTotalByteSize(), file));
+            // Only the last file holds what is left.
+            if (rowGroup.getTotalByteSize() < LARGE_TARGET_BYTES * 4 / 5) {
+                smallRowGroups++;
+            }
+            else {
+                assertTrue(rowGroup.getRowCount() > DEFAULT_ROW_GROUP_MAX_ROWS, format("Row group of %s rows in %s is within the default cap", rowGroup.getRowCount(), file));
+            }
+            for (List<DataPage> pages : getPayloadPages(file)) {
+                for (int i = 0; i < pages.size(); i++) {
+                    DataPage page = pages.get(i);
+                    assertTrue(page.getUncompressedSize() <= LARGE_PAGE_TARGET_BYTES * 2,
+                            format("Page %s of %s has %s bytes, overshooting the target", i, file, page.getUncompressedSize()));
+                    // The pages before the dictionary falls back to plain encoding hold dictionary indices.
+                    if (i < pages.size() - 1 && !isDictionaryEncoded(page)) {
+                        assertTrue(page.getUncompressedSize() >= LARGE_PAGE_TARGET_BYTES * 4 / 5,
+                                format("Page %s of %s has %s bytes, closed before the target", i, file, page.getUncompressedSize()));
+                    }
+                }
+            }
+        }
+        assertTrue(smallRowGroups <= 1, format("%s files are well below the target: %s", smallRowGroups, files));
+        if (tableProperties.equals(SORTED)) {
+            files.forEach(TestPrestoNativeIcebergWriterSessionProperties::assertSortedByPayload);
+        }
+    }
+
+    private Session largeWriteSession()
+    {
+        // One writer, so that every file but the last is full. Without compression the decompressed sizes are
+        // what the writer compares against the targets.
+        return Session.builder(getSession())
+                .setSystemProperty(TASK_WRITER_COUNT, "1")
+                .setSystemProperty(SCALE_WRITERS, "false")
+                .setCatalogSessionProperty(ICEBERG_CATALOG, COMPRESSION_CODEC, "NONE")
+                .build();
+    }
+
+    private void writeLargeTable(String table, Session session, String tableProperties)
+    {
+        assertUpdate(format("DROP TABLE IF EXISTS %s", table));
+        assertUpdate(session, format("CREATE TABLE %s %s AS %s", table, tableProperties, LARGE_SOURCE_QUERY), LARGE_ROW_COUNT);
     }
 
     private void assertFileSizesFollowTarget(String table, int writerCount)
